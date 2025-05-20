@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-cyber-bg text-cyber-text;
+  font-family: 'Arial', sans-serif; /* Basic sans-serif, can be changed */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar for a more cyberpunk feel */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #05081E; /* cyber-bg-darker */
+}
+::-webkit-scrollbar-thumb {
+  background: #FF00FF; /* cyber-primary */
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #E000E0; /* cyber-hover-primary */
+} 
