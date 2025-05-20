@@ -14,10 +14,10 @@ import (
 type TrackRepository interface {
 	CreateTrack(track *model.Track) (int64, error)
 	GetTrackByID(id int64) (*model.Track, error)
-	GetAllTracks() ([]*model.Track, error)
+	GetAllTracksByUserID(userID int64) ([]*model.Track, error)
 	UpdateTrackHLSPath(trackID int64, hlsPath string, duration float32) error
 	UpdateTrackCoverArtPath(trackID int64, coverPath string) error
-	GetTrackByFilePath(filePath string) (*model.Track, error)
+	GetTrackByUserIDAndFilePath(userID int64, filePath string) (*model.Track, error)
 }
 
 // mysqlTrackRepository implements TrackRepository for MySQL.
@@ -32,8 +32,8 @@ func NewMySQLTrackRepository() TrackRepository {
 
 // CreateTrack adds a new track to the database.
 func (r *mysqlTrackRepository) CreateTrack(track *model.Track) (int64, error) {
-	query := `INSERT INTO tracks (title, artist, album, file_path, cover_art_path, hls_playlist_path, duration, created_at, updated_at)
-	           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO tracks (title, artist, album, file_path, cover_art_path, hls_playlist_path, duration, user_id, created_at, updated_at)
+	           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	stmt, err := r.DB.Prepare(query)
 	if err != nil {
 		return 0, fmt.Errorf("failed to prepare statement for CreateTrack: %w", err)
@@ -41,7 +41,7 @@ func (r *mysqlTrackRepository) CreateTrack(track *model.Track) (int64, error) {
 	defer stmt.Close()
 
 	now := time.Now()
-	res, err := stmt.Exec(track.Title, track.Artist, track.Album, track.FilePath, track.CoverArtPath, track.HLSPlaylistPath, track.Duration, now, now)
+	res, err := stmt.Exec(track.Title, track.Artist, track.Album, track.FilePath, track.CoverArtPath, track.HLSPlaylistPath, track.Duration, track.UserID, now, now)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute CreateTrack: %w", err)
 	}
@@ -56,12 +56,12 @@ func (r *mysqlTrackRepository) CreateTrack(track *model.Track) (int64, error) {
 
 // GetTrackByID retrieves a track by its ID.
 func (r *mysqlTrackRepository) GetTrackByID(id int64) (*model.Track, error) {
-	query := `SELECT id, title, artist, album, file_path, cover_art_path, hls_playlist_path, duration, created_at, updated_at 
+	query := `SELECT id, user_id, title, artist, album, file_path, cover_art_path, hls_playlist_path, duration, created_at, updated_at 
 	           FROM tracks WHERE id = ?`
 	row := r.DB.QueryRow(query, id)
 
 	track := &model.Track{}
-	err := row.Scan(&track.ID, &track.Title, &track.Artist, &track.Album, &track.FilePath, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.CreatedAt, &track.UpdatedAt)
+	err := row.Scan(&track.ID, &track.UserID, &track.Title, &track.Artist, &track.Album, &track.FilePath, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.CreatedAt, &track.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // Track not found
@@ -72,32 +72,30 @@ func (r *mysqlTrackRepository) GetTrackByID(id int64) (*model.Track, error) {
 }
 
 // GetAllTracks retrieves all tracks from the database.
-func (r *mysqlTrackRepository) GetAllTracks() ([]*model.Track, error) {
-	query := `SELECT id, title, artist, album, file_path, cover_art_path, hls_playlist_path, duration, created_at, updated_at 
-	           FROM tracks ORDER BY created_at DESC`
-	rows, err := r.DB.Query(query)
+func (r *mysqlTrackRepository) GetAllTracksByUserID(userID int64) ([]*model.Track, error) {
+	query := `SELECT id, user_id, title, artist, album, file_path, cover_art_path, hls_playlist_path, duration, created_at, updated_at 
+	           FROM tracks WHERE user_id = ? ORDER BY created_at DESC`
+	rows, err := r.DB.Query(query, userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query all tracks: %w", err)
+		return nil, fmt.Errorf("failed to query tracks for user ID %d: %w", userID, err)
 	}
 	defer rows.Close()
 
-	tracks := make([]*model.Track, 0) // Initialize as an empty slice
+	tracks := make([]*model.Track, 0)
 	for rows.Next() {
 		track := &model.Track{}
-		err := rows.Scan(&track.ID, &track.Title, &track.Artist, &track.Album, &track.FilePath, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.CreatedAt, &track.UpdatedAt)
+		err := rows.Scan(&track.ID, &track.UserID, &track.Title, &track.Artist, &track.Album, &track.FilePath, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.CreatedAt, &track.UpdatedAt)
 		if err != nil {
-			// Return nil for tracks in case of a scan error to indicate partial/failure
-			return nil, fmt.Errorf("failed to scan track in GetAllTracks: %w", err)
+			return nil, fmt.Errorf("failed to scan track in GetAllTracksByUserID: %w", err)
 		}
 		tracks = append(tracks, track)
 	}
 
 	if err = rows.Err(); err != nil {
-		// Return nil for tracks in case of row iteration error
-		return nil, fmt.Errorf("error during rows iteration in GetAllTracks: %w", err)
+		return nil, fmt.Errorf("error during rows iteration in GetAllTracksByUserID: %w", err)
 	}
 
-	return tracks, nil // Will be an empty slice if no rows, or populated slice
+	return tracks, nil
 }
 
 // UpdateTrackHLSPath updates the HLS playlist path and duration for a given track ID.
@@ -135,18 +133,18 @@ func (r *mysqlTrackRepository) UpdateTrackCoverArtPath(trackID int64, coverPath 
 }
 
 // GetTrackByFilePath retrieves a track by its file path to check for existence.
-func (r *mysqlTrackRepository) GetTrackByFilePath(filePath string) (*model.Track, error) {
-	query := `SELECT id, title, artist, album, file_path, cover_art_path, hls_playlist_path, duration, created_at, updated_at 
-	           FROM tracks WHERE file_path = ?`
-	row := r.DB.QueryRow(query, filePath)
+func (r *mysqlTrackRepository) GetTrackByUserIDAndFilePath(userID int64, filePath string) (*model.Track, error) {
+	query := `SELECT id, user_id, title, artist, album, file_path, cover_art_path, hls_playlist_path, duration, created_at, updated_at 
+	           FROM tracks WHERE user_id = ? AND file_path = ?`
+	row := r.DB.QueryRow(query, userID, filePath)
 
 	track := &model.Track{}
-	err := row.Scan(&track.ID, &track.Title, &track.Artist, &track.Album, &track.FilePath, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.CreatedAt, &track.UpdatedAt)
+	err := row.Scan(&track.ID, &track.UserID, &track.Title, &track.Artist, &track.Album, &track.FilePath, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.CreatedAt, &track.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // Track not found
 		}
-		return nil, fmt.Errorf("failed to scan track by file_path %s: %w", filePath, err)
+		return nil, fmt.Errorf("failed to scan track by user ID %d and file_path %s: %w", userID, filePath, err)
 	}
 	return track, nil
 }

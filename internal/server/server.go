@@ -36,9 +36,10 @@ func Start() {
 
 	audioProcessor := audio.NewFFmpegProcessor(cfg.FFmpegPath)
 	trackRepo := repository.NewMySQLTrackRepository()
+	userRepo := repository.NewMySQLUserRepository(db.DB)
 
-	// Pass cfg and trackRepo to handlers
-	apiHandler := NewAPIHandler(trackRepo, audioProcessor, cfg)
+	// Pass cfg, trackRepo, and userRepo to handlers
+	apiHandler := NewAPIHandler(trackRepo, userRepo, audioProcessor, cfg)
 
 	mux := http.NewServeMux()
 

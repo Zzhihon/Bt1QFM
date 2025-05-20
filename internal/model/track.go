@@ -5,6 +5,7 @@ import "time"
 // Track represents an audio track in the music library.
 type Track struct {
 	ID              int64     `json:"id"`
+	UserID          int64     `json:"userId"`
 	Title           string    `json:"title"`
 	Artist          string    `json:"artist"`
 	Album           string    `json:"album"`
