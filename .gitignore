@@ -36,4 +36,7 @@ Thumbs.db
 # Environment configuration files (if you decide to use .env files later)
 .env
 .env.*
-!.env.example 
+!.env.example
+
+# Environment variables
+.env 

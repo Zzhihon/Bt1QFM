@@ -1,13 +1,18 @@
 package audio
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
-// FFmpegProcessor implements the Processor interface using FFmpeg.
+// FFmpegProcessor implements the Processor interface using ffmpeg.
 type FFmpegProcessor struct {
 	ffmpegPath string
 }
@@ -17,45 +22,95 @@ func NewFFmpegProcessor(ffmpegPath string) *FFmpegProcessor {
 	return &FFmpegProcessor{ffmpegPath: ffmpegPath}
 }
 
-// ProcessToHLS transcodes an input audio file to HLS format (AAC).
-func (p *FFmpegProcessor) ProcessToHLS(inputFile, outputPlaylistPath, outputSegmentPatternPath, bitrate string, segmentTime int) error {
-	outputDir := filepath.Dir(outputPlaylistPath) // e.g., "static/streams/cd_track_12"
-	if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
+// ProcessToHLS transcodes an audio file to HLS format (M3U8 playlist and TS segments).
+// It returns the duration of the audio file in seconds.
+func (p *FFmpegProcessor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hlsBaseURL, audioBitrate, hlsSegmentTime string) (float32, error) {
+	log.Printf("Processing %s to HLS. Output M3U8: %s, Segments: %s, Base URL: %s", inputFile, outputM3U8, segmentPattern, hlsBaseURL)
+
+	// Ensure output directory for M3U8 exists
+	outputDir := filepath.Dir(outputM3U8)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return 0, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 
-	// hlsBaseUrl is the URL prefix for segments in the M3U8 file.
-	// It must be an absolute path from the client's perspective, matching the static server route.
-	trackID := filepath.Base(outputDir) // outputDir is 'static/streams/trackID'
-	hlsBaseUrl := fmt.Sprintf("/static/streams/%s/", trackID)
-
-	// outputSegmentPatternPath is already the full disk path for segments,
-	// e.g., "static/streams/cd_track_12/segment_%03d.ts" (relative to project root)
-	// or an absolute disk path if constructed that way.
-	// FFmpeg should use the basename of this for M3U8 when -hls_base_url is also used.
+	// Get audio duration first
+	duration, err := p.GetAudioDuration(inputFile)
+	if err != nil {
+		log.Printf("Warning: could not get audio duration for %s: %v. Proceeding without duration.", inputFile, err)
+		// You might choose to return an error here if duration is critical for your HLS settings
+		// or use a default/placeholder if HLS generation can proceed without it.
+	}
 
 	args := []string{
 		"-i", inputFile,
-		"-y", // Overwrite output files without asking
 		"-c:a", "aac",
-		"-b:a", bitrate,
-		"-hls_time", fmt.Sprintf("%d", segmentTime),
-		"-hls_playlist_type", "vod",
-		"-hls_list_size", "0",
-		"-hls_base_url", hlsBaseUrl, // URL prefix: /static/streams/cd_track_12/
-		"-hls_segment_filename", outputSegmentPatternPath, // Full disk path pattern for writing .ts files
-		outputPlaylistPath, // Full path to M3U8
+		"-b:a", audioBitrate,
+		"-hls_time", hlsSegmentTime,
+		"-hls_playlist_type", "vod", // Video on Demand type, segments won't be removed
+		"-hls_list_size", "0", // Keep all segments in the playlist
+		"-hls_segment_filename", segmentPattern, // e.g., static/streams/track123/segment_%03d.ts
+		"-hls_base_url", hlsBaseURL, // e.g., /static/streams/track123/
+		"-f", "hls",
+		outputM3U8,
 	}
 
 	cmd := exec.Command(p.ffmpegPath, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
-	fmt.Printf("Executing FFmpeg: %s %v\n", p.ffmpegPath, args)
+	log.Printf("Executing FFmpeg command: %s %s", p.ffmpegPath, strings.Join(args, " "))
+
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ffmpeg execution failed: %w", err)
+		return 0, fmt.Errorf("ffmpeg execution failed for %s: %w\nFFmpeg Error: %s", inputFile, err, stderr.String())
 	}
 
-	fmt.Printf("FFmpeg HLS processing complete for %s\n", inputFile)
-	return nil
+	log.Printf("Successfully transcoded %s to HLS: %s", inputFile, outputM3U8)
+	return duration, nil
+}
+
+// ffprobeOutput defines the structure for ffprobe JSON output.
+type ffprobeOutput struct {
+	Format struct {
+		Duration string `json:"duration"`
+	} `json:"format"`
+}
+
+// GetAudioDuration uses ffprobe to get the duration of an audio file in seconds.
+func (p *FFmpegProcessor) GetAudioDuration(inputFile string) (float32, error) {
+	ffprobePath := strings.Replace(p.ffmpegPath, "ffmpeg", "ffprobe", 1)
+
+	args := []string{
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "json",
+		inputFile,
+	}
+
+	cmd := exec.Command(ffprobePath, args...)
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
+	// log.Printf("Executing FFprobe command: %s %s", ffprobePath, strings.Join(args, " "))
+
+	if err := cmd.Run(); err != nil {
+		return 0, fmt.Errorf("ffprobe execution failed for %s: %w\nFFprobe Error: %s", inputFile, err, stderr.String())
+	}
+
+	var probeData ffprobeOutput
+	if err := json.Unmarshal(out.Bytes(), &probeData); err != nil {
+		return 0, fmt.Errorf("failed to unmarshal ffprobe output for %s: %w\nFFprobe Output: %s", inputFile, err, out.String())
+	}
+
+	if probeData.Format.Duration == "" {
+		return 0, fmt.Errorf("duration not found in ffprobe output for %s\nFFprobe Output: %s", inputFile, out.String())
+	}
+
+	duration, err := strconv.ParseFloat(probeData.Format.Duration, 32)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse duration string \"%s\" for %s: %w", probeData.Format.Duration, inputFile, err)
+	}
+
+	return float32(duration), nil
 }

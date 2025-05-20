@@ -1,54 +1,83 @@
 package server
 
 import (
-	"Bt1QFM/internal/audio"
-	"Bt1QFM/internal/config"
-	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"Bt1QFM/internal/audio"
+	"Bt1QFM/internal/config"
+	"Bt1QFM/internal/db"
+	"Bt1QFM/internal/repository"
 )
 
 // Start initializes and starts the HTTP server.
-func Start(port string) error {
-	cfg := config.LoadConfig()
-	ap := audio.NewFFmpegProcessor(cfg.FFmpegPath)
+func Start() {
+	cfg := config.Load()
 
-	InitHandlers(cfg, ap) // Initialize handlers with config and audio processor
-
-	// Ensure static directories exist
-	streamStaticDir := filepath.Join(cfg.StaticDir, "streams")
-	if err := os.MkdirAll(streamStaticDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create stream static directory %s: %w", streamStaticDir, err)
+	// Connect to the database
+	if err := db.ConnectDB(cfg); err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	if err := os.MkdirAll(cfg.WebAppDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create web app directory %s: %w", cfg.WebAppDir, err)
+	defer db.DB.Close()
+
+	// Initialize database schema
+	if err := db.InitDB(); err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
-	// --- Routing ---
+	// Create necessary directories if they don't exist
+	ensureDirExists(cfg.StaticDir)
+	ensureDirExists(cfg.UploadDir)                           // Base upload directory
+	ensureDirExists(cfg.AudioUploadDir)                      // For audio files
+	ensureDirExists(cfg.CoverUploadDir)                      // For cover art
+	ensureDirExists(filepath.Join(cfg.StaticDir, "streams")) // For HLS streams
+
+	audioProcessor := audio.NewFFmpegProcessor(cfg.FFmpegPath)
+	trackRepo := repository.NewMySQLTrackRepository()
+
+	// Pass cfg and trackRepo to handlers
+	apiHandler := NewAPIHandler(trackRepo, audioProcessor, cfg)
+
 	mux := http.NewServeMux()
 
-	// API endpoint to get the M3U8 playlist (triggers transcoding if needed)
-	mux.HandleFunc("/stream/", streamHandler) // Note the trailing slash for path prefixes
+	// API Endpoints
+	mux.HandleFunc("/api/tracks", apiHandler.GetTracksHandler)   // GET /api/tracks
+	mux.HandleFunc("/api/upload", apiHandler.UploadTrackHandler) // POST /api/upload
+	mux.HandleFunc("/stream/", apiHandler.StreamHandler)         // GET /stream/{trackID}/playlist.m3u8
 
-	// Static file server for HLS segments (.ts files)
-	// These are served from /static/streams/{track_id}/segment_xxx.ts
-	// The request path will be /static/streams/cd_track_12/segment_000.ts
-	segmentFileServer := http.FileServer(http.Dir(cfg.StaticDir))
-	mux.Handle("/static/", http.StripPrefix("/static/", segmentFileServer))
+	// Static file serving for HLS segments and cover art
+	// This will serve files from ./static (e.g., /static/streams/... and /static/covers/...)
+	staticFileServer := http.FileServer(http.Dir(cfg.StaticDir))
+	mux.Handle("/static/", http.StripPrefix("/static/", staticFileServer))
 
-	// Static file server for the web UI
+	// Static file serving for uploaded original audio and covers (if needed for direct access, usually not for audio)
+	uploadsFileServer := http.FileServer(http.Dir(cfg.UploadDir))
+	mux.Handle("/uploads/", http.StripPrefix("/uploads/", uploadsFileServer))
+
+	// Frontend UI serving
 	uiFileServer := http.FileServer(http.Dir(cfg.WebAppDir))
 	mux.Handle("/", uiFileServer)
 
-	fmt.Printf("Bt1QFM Server listening on http://localhost%s\n", port)
-	fmt.Printf("Serving HLS segments from: ./%s/streams\n", cfg.StaticDir)
-	fmt.Printf("Serving Web UI from: ./%s\n", cfg.WebAppDir)
-	fmt.Printf("Try playing: http://localhost%s/stream/cd_track_12/playlist.m3u8 (in VLC or a HLS player)\n", port)
-	fmt.Printf("Access UI at: http://localhost%s/\n", port)
+	log.Println("Server starting on :8080...")
+	log.Println("Access the UI at http://localhost:8080/")
+	log.Println("Upload tracks via POST to http://localhost:8080/api/upload")
+	log.Println("List tracks via GET from http://localhost:8080/api/tracks")
+	log.Println("Stream tracks via GET from http://localhost:8080/stream/{track_id}/playlist.m3u8")
 
-	if err := http.ListenAndServe(port, mux); err != nil {
-		return fmt.Errorf("ListenAndServe error: %w", err)
+	if err := http.ListenAndServe(":8080", mux); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
 	}
-	return nil
+}
+
+func ensureDirExists(path string) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		log.Printf("Creating directory: %s", path)
+		if err := os.MkdirAll(path, 0755); err != nil {
+			log.Fatalf("Failed to create directory %s: %v", path, err)
+		}
+	} else if err != nil {
+		log.Fatalf("Failed to check directory %s: %v", path, err)
+	}
 }

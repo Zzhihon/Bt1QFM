@@ -3,23 +3,86 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bt1QFM - Minimal Radio</title>
-    <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 90vh; background-color: #282c34; color: white; margin: 0; }
-        h1 { margin-bottom: 20px; }
-        video { border: 2px solid #61dafb; max-width: 90%; width: 640px; background-color: black; }
-        .controls { margin-top: 20px; }
-        button { padding: 10px 15px; font-size: 16px; cursor: pointer; background-color: #61dafb; border: none; color: #282c34; border-radius: 5px; margin: 5px; }
-        button:hover { background-color: #52c5e7; }
-        p { font-size: 14px; color: #aaa; }
-    </style>
+    <title>1QFM - Music Library</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body { font-family: sans-serif; }
+        /* Basic scrollbar styling for track list */
+        #trackListContainer::-webkit-scrollbar {
+            width: 8px;
+        }
+        #trackListContainer::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        #trackListContainer::-webkit-scrollbar-thumb {
+            background: #888;
+        }
+        #trackListContainer::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
 </head>
-<body>
-    <h1>Bt1QFM Radio</h1>
-    <video id="radioPlayer" controls autoplay></video>
-    <div class="controls">
-        <p>Now Playing: CD Track 12 (WAV to AAC HLS)</p>
+<body class="bg-gray-900 text-white">
+    <div class="container mx-auto p-4">
+        <header class="mb-8 text-center">
+            <h1 class="text-4xl font-bold text-purple-400">1QFM - Your Personal Radio</h1>
+        </header>
+
+        <div class="flex flex-col lg:flex-row gap-8">
+            <!-- Music Library Column -->
+            <div class="lg:w-3/5">
+                <h2 class="text-2xl font-semibold mb-4 text-purple-300">Music Library</h2>
+                <div id="trackListContainer" class="bg-gray-800 p-4 rounded-lg shadow-xl max-h-[60vh] overflow-y-auto">
+                    <div id="trackList" class="space-y-3">
+                        <!-- Tracks will be dynamically inserted here -->
+                        <p class="text-gray-400">Loading library...</p> 
+                    </div>
+                </div>
+            </div>
+
+            <!-- Player and Now Playing Column -->
+            <div class="lg:w-2/5">
+                <h2 class="text-2xl font-semibold mb-4 text-purple-300">Now Playing</h2>
+                <div class="bg-gray-800 p-4 rounded-lg shadow-xl">
+                    <div id="nowPlayingCover" class="w-full h-64 bg-gray-700 rounded mb-4 flex items-center justify-center">
+                        <svg class="w-16 h-16 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path></svg>
+                    </div>
+                    <div id="nowPlayingTitle" class="text-xl font-semibold truncate">Select a song</div>
+                    <div id="nowPlayingArtistAlbum" class="text-sm text-gray-400 truncate">---</div>
+                    <video id="audioPlayer" controls class="w-full mt-4 rounded"></video>
+                </div>
+
+                <!-- Upload Section (Basic) -->
+                <div class="mt-8">
+                     <h3 class="text-xl font-semibold mb-3 text-purple-300">Upload New Track</h3>
+                     <form id="uploadForm" class="bg-gray-800 p-4 rounded-lg shadow-xl space-y-4">
+                        <div>
+                            <label for="title" class="block text-sm font-medium text-gray-300">Title:</label>
+                            <input type="text" id="title" name="title" required class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="artist" class="block text-sm font-medium text-gray-300">Artist:</label>
+                            <input type="text" id="artist" name="artist" class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="album" class="block text-sm font-medium text-gray-300">Album:</label>
+                            <input type="text" id="album" name="album" class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="trackFile" class="block text-sm font-medium text-gray-300">Track File (WAV):</label>
+                            <input type="file" id="trackFile" name="trackFile" accept=".wav" required class="mt-1 block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-700">
+                        </div>
+                        <div>
+                            <label for="coverFile" class="block text-sm font-medium text-gray-300">Cover Art (JPG, PNG):</label>
+                            <input type="file" id="coverFile" name="coverFile" accept="image/jpeg,image/png" class="mt-1 block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-700">
+                        </div>
+                        <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Upload Track</button>
+                        <div id="uploadStatus" class="mt-2 text-sm"></div>
+                     </form>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="player.js"></script>
