@@ -1,0 +1,33 @@
+# .air.toml - Air configuration file
+
+# Working directory
+root = "."
+# Temporary directory for the built binary
+tmp_dir = "tmp"
+
+[build]
+# Command to build your Go application
+# Explicitly use go.exe and output .exe file
+cmd = "go build -o ./tmp/1qfm_server.exe ."
+# The path to the binary that Air will run
+# full_bin is preferred on Windows to be explicit about the .exe
+full_bin = "tmp\\1qfm_server.exe"
+
+# Files and directories to watch for changes
+include_ext = ["go", "html", "css", "js"] # Add other extensions if needed
+# Directories to exclude from watching
+exclude_dir = ["tmp", "static", "vendor"] # Exclude tmp, generated static files, and vendor
+
+# Delay in milliseconds before rebuilding after a file change
+delay = 1000 # 1 second
+
+# Stop the running binary on error
+stop_on_error = true
+
+[log]
+# Show time in logs
+time = true
+
+[misc]
+# Delete tmp directory on exit
+clean_on_exit = true 

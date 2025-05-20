@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bt1QFM - Minimal Radio</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 90vh; background-color: #282c34; color: white; margin: 0; }
+        h1 { margin-bottom: 20px; }
+        video { border: 2px solid #61dafb; max-width: 90%; width: 640px; background-color: black; }
+        .controls { margin-top: 20px; }
+        button { padding: 10px 15px; font-size: 16px; cursor: pointer; background-color: #61dafb; border: none; color: #282c34; border-radius: 5px; margin: 5px; }
+        button:hover { background-color: #52c5e7; }
+        p { font-size: 14px; color: #aaa; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+    <h1>Bt1QFM Radio</h1>
+    <video id="radioPlayer" controls autoplay></video>
+    <div class="controls">
+        <p>Now Playing: CD Track 12 (WAV to AAC HLS)</p>
+    </div>
+
+    <script src="player.js"></script>
+</body>
+</html> 

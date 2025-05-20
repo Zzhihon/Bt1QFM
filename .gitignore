@@ -1,0 +1,39 @@
+# Go build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test output
+*.out
+
+# Project-specific build or run outputs
+1qfm_server
+
+# Temporary directory created by air
+tmp/
+
+# Static HLS streams directory
+# You might want to commit this if you pre-generate streams and want them in the repo.
+# If streams are always generated on-the-fly or are too large, ignore it.
+# For now, let's assume they are generated and can be large, so we ignore.
+static/streams/
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE specific files
+.idea/
+.vscode/
+*.swp
+*~
+
+# Log files
+*.log
+
+# Environment configuration files (if you decide to use .env files later)
+.env
+.env.*
+!.env.example 
