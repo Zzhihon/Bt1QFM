@@ -359,7 +359,7 @@ const MusicLibraryView: React.FC = () => {
   };
 
   if (isLoading) {
-    return <div className="min-h-[calc(100vh-150px)] flex items-center justify-center p-4 text-cyber-accent text-xl">Loading music library...</div>;
+    return <div className="min-h-[calc(100vh-150px)] flex items-center justify-center p-4 text-cyber-primary text-xl">Loading music library...</div>;
   }
 
   if (error) {
@@ -382,7 +382,7 @@ const MusicLibraryView: React.FC = () => {
         {currentUser && (
             <button 
                 onClick={() => setShowUploadForm(!showUploadForm)}
-                className="flex items-center bg-cyber-secondary hover:bg-cyber-hover-secondary text-cyber-bg-darker font-semibold py-2 px-4 rounded-lg shadow-md transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 ring-offset-2 ring-offset-cyber-bg ring-cyber-accent"
+                className="flex items-center bg-cyber-secondary hover:bg-cyber-hover-secondary text-cyber-bg-darker font-semibold py-2 px-4 rounded-lg shadow-md transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 ring-offset-2 ring-offset-cyber-bg ring-cyber-primary"
             >
                 <UploadCloud className="mr-2 h-5 w-5" /> {showUploadForm ? 'Cancel Upload' : 'Upload Track'}
             </button>
@@ -390,20 +390,20 @@ const MusicLibraryView: React.FC = () => {
       </div>
 
       {showUploadForm && currentUser && (
-        <div className="mb-8 p-6 bg-cyber-bg-darker rounded-lg shadow-xl border border-cyber-accent">
-          <h3 className="text-2xl font-semibold mb-4 text-cyber-accent">Upload New Track</h3>
+        <div className="mb-8 p-6 bg-cyber-bg-darker rounded-lg shadow-xl border border-cyber-primary">
+          <h3 className="text-2xl font-semibold mb-4 text-cyber-primary">Upload New Track</h3>
           <form onSubmit={handleUploadSubmit} className="space-y-4">
              <div>
                 <label htmlFor="title" className="block text-sm font-medium text-cyber-secondary">Title:</label>
-                <input type="text" id="title" value={title} onChange={(e) => setTitle(e.target.value)} required className="mt-1 block w-full bg-cyber-bg border border-cyber-border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-cyber-accent focus:border-cyber-accent sm:text-sm placeholder-cyber-muted" />
+                <input type="text" id="title" value={title} onChange={(e) => setTitle(e.target.value)} required className="mt-1 block w-full bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-cyber-primary focus:border-cyber-primary sm:text-sm placeholder-cyber-muted" />
             </div>
             <div>
                 <label htmlFor="artist" className="block text-sm font-medium text-cyber-secondary">Artist:</label>
-                <input type="text" id="artist" value={artist} onChange={(e) => setArtist(e.target.value)} className="mt-1 block w-full bg-cyber-bg border border-cyber-border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-cyber-accent focus:border-cyber-accent sm:text-sm placeholder-cyber-muted" />
+                <input type="text" id="artist" value={artist} onChange={(e) => setArtist(e.target.value)} className="mt-1 block w-full bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-cyber-primary focus:border-cyber-primary sm:text-sm placeholder-cyber-muted" />
             </div>
             <div>
                 <label htmlFor="album" className="block text-sm font-medium text-cyber-secondary">Album:</label>
-                <input type="text" id="album" value={album} onChange={(e) => setAlbum(e.target.value)} className="mt-1 block w-full bg-cyber-bg border border-cyber-border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-cyber-accent focus:border-cyber-accent sm:text-sm placeholder-cyber-muted" />
+                <input type="text" id="album" value={album} onChange={(e) => setAlbum(e.target.value)} className="mt-1 block w-full bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-cyber-primary focus:border-cyber-primary sm:text-sm placeholder-cyber-muted" />
             </div>
             <div>
                 <label htmlFor="trackFile" className="block text-sm font-medium text-cyber-secondary">Track File (WAV/MP3):</label>
@@ -442,17 +442,17 @@ const MusicLibraryView: React.FC = () => {
                     onClick={() => isPlayable && playTrack(track)}
                     className={`p-4 rounded-lg shadow-lg flex items-center gap-4 transition-all duration-200 ease-in-out border-2 
                                 ${isPlayable ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'} 
-                                ${isSelected ? 'bg-cyber-primary border-cyber-accent shadow-cyber-primary/50' : 'bg-cyber-bg-darker border-cyber-border hover:bg-cyber-border hover:border-cyber-primary'}`}
+                                ${isSelected ? 'bg-cyber-primary border-cyber-primary shadow-cyber-primary/50' : 'bg-cyber-bg-darker border-cyber-secondary hover:bg-cyber-secondary hover:border-cyber-primary'}`}
                 >
                     {track.coverArtPath ? (
                         <img 
                           src={track.coverArtPath} 
                           alt={track.title} 
-                          className="w-14 h-14 rounded object-cover border-2 border-cyber-accent flex-shrink-0"
+                          className="w-14 h-14 rounded object-cover border-2 border-cyber-primary flex-shrink-0"
                           onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} // Show fallback on error
                         />
                     ) : null} 
-                    <div className={`w-14 h-14 rounded bg-cyber-bg flex items-center justify-center text-cyber-primary border-2 border-cyber-accent flex-shrink-0 ${track.coverArtPath ? 'hidden' : ''}`}>
+                    <div className={`w-14 h-14 rounded bg-cyber-bg flex items-center justify-center text-cyber-primary border-2 border-cyber-primary flex-shrink-0 ${track.coverArtPath ? 'hidden' : ''}`}>
                         <Music2 className="w-8 h-8" />
                     </div>
                     
@@ -474,7 +474,7 @@ const MusicLibraryView: React.FC = () => {
                     {isPlayable && isSelected && (
                       <button 
                         onClick={(e) => { e.stopPropagation(); togglePlayPause(); }} 
-                        className={`ml-auto p-2 rounded-full flex-shrink-0 transition-colors duration-200 ${isCurrentlyPlaying ? 'bg-cyber-accent text-cyber-bg-darker hover:bg-yellow-300' : 'bg-cyber-secondary text-cyber-bg-darker hover:bg-cyber-hover-secondary'}`}
+                        className={`ml-auto p-2 rounded-full flex-shrink-0 transition-colors duration-200 ${isCurrentlyPlaying ? 'bg-cyber-primary text-cyber-bg-darker hover:bg-cyber-hover-primary' : 'bg-cyber-secondary text-cyber-bg-darker hover:bg-cyber-hover-secondary'}`}
                         title={isCurrentlyPlaying ? 'Pause' : 'Play'}
                       >
                         {isCurrentlyPlaying ? <PauseCircle size={28} /> : <PlayCircle size={28} />}
@@ -489,8 +489,8 @@ const MusicLibraryView: React.FC = () => {
         {/* Player and Now Playing Column - ENHANCED */} 
         <div className="lg:w-2/5 lg:sticky lg:top-8 self-start">
             <h2 className="text-3xl font-semibold mb-6 text-cyber-secondary border-b-2 border-cyber-secondary pb-2">Now Playing</h2>
-            <div className="bg-cyber-bg-darker p-6 rounded-lg shadow-xl border-2 border-cyber-border">
-                <div id="nowPlayingCover" className="w-full h-72 bg-cyber-bg rounded-lg mb-6 flex items-center justify-center overflow-hidden border-2 border-cyber-accent relative">
+            <div className="bg-cyber-bg-darker p-6 rounded-lg shadow-xl border-2 border-cyber-secondary">
+                <div id="nowPlayingCover" className="w-full h-72 bg-cyber-bg rounded-lg mb-6 flex items-center justify-center overflow-hidden border-2 border-cyber-primary relative">
                     {currentTrack && currentTrack.coverArtPath ? (
                         <img 
                           src={currentTrack.coverArtPath} 

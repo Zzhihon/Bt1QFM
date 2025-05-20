@@ -38,11 +38,11 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onNavigate }) => {
 
   return (
     <div className="min-h-[calc(100vh-150px)] flex flex-col items-center justify-center bg-cyber-bg p-4">
-      <div className="w-full max-w-md p-8 space-y-6 bg-cyber-bg-darker shadow-2xl rounded-lg border-2 border-cyber-accent">
+      <div className="w-full max-w-md p-8 space-y-6 bg-cyber-bg-darker shadow-2xl rounded-lg border-2 border-cyber-secondary">
         <h2 className="text-3xl font-bold text-center text-cyber-secondary animate-pulse">Create Account</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="usernameReg" className="block text-sm font-medium text-cyber-accent">
+            <label htmlFor="usernameReg" className="block text-sm font-medium text-cyber-primary">
               Username
             </label>
             <input
@@ -52,11 +52,11 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onNavigate }) => {
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 bg-cyber-bg border border-cyber-border rounded-md shadow-sm placeholder-cyber-muted focus:outline-none focus:ring-2 focus:ring-cyber-secondary focus:border-cyber-secondary"
+              className="mt-1 block w-full px-3 py-2 bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm placeholder-cyber-muted focus:outline-none focus:ring-2 focus:ring-cyber-secondary focus:border-cyber-secondary"
             />
           </div>
           <div>
-            <label htmlFor="emailReg" className="block text-sm font-medium text-cyber-accent">
+            <label htmlFor="emailReg" className="block text-sm font-medium text-cyber-primary">
               Email
             </label>
             <input
@@ -66,11 +66,11 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onNavigate }) => {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 bg-cyber-bg border border-cyber-border rounded-md shadow-sm placeholder-cyber-muted focus:outline-none focus:ring-2 focus:ring-cyber-secondary focus:border-cyber-secondary"
+              className="mt-1 block w-full px-3 py-2 bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm placeholder-cyber-muted focus:outline-none focus:ring-2 focus:ring-cyber-secondary focus:border-cyber-secondary"
             />
           </div>
           <div>
-            <label htmlFor="passwordReg" className="block text-sm font-medium text-cyber-accent">
+            <label htmlFor="passwordReg" className="block text-sm font-medium text-cyber-primary">
               Password
             </label>
             <input
@@ -80,11 +80,11 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onNavigate }) => {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 bg-cyber-bg border border-cyber-border rounded-md shadow-sm placeholder-cyber-muted focus:outline-none focus:ring-2 focus:ring-cyber-secondary focus:border-cyber-secondary"
+              className="mt-1 block w-full px-3 py-2 bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm placeholder-cyber-muted focus:outline-none focus:ring-2 focus:ring-cyber-secondary focus:border-cyber-secondary"
             />
           </div>
           <div>
-            <label htmlFor="phoneReg" className="block text-sm font-medium text-cyber-accent">
+            <label htmlFor="phoneReg" className="block text-sm font-medium text-cyber-primary">
               Phone (Optional)
             </label>
             <input
@@ -93,7 +93,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onNavigate }) => {
               type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 bg-cyber-bg border border-cyber-border rounded-md shadow-sm placeholder-cyber-muted focus:outline-none focus:ring-2 focus:ring-cyber-secondary focus:border-cyber-secondary"
+              className="mt-1 block w-full px-3 py-2 bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm placeholder-cyber-muted focus:outline-none focus:ring-2 focus:ring-cyber-secondary focus:border-cyber-secondary"
             />
           </div>
           {error && <p className="text-sm text-cyber-red text-center">{error}</p>}

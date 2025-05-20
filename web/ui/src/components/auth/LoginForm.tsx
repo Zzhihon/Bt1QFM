@@ -33,7 +33,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onNavigate, onLoginSuccess }) => 
         <h2 className="text-3xl font-bold text-center text-cyber-primary animate-pulse">Login to 1QFM</h2>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="username" className="block text-sm font-medium text-cyber-accent">
+            <label htmlFor="username" className="block text-sm font-medium text-cyber-primary">
               Username or Email
             </label>
             <input
@@ -44,11 +44,11 @@ const LoginForm: React.FC<LoginFormProps> = ({ onNavigate, onLoginSuccess }) => 
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 bg-cyber-bg border border-cyber-border rounded-md shadow-sm placeholder-cyber-muted focus:outline-none focus:ring-2 focus:ring-cyber-primary focus:border-cyber-primary"
+              className="mt-1 block w-full px-3 py-2 bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm placeholder-cyber-muted focus:outline-none focus:ring-2 focus:ring-cyber-primary focus:border-cyber-primary"
             />
           </div>
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-cyber-accent">
+            <label htmlFor="password" className="block text-sm font-medium text-cyber-primary">
               Password
             </label>
             <input
@@ -59,7 +59,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onNavigate, onLoginSuccess }) => 
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 bg-cyber-bg border border-cyber-border rounded-md shadow-sm placeholder-cyber-muted focus:outline-none focus:ring-2 focus:ring-cyber-primary focus:border-cyber-primary"
+              className="mt-1 block w-full px-3 py-2 bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm placeholder-cyber-muted focus:outline-none focus:ring-2 focus:ring-cyber-primary focus:border-cyber-primary"
             />
           </div>
           {error && <p className="text-sm text-cyber-red text-center">{error}</p>}
@@ -73,7 +73,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onNavigate, onLoginSuccess }) => 
         </form>
         <p className="mt-4 text-center text-sm text-cyber-muted">
           Don't have an account?{' '}
-          <button onClick={() => onNavigate('register')} className="font-medium text-cyber-secondary hover:text-cyber-accent underline">
+          <button onClick={() => onNavigate('register')} className="font-medium text-cyber-secondary hover:text-cyber-primary underline">
             Register here
           </button>
         </p>
