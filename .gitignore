@@ -40,3 +40,22 @@ Thumbs.db
 
 # Environment variables
 .env 
+
+# music files
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.aac
+
+# images
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+
+
+# segments
+*segment_*.ts
