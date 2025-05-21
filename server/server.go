@@ -55,6 +55,10 @@ func Start() {
 	mux.HandleFunc("/api/upload", apiHandler.UploadTrackHandler) // POST /api/upload
 	mux.HandleFunc("/stream/", apiHandler.StreamHandler)         // GET /stream/{trackID}/playlist.m3u8
 
+	// 新增播放列表相关的API端点
+	mux.HandleFunc("/api/playlist", apiHandler.PlaylistHandler)                   // 处理基本的播放列表操作
+	mux.HandleFunc("/api/playlist/all", apiHandler.AddAllTracksToPlaylistHandler) // 添加所有歌曲到播放列表
+
 	// Static file serving for HLS segments and cover art
 	// This will serve files from ./static (e.g., /static/streams/... and /static/covers/...)
 	staticFileServer := http.FileServer(http.Dir(cfg.StaticDir))
@@ -73,6 +77,7 @@ func Start() {
 	log.Println("Upload tracks via POST to http://localhost:8080/api/upload")
 	log.Println("List tracks via GET from http://localhost:8080/api/tracks")
 	log.Println("Stream tracks via GET from http://localhost:8080/stream/{track_id}/playlist.m3u8")
+	log.Println("Manage playlist via /api/playlist endpoints")
 
 	if err := http.ListenAndServe(":8080", mux); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

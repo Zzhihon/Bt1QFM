@@ -10,7 +10,7 @@ export default {
         'cyber-bg': '#0A0F37', // Deep indigo/navy
         'cyber-bg-darker': '#05081E', // Even darker for contrasts
         'cyber-text': '#F0F0F0', // Off-white/light gray for general text
-        'cyber-primary': '#FF00FF', // Neon Pink/Magenta
+        'cyber-primary': '#FF00D6', // Neon Pink/Magenta (slightly changed)
         'cyber-secondary': '#372963', // Neon Cyan/Aqua
         'cyber-green': '#00FF00', // Neon Lime Green
         'cyber-red': '#FF0000', // Bright Red

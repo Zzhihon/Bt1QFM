@@ -4,11 +4,14 @@ import LoginForm from './components/auth/LoginForm';
 import RegisterForm from './components/auth/RegisterForm';
 import ProfileView from './components/views/ProfileView';
 import MusicLibraryView from './components/views/MusicLibraryView';
+import Player from './components/player/Player';
 import { useAuth } from './contexts/AuthContext';
+import { usePlayer } from './contexts/PlayerContext';
 import { Loader2 } from 'lucide-react';
 
 function App() {
   const { currentUser, isLoading: authIsLoading } = useAuth();
+  const { playerState } = usePlayer();
   const [currentView, setCurrentView] = useState('login'); // Default view
 
   useEffect(() => {
@@ -63,6 +66,8 @@ function App() {
       <main className="flex-grow container mx-auto px-0 py-0 md:px-4 md:py-4">
         {viewToRender}
       </main>
+      {/* 只有当用户登录时显示播放器 */}
+      {currentUser && <Player />}
       {/* Footer could go here */}
       {/* <footer className='bg-cyber-bg-darker text-center p-4 border-t-2 border-cyber-secondary text-cyber-muted'>
         1QFM &copy; 2024 - Your Cyber Radio Experience

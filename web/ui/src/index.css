@@ -24,3 +24,34 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #E000E0; /* cyber-hover-primary */
 } 
+
+/* 自定义颜色覆盖 */
+.border-cyber-primary {
+  --tw-border-opacity: 1;
+  border-color: rgb(67 50 115) !important; /* 稍微调整了颜色 */
+}
+
+/* 音量播放条颜色覆盖 */
+.accent-cyber-primary {
+  accent-color: #372963;
+}
+
+/* Toast 动画 */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeOut {
+  0% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.toast-item {
+  animation: fadeIn 0.3s ease-in-out, fadeOut 3s ease-in-out forwards;
+}
