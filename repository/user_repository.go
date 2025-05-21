@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"Bt1QFM/internal/model"
+	"Bt1QFM/model"
 )
 
 // UserRepository defines the interface for user data operations.

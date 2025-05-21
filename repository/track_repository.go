@@ -6,8 +6,8 @@ import (
 	"log"
 	"time"
 
-	"Bt1QFM/internal/db"
-	"Bt1QFM/internal/model"
+	"Bt1QFM/db"
+	"Bt1QFM/model"
 )
 
 // TrackRepository defines the interface for track data operations.

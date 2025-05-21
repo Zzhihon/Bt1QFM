@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"Bt1QFM/internal/server"
+	"Bt1QFM/server"
 
 	"github.com/spf13/cobra"
 )

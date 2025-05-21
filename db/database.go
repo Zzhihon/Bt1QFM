@@ -6,8 +6,8 @@ import (
 	"log"
 	"strings" // Added for checking alter table error
 
-	"Bt1QFM/internal/auth" // Added for password hashing
-	"Bt1QFM/internal/config"
+	"Bt1QFM/core/auth" // Added for password hashing
+	"Bt1QFM/config"
 
 	_ "github.com/go-sql-driver/mysql" // MySQL driver
 )

@@ -6,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"Bt1QFM/internal/audio"
-	"Bt1QFM/internal/config"
-	"Bt1QFM/internal/db"
-	"Bt1QFM/internal/repository"
+	"Bt1QFM/core/audio"
+	"Bt1QFM/config"
+	"Bt1QFM/db"
+	"Bt1QFM/repository"
 )
 
 // Start initializes and starts the HTTP server.

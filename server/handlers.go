@@ -13,10 +13,10 @@ import (
 	"strconv"
 	"strings"
 
-	"Bt1QFM/internal/audio"
-	"Bt1QFM/internal/config"
-	"Bt1QFM/internal/model"
-	"Bt1QFM/internal/repository"
+	"Bt1QFM/core/audio"
+	"Bt1QFM/config"
+	"Bt1QFM/model"
+	"Bt1QFM/repository"
 )
 
 // APIHandler holds dependencies for HTTP handlers.
