@@ -30,6 +30,8 @@ func ConnectDB(cfg *config.Config) error {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
+
+
 	log.Println("Successfully connected to the database.")
 	return nil
 }

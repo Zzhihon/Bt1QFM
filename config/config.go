@@ -31,6 +31,15 @@ type Config struct {
 	RedisPort     string
 	RedisPassword string
 	RedisDB       int
+	// MinIO配置
+	MinioEndpoint  string
+	MinioAccessKey string
+	MinioSecretKey string
+	MinioBucket    string
+	MinioRegion    string
+	MinioUseSSL    bool
+	MinioAPI       string // S3 API 版本
+	MinioPath      string // 路径样式
 }
 
 // getEnv gets an environment variable or returns a default value.
@@ -83,5 +92,14 @@ func Load() *Config {
 		RedisPort:     getEnv("REDIS_PORT", "6379"),
 		RedisPassword: getEnv("REDIS_PASSWORD", ""), // 默认无密码
 		RedisDB:       getEnvInt("REDIS_DB", 0),     // 默认使用0号数据库
+		// MinIO配置
+		MinioEndpoint:  getEnv("MINIO_ENDPOINT", ""),
+		MinioAccessKey: getEnv("MINIO_ACCESS_KEY", ""),
+		MinioSecretKey: getEnv("MINIO_SECRET_KEY", ""),
+		MinioBucket:    getEnv("MINIO_BUCKET", ""),
+		MinioRegion:    getEnv("MINIO_REGION", ""),
+		MinioUseSSL:    getEnv("MINIO_USE_SSL", "true") == "true",
+		MinioAPI:       getEnv("MINIO_API", "s3v4"),
+		MinioPath:      getEnv("MINIO_PATH", "auto"),
 	}
 }
