@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"Bt1QFM/core/audio"
 	"Bt1QFM/config"
+	"Bt1QFM/core/audio"
 	"Bt1QFM/db"
 	"Bt1QFM/repository"
 )
@@ -21,6 +21,13 @@ func Start() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.DB.Close()
+
+	// Connect to Redis
+	if err := db.ConnectRedis(cfg); err != nil {
+		log.Fatalf("Failed to connect to Redis: %v", err)
+	}
+	defer db.CloseRedis()
+	log.Println("Successfully connected to Redis")
 
 	// Initialize database schema
 	if err := db.InitDB(); err != nil {

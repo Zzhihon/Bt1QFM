@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -25,12 +26,27 @@ type Config struct {
 	UploadDir      string // Base directory for all uploads
 	AudioUploadDir string // Subdirectory for audio files: UploadDir/audio
 	CoverUploadDir string // Subdirectory for cover art: UploadDir/covers
+	// Redis配置
+	RedisHost     string
+	RedisPort     string
+	RedisPassword string
+	RedisDB       int
 }
 
 // getEnv gets an environment variable or returns a default value.
 func getEnv(key, fallback string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
+	}
+	return fallback
+}
+
+// getEnvInt gets an environment variable as int or returns a default value.
+func getEnvInt(key string, fallback int) int {
+	if value, exists := os.LookupEnv(key); exists {
+		if intVal, err := strconv.Atoi(value); err == nil {
+			return intVal
+		}
 	}
 	return fallback
 }
@@ -62,5 +78,10 @@ func Load() *Config {
 		UploadDir:      uploadBase,
 		AudioUploadDir: filepath.Join(uploadBase, "audio"),
 		CoverUploadDir: filepath.Join(uploadBase, "covers"),
+		// Redis配置，使用默认值
+		RedisHost:     getEnv("REDIS_HOST", "127.0.0.1"),
+		RedisPort:     getEnv("REDIS_PORT", "6379"),
+		RedisPassword: getEnv("REDIS_PASSWORD", ""), // 默认无密码
+		RedisDB:       getEnvInt("REDIS_DB", 0),     // 默认使用0号数据库
 	}
 }
