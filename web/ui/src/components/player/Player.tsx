@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { 
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Shuffle,
-  Loader2, ListMusic, X, Trash2, Music2
+  Loader2, ListMusic, X, Trash2, Music2, ArrowRight
 } from 'lucide-react';
 import { PlayMode } from '../../types';
 import { usePlayer } from '../../contexts/PlayerContext';
@@ -165,7 +165,13 @@ const Player: React.FC = () => {
         return { icon: <Shuffle className="h-5 w-5" />, text: '随机播放' };
       case PlayMode.SEQUENTIAL:
       default:
-        return { icon: <Repeat className="h-5 w-5 opacity-70" />, text: '顺序播放' };
+        return { 
+          icon: <div className="flex items-center">
+            <ArrowRight className="h-5 w-5" />
+            <ArrowRight className="h-5 w-5 -ml-2" />
+          </div>, 
+          text: '顺序播放' 
+        };
     }
   };
   

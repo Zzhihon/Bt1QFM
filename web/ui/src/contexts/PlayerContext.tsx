@@ -96,21 +96,74 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   };
   
+  // 随机选择一首歌
+  const getRandomTrack = () => {
+    if (playerState.playlist.length === 0) return null;
+    
+    // 获取当前播放歌曲的position
+    const currentPosition = playerState.currentTrack?.position ?? -1;
+    let randomPosition;
+    
+    // 如果播放列表只有一首歌，直接返回
+    if (playerState.playlist.length === 1) {
+      return playerState.playlist[0];
+    }
+    
+    // 随机选择一个不同于当前播放歌曲的位置
+    do {
+      randomPosition = Math.floor(Math.random() * playerState.playlist.length);
+    } while (randomPosition === currentPosition);
+    
+    // 根据position找到对应的歌曲
+    return playerState.playlist.find(track => track.position === randomPosition) || null;
+  };
+  
   // 下一首
   const handleNext = () => {
     if (playerState.playlist.length === 0) return;
     
-    let nextIndex = 0;
+    // 如果是随机播放模式，随机选择一首歌
+    if (playerState.playMode === PlayMode.SHUFFLE) {
+      const randomTrack = getRandomTrack();
+      if (randomTrack) {
+        console.log('Playing random track:', randomTrack);
+        playTrack(randomTrack);
+      }
+      return;
+    }
     
-    if (playerState.currentTrack) {
-      const currentIndex = playerState.playlist.findIndex(item => item.id === playerState.currentTrack?.id);
-      if (currentIndex !== -1) {
-        nextIndex = (currentIndex + 1) % playerState.playlist.length;
+    // 其他播放模式使用原有的逻辑
+    const currentPosition = playerState.currentTrack?.position ?? -1;
+    let nextPosition = 0;
+    
+    if (currentPosition !== -1) {
+      // 如果是顺序播放模式，且当前是最后一首
+      if (playerState.playMode === PlayMode.SEQUENTIAL && currentPosition === playerState.playlist.length - 1) {
+        // 如果当前正在播放，则停止播放
+        if (playerState.isPlaying) {
+          console.log('Reached end of playlist in sequential mode, stopping playback');
+          if (audioRef.current) {
+            audioRef.current.pause();
+            setPlayerState(prev => ({ ...prev, isPlaying: false }));
+          }
+          return;
+        }
+        // 如果当前已停止，且用户点击了下一首，则从头开始播放
+        console.log('Restarting from beginning of playlist in sequential mode');
+        nextPosition = 0;
+      } else {
+        nextPosition = (currentPosition + 1) % playerState.playlist.length;
       }
     }
     
-    if (playerState.playlist[nextIndex]) {
-      playTrack(playerState.playlist[nextIndex]);
+    console.log('Current position:', currentPosition, 'Next position:', nextPosition);
+    
+    const nextTrack = playerState.playlist.find(track => track.position === nextPosition);
+    if (nextTrack) {
+      console.log('Playing next track:', nextTrack);
+      playTrack(nextTrack);
+    } else {
+      console.warn('No track found at position:', nextPosition);
     }
   };
   
@@ -118,17 +171,32 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const handlePrevious = () => {
     if (playerState.playlist.length === 0) return;
     
-    let prevIndex = playerState.playlist.length - 1;
-    
-    if (playerState.currentTrack) {
-      const currentIndex = playerState.playlist.findIndex(item => item.id === playerState.currentTrack?.id);
-      if (currentIndex !== -1) {
-        prevIndex = (currentIndex - 1 + playerState.playlist.length) % playerState.playlist.length;
+    // 如果是随机播放模式，随机选择一首歌
+    if (playerState.playMode === PlayMode.SHUFFLE) {
+      const randomTrack = getRandomTrack();
+      if (randomTrack) {
+        console.log('Playing random track:', randomTrack);
+        playTrack(randomTrack);
       }
+      return;
     }
     
-    if (playerState.playlist[prevIndex]) {
-      playTrack(playerState.playlist[prevIndex]);
+    // 其他播放模式使用原有的逻辑
+    const currentPosition = playerState.currentTrack?.position ?? -1;
+    let prevPosition = playerState.playlist.length - 1;
+    
+    if (currentPosition !== -1) {
+      prevPosition = (currentPosition - 1 + playerState.playlist.length) % playerState.playlist.length;
+    }
+    
+    console.log('Current position:', currentPosition, 'Previous position:', prevPosition);
+    
+    const prevTrack = playerState.playlist.find(track => track.position === prevPosition);
+    if (prevTrack) {
+      console.log('Playing previous track:', prevTrack);
+      playTrack(prevTrack);
+    } else {
+      console.warn('No track found at position:', prevPosition);
     }
   };
   
@@ -280,11 +348,12 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   };
   
-  // 随机打乱播放列表
-  const shufflePlaylist = async () => {
+  // 随机播放下一首
+  const handleShuffleNext = async () => {
     if (!currentUser) return;
     
     try {
+      // 调用后端API打乱播放列表
       const response = await fetch('/api/playlist?shuffle=true', {
         method: 'PUT',
         headers: {
@@ -296,7 +365,24 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         throw new Error(`HTTP error ${response.status}`);
       }
       
+      // 重新获取打乱后的播放列表
       await fetchPlaylist();
+      
+      // 获取当前播放歌曲的position
+      const currentPosition = playerState.currentTrack?.position ?? -1;
+      let nextPosition = 0;
+      
+      if (currentPosition !== -1) {
+        // 计算下一个position
+        nextPosition = (currentPosition + 1) % playerState.playlist.length;
+      }
+      
+      // 根据position找到下一首歌
+      const nextTrack = playerState.playlist.find(track => track.position === nextPosition);
+      if (nextTrack) {
+        console.log('Playing next track after shuffle:', nextTrack);
+        playTrack(nextTrack);
+      }
     } catch (error) {
       console.error('Failed to shuffle playlist:', error);
     }
@@ -359,7 +445,16 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           handleNext();
           break;
         case PlayMode.REPEAT_ALL:
-          handleNext();
+          const currentPosition = playerState.currentTrack?.position ?? -1;
+          if (currentPosition === playerState.playlist.length - 1) {
+            // 如果是最后一首，从头开始播放
+            const firstTrack = playerState.playlist.find(track => track.position === 0);
+            if (firstTrack) {
+              playTrack(firstTrack);
+            }
+          } else {
+            handleNext();
+          }
           break;
         case PlayMode.REPEAT_ONE:
           audio.currentTime = 0;
@@ -367,17 +462,10 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           break;
         case PlayMode.SHUFFLE:
           // 随机播放下一首
-          if (playerState.playlist.length > 1) {
-            const currentIndex = playerState.playlist.findIndex(item => item.id === playerState.currentTrack?.id);
-            let randomIndex;
-            
-            do {
-              randomIndex = Math.floor(Math.random() * playerState.playlist.length);
-            } while (randomIndex === currentIndex && playerState.playlist.length > 1);
-            
-            playTrack(playerState.playlist[randomIndex]);
-          } else {
-            handleNext();
+          const randomTrack = getRandomTrack();
+          if (randomTrack) {
+            console.log('Playing random track after ended:', randomTrack);
+            playTrack(randomTrack);
           }
           break;
       }
@@ -422,7 +510,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         addToPlaylist,
         removeFromPlaylist,
         clearPlaylist,
-        shufflePlaylist,
+        shufflePlaylist: handleShuffleNext,
         fetchPlaylist,
         addAllTracksToPlaylist,
         audioRef,

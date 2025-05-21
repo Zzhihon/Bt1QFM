@@ -8,6 +8,8 @@ export interface User {
 
 export interface Track {
   id: string | number; // Assuming backend might use string like "cd_track_12" or a numeric ID
+  trackId?: string | number; // Additional ID field that might be used by the backend
+  position: number; // Position in the playlist (0-based index)
   title: string;
   artist?: string;
   album?: string;
