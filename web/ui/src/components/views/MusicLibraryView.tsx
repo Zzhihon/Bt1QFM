@@ -5,6 +5,18 @@ import { Track } from '../../types';
 import { AlertTriangle, UploadCloud, Music2, PlayCircle, PauseCircle, ListMusic, Plus, Loader2 } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 
+// 声明全局jsmediatags类型
+declare global {
+  interface Window {
+    jsmediatags: {
+      read: (file: File, callbacks: {
+        onSuccess: (tag: any) => void;
+        onError: (error: Error) => void;
+      }) => void;
+    };
+  }
+}
+
 const MusicLibraryView: React.FC = () => {
   const { currentUser, authToken } = useAuth();
   const { 
@@ -53,6 +65,92 @@ const MusicLibraryView: React.FC = () => {
     // 检查文件扩展名
     const extension = file.name.toLowerCase().split('.').pop();
     return extension === 'mp3' || extension === 'wav' || extension === 'flac' || extension === 'aac' || extension === 'm4a';
+  };
+
+  // 修改元数据提取函数
+  const extractMetadata = async (file: File): Promise<{
+    title?: string;
+    artist?: string;
+    album?: string;
+    year?: string;
+    genre?: string;
+    picture?: {
+      format: string;
+      data: Uint8Array;
+    };
+  }> => {
+    return new Promise((resolve, reject) => {
+      if (!window.jsmediatags) {
+        // 如果jsmediatags未加载，动态加载它
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js';
+        script.onload = () => {
+          readMetadata();
+        };
+        script.onerror = () => {
+          reject(new Error('Failed to load jsmediatags'));
+        };
+        document.head.appendChild(script);
+      } else {
+        readMetadata();
+      }
+
+      function readMetadata() {
+        window.jsmediatags.read(file, {
+          onSuccess: (tag) => {
+            const metadata = {
+              title: tag.tags.title,
+              artist: tag.tags.artist,
+              album: tag.tags.album,
+              year: tag.tags.year,
+              genre: tag.tags.genre,
+              picture: tag.tags.picture
+            };
+            resolve(metadata);
+          },
+          onError: (error) => {
+            console.error('Error reading metadata:', error);
+            reject(error);
+          }
+        });
+      }
+    });
+  };
+
+  // 处理文件选择时的元数据提取
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, isBatch: boolean = false) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    try {
+      if (isBatch) {
+        // 批量上传时，使用第一个文件的元数据
+        const metadata = await extractMetadata(files[0]);
+        const form = e.target.form;
+        if (form) {
+          const artistInput = form.querySelector('input[name="artist"]') as HTMLInputElement;
+          const albumInput = form.querySelector('input[name="album"]') as HTMLInputElement;
+          if (artistInput) artistInput.value = metadata.artist || '';
+          if (albumInput) albumInput.value = metadata.album || '';
+        }
+      } else {
+        // 单文件上传时，提取元数据并填充表单
+        const metadata = await extractMetadata(files[0]);
+        setTitle(metadata.title || '');
+        setArtist(metadata.artist || '');
+        setAlbum(metadata.album || '');
+        
+        // 如果有封面图片，转换为File对象
+        if (metadata.picture) {
+          const blob = new Blob([metadata.picture.data], { type: metadata.picture.format });
+          const coverFile = new File([blob], 'cover.jpg', { type: metadata.picture.format });
+          setCoverFile(coverFile);
+        }
+      }
+    } catch (error) {
+      console.error('Error extracting metadata:', error);
+      addToast('无法读取音频文件元数据', 'warning');
+    }
   };
 
   useEffect(() => {
@@ -346,6 +444,7 @@ const MusicLibraryView: React.FC = () => {
                   accept="audio/*,.flac,.wav,.mp3,.aac,.m4a"
                   multiple
                   required
+                  onChange={(e) => handleFileSelect(e, true)}
                   className="w-full bg-cyber-bg border border-cyber-primary text-cyber-text p-2 rounded"
                 />
               </div>
@@ -380,27 +479,64 @@ const MusicLibraryView: React.FC = () => {
 
       {showUploadForm && currentUser && (
         <div className="mb-8 p-6 bg-cyber-bg-darker rounded-lg shadow-xl border border-cyber-primary">
-          <h3 className="text-2xl font-semibold mb-4 text-cyber-primary">Upload New Track</h3>
+          <h3 className="text-2xl font-semibold mb-4 text-cyber-primary">上传新歌曲</h3>
           <form onSubmit={handleUploadSubmit} className="space-y-4">
-             <div>
-                <label htmlFor="title" className="block text-sm font-medium text-cyber-secondary">Title:</label>
-                <input type="text" id="title" value={title} onChange={(e) => setTitle(e.target.value)} required className="mt-1 block w-full bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-cyber-primary focus:border-cyber-primary sm:text-sm placeholder-cyber-muted" />
+            <div>
+              <label htmlFor="title" className="block text-sm font-medium text-cyber-secondary">标题:</label>
+              <input 
+                type="text" 
+                id="title" 
+                value={title} 
+                onChange={(e) => setTitle(e.target.value)} 
+                required 
+                className="mt-1 block w-full bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-cyber-primary focus:border-cyber-primary sm:text-sm placeholder-cyber-muted" 
+              />
             </div>
             <div>
-                <label htmlFor="artist" className="block text-sm font-medium text-cyber-secondary">Artist:</label>
-                <input type="text" id="artist" value={artist} onChange={(e) => setArtist(e.target.value)} className="mt-1 block w-full bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-cyber-primary focus:border-cyber-primary sm:text-sm placeholder-cyber-muted" />
+              <label htmlFor="artist" className="block text-sm font-medium text-cyber-secondary">艺术家:</label>
+              <input 
+                type="text" 
+                id="artist" 
+                value={artist} 
+                onChange={(e) => setArtist(e.target.value)} 
+                className="mt-1 block w-full bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-cyber-primary focus:border-cyber-primary sm:text-sm placeholder-cyber-muted" 
+              />
             </div>
             <div>
-                <label htmlFor="album" className="block text-sm font-medium text-cyber-secondary">Album:</label>
-                <input type="text" id="album" value={album} onChange={(e) => setAlbum(e.target.value)} className="mt-1 block w-full bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-cyber-primary focus:border-cyber-primary sm:text-sm placeholder-cyber-muted" />
+              <label htmlFor="album" className="block text-sm font-medium text-cyber-secondary">专辑:</label>
+              <input 
+                type="text" 
+                id="album" 
+                value={album} 
+                onChange={(e) => setAlbum(e.target.value)} 
+                className="mt-1 block w-full bg-cyber-bg border border-cyber-secondary rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-cyber-primary focus:border-cyber-primary sm:text-sm placeholder-cyber-muted" 
+              />
             </div>
             <div>
-                <label htmlFor="trackFile" className="block text-sm font-medium text-cyber-secondary">Track File (WAV/MP3):</label>
-                <input type="file" id="trackFile" onChange={(e) => setTrackFile(e.target.files ? e.target.files[0] : null)} accept=".wav,.mp3,.flac,.aac,.m4a" required className="mt-1 block w-full text-sm text-cyber-text file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyber-primary file:text-cyber-bg-darker hover:file:bg-cyber-hover-primary file:cursor-pointer" />
+              <label htmlFor="trackFile" className="block text-sm font-medium text-cyber-secondary">音频文件 (WAV/MP3/FLAC/AAC/M4A):</label>
+              <input 
+                type="file" 
+                id="trackFile" 
+                onChange={(e) => {
+                  if (e.target.files) {
+                    setTrackFile(e.target.files[0]);
+                    handleFileSelect(e);
+                  }
+                }} 
+                accept=".wav,.mp3,.flac,.aac,.m4a" 
+                required 
+                className="mt-1 block w-full text-sm text-cyber-text file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyber-primary file:text-cyber-bg-darker hover:file:bg-cyber-hover-primary file:cursor-pointer" 
+              />
             </div>
             <div>
-                <label htmlFor="coverFile" className="block text-sm font-medium text-cyber-secondary">Cover Art (JPG, PNG):</label>
-                <input type="file" id="coverFile" onChange={(e) => setCoverFile(e.target.files ? e.target.files[0] : null)} accept="image/jpeg,image/png" className="mt-1 block w-full text-sm text-cyber-text file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyber-primary file:text-cyber-bg-darker hover:file:bg-cyber-hover-primary file:cursor-pointer" />
+              <label htmlFor="coverFile" className="block text-sm font-medium text-cyber-secondary">封面图片 (JPG, PNG):</label>
+              <input 
+                type="file" 
+                id="coverFile" 
+                onChange={(e) => setCoverFile(e.target.files ? e.target.files[0] : null)} 
+                accept="image/jpeg,image/png" 
+                className="mt-1 block w-full text-sm text-cyber-text file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyber-primary file:text-cyber-bg-darker hover:file:bg-cyber-hover-primary file:cursor-pointer" 
+              />
             </div>
             <button type="submit" disabled={uploading} className="w-full flex items-center justify-center bg-cyber-green hover:bg-green-400 text-cyber-bg-darker font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 transition-colors duration-300">
               {uploading && <Loader2 className="animate-spin mr-2 h-5 w-5" />} 
