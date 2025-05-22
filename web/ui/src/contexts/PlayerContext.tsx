@@ -37,16 +37,58 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
   
-  const [playerState, setPlayerState] = useState<PlayerState>({
-    currentTrack: null,
-    isPlaying: false,
-    volume: 0.7,
-    muted: false,
-    currentTime: 0,
-    duration: 0,
-    playMode: PlayMode.SEQUENTIAL,
-    playlist: []
+  const [playerState, setPlayerState] = useState<PlayerState>(() => {
+    // 从localStorage中恢复播放器状态
+    const savedState = localStorage.getItem('playerState');
+    if (savedState) {
+      try {
+        const parsedState = JSON.parse(savedState);
+        return {
+          ...parsedState,
+          // 不再重置播放状态和当前时间
+        };
+      } catch (error) {
+        console.error('Error parsing saved player state:', error);
+      }
+    }
+    return {
+      currentTrack: null,
+      isPlaying: false,
+      volume: 0.7,
+      muted: false,
+      currentTime: 0,
+      duration: 0,
+      playMode: PlayMode.SEQUENTIAL,
+      playlist: []
+    };
   });
+  
+  // 监听playerState变化，保存到localStorage
+  useEffect(() => {
+    localStorage.setItem('playerState', JSON.stringify(playerState));
+  }, [playerState]);
+  
+  // 添加音频恢复逻辑
+  useEffect(() => {
+    if (playerState.currentTrack && playerState.isPlaying) {
+      // 设置音频源
+      if (playerState.currentTrack.hlsPlaylistUrl) {
+        audioRef.current.src = playerState.currentTrack.hlsPlaylistUrl;
+      }
+      // 设置音量
+      audioRef.current.volume = playerState.volume;
+      // 设置静音状态
+      audioRef.current.muted = playerState.muted;
+      // 设置播放位置
+      audioRef.current.currentTime = playerState.currentTime;
+      // 开始播放
+      audioRef.current.play().catch(error => {
+        console.error('Error resuming playback:', error);
+        // 如果自动播放失败，更新状态
+        setPlayerState(prev => ({ ...prev, isPlaying: false }));
+      });
+    }
+  }, []); // 仅在组件挂载时执行一次
   
   // 获取播放列表
   const fetchPlaylist = async () => {

@@ -11,6 +11,7 @@ import (
 	"Bt1QFM/core/audio"
 	"Bt1QFM/db"
 	"Bt1QFM/repository"
+	"Bt1QFM/storage"
 
 	"github.com/gorilla/mux"
 )
@@ -28,9 +29,9 @@ func Start() {
 	}
 
 	// 初始化 MinIO 客户端
-	// if err := storage.InitMinio(); err != nil {
-	// 	log.Fatalf("Failed to initialize MinIO: %v", err)
-	// }
+	if err := storage.InitMinio(); err != nil {
+		log.Fatalf("Failed to initialize MinIO: %v", err)
+	}
 
 	// Connect to the database
 	if err := db.ConnectDB(cfg); err != nil {
