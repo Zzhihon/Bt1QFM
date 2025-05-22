@@ -434,7 +434,7 @@ const MusicLibraryView: React.FC = () => {
               key={track.id} 
               className={`bg-cyber-bg-darker border-2 ${isSelected ? 'border-cyber-primary' : 'border-cyber-secondary'} rounded-lg overflow-hidden shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.02]`}
             >
-              <div className="h-48 bg-cyber-bg relative overflow-hidden">
+              <div className="aspect-square bg-cyber-bg relative overflow-hidden">
                 {track.coverArtPath ? (
                   <img 
                     src={track.coverArtPath} 
