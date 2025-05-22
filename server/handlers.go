@@ -196,13 +196,24 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 			// File already saved, DB entry exists. This is a partial failure.
 			return
 		}
+		// 更新数据库中的封面路径
+		if err := h.trackRepo.UpdateTrackCoverArtPath(trackID, coverArtServePath); err != nil {
+			log.Printf("Warning: Failed to update cover art path in database: %v", err)
+		}
 	}
-	// No need for a separate DB update for paths if they were set correctly in CreateTrack.
-	// If cover art was processed *after* initial CreateTrack, we might need an update for coverArtPath if it wasn't set.
-	// However, our current logic sets coverArtServePath in newTrack before CreateTrack.
 
-	log.Printf("Successfully uploaded and saved track: ID %d, UserID: %d, Title '%s', File '%s', Cover '%s'",
-		trackID, newTrack.UserID, newTrack.Title, newTrack.FilePath, newTrack.CoverArtPath)
+	// 生成 HLS 播放列表路径
+	safeStreamDirName := generateSafeFilenamePrefix(title, artist, album)
+	hlsStreamDir := filepath.Join("streams", safeStreamDirName)
+	m3u8ServePath := "/static/" + strings.ReplaceAll(filepath.ToSlash(hlsStreamDir), "\\", "/") + "/playlist.m3u8"
+
+	// 更新数据库中的 HLS 播放列表路径
+	if err := h.trackRepo.UpdateTrackHLSPath(trackID, m3u8ServePath, 0); err != nil {
+		log.Printf("Warning: Failed to update HLS path in database: %v", err)
+	}
+
+	log.Printf("Successfully uploaded and saved track: ID %d, UserID: %d, Title '%s', File '%s', Cover '%s', HLS '%s'",
+		trackID, newTrack.UserID, newTrack.Title, newTrack.FilePath, newTrack.CoverArtPath, m3u8ServePath)
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{"message": "Track uploaded successfully", "trackId": trackID, "track": newTrack})
@@ -394,6 +405,13 @@ func (h *APIHandler) PlaylistHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetPlaylistHandler 返回用户的播放列表
 func (h *APIHandler) GetPlaylistHandler(ctx context.Context, userID int64, w http.ResponseWriter, r *http.Request) {
+	// 检查用户ID是否有效
+	if userID <= 0 {
+		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	// 获取播放列表
 	playlist, err := db.GetPlaylist(ctx, userID)
 	if err != nil {
 		log.Printf("Error getting playlist for user %d: %v", userID, err)
@@ -401,9 +419,21 @@ func (h *APIHandler) GetPlaylistHandler(ctx context.Context, userID int64, w htt
 		return
 	}
 
+	// 如果播放列表为空，返回空数组
+	if playlist == nil {
+		playlist = []db.PlaylistItem{}
+	}
+
 	// 为每首歌添加完整信息（如果需要）
 	enhancedPlaylist := make([]map[string]interface{}, 0, len(playlist))
 	for _, item := range playlist {
+		// 检查trackRepo是否初始化
+		if h.trackRepo == nil {
+			log.Printf("Error: trackRepo is not initialized")
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		track, err := h.trackRepo.GetTrackByID(item.TrackID)
 		if err != nil {
 			log.Printf("Warning: Failed to get full info for track %d: %v", item.TrackID, err)
@@ -415,7 +445,7 @@ func (h *APIHandler) GetPlaylistHandler(ctx context.Context, userID int64, w htt
 				"album":    item.Album,
 				"position": item.Position,
 			})
-		} else {
+		} else if track != nil {
 			// 使用从数据库获取的完整信息
 			enhancedPlaylist = append(enhancedPlaylist, map[string]interface{}{
 				"trackId":        track.ID,
@@ -425,6 +455,15 @@ func (h *APIHandler) GetPlaylistHandler(ctx context.Context, userID int64, w htt
 				"position":       item.Position,
 				"coverArtPath":   track.CoverArtPath,
 				"hlsPlaylistUrl": fmt.Sprintf("/stream/%d/playlist.m3u8", track.ID),
+			})
+		} else {
+			// 如果track为nil，使用播放列表项的基本信息
+			enhancedPlaylist = append(enhancedPlaylist, map[string]interface{}{
+				"trackId":  item.TrackID,
+				"title":    item.Title,
+				"artist":   item.Artist,
+				"album":    item.Album,
+				"position": item.Position,
 			})
 		}
 	}
@@ -636,9 +675,10 @@ func (h *APIHandler) UploadCoverHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 解析multipart表单
-	err := r.ParseMultipartForm(10 << 20) // 10MB
-	if err != nil {
+	// 设置最大文件大小为10MB
+	const maxFileSize = 10 << 20 // 10MB
+	if err := r.ParseMultipartForm(maxFileSize); err != nil {
+		log.Printf("[UploadCover] 解析表单失败: %v", err)
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
@@ -646,7 +686,9 @@ func (h *APIHandler) UploadCoverHandler(w http.ResponseWriter, r *http.Request) 
 	// 获取表单数据
 	artist := r.FormValue("artist")
 	album := r.FormValue("album")
+	targetDir := r.FormValue("targetDir") // 获取目标目录
 	if artist == "" || album == "" {
+		log.Printf("[UploadCover] 缺少必要字段 - Artist: %v, Album: %v", artist != "", album != "")
 		http.Error(w, "Artist and album are required", http.StatusBadRequest)
 		return
 	}
@@ -654,29 +696,76 @@ func (h *APIHandler) UploadCoverHandler(w http.ResponseWriter, r *http.Request) 
 	// 获取封面文件
 	file, header, err := r.FormFile("cover")
 	if err != nil {
+		log.Printf("[UploadCover] 获取文件失败: %v", err)
 		http.Error(w, "Failed to get cover file", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
+	// 检查文件大小
+	if header.Size > maxFileSize {
+		log.Printf("[UploadCover] 文件过大: %d bytes", header.Size)
+		http.Error(w, "File too large", http.StatusBadRequest)
+		return
+	}
+
+	// 检查文件类型
+	contentType := header.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "image/") {
+		log.Printf("[UploadCover] 不支持的文件类型: %s", contentType)
+		http.Error(w, "Only image files are allowed", http.StatusBadRequest)
+		return
+	}
+
 	// 生成安全的文件名
 	safeFilename := generateSafeFilenamePrefix(artist, album, "")
 	coverFilename := fmt.Sprintf("%s_cover%s", safeFilename, filepath.Ext(header.Filename))
-	coverPath := filepath.Join(h.cfg.CoverUploadDir, coverFilename)
+
+	// 根据目标目录决定存储路径
+	var coverPath string
+	var servePath string
+	if targetDir == "static/cover" {
+		// 存储到static/cover目录
+		coverPath = filepath.Join(h.cfg.StaticDir, "covers", coverFilename)
+		servePath = "/static/covers/" + coverFilename
+	} else {
+		// 默认存储到上传目录
+		coverPath = filepath.Join(h.cfg.CoverUploadDir, coverFilename)
+		servePath = "/uploads/covers/" + coverFilename
+	}
+
+	// 确保目录存在
+	if err := os.MkdirAll(filepath.Dir(coverPath), 0755); err != nil {
+		log.Printf("[UploadCover] 创建目录失败: %v", err)
+		http.Error(w, "Failed to create directory", http.StatusInternalServerError)
+		return
+	}
 
 	// 保存封面文件
-	err = saveUploadedFile(file, coverPath)
+	destFile, err := os.Create(coverPath)
 	if err != nil {
+		log.Printf("[UploadCover] 创建文件失败: %v", err)
+		http.Error(w, "Failed to save cover file", http.StatusInternalServerError)
+		return
+	}
+	defer destFile.Close()
+
+	// 使用缓冲复制文件
+	buf := make([]byte, 32*1024) // 32KB buffer
+	_, err = io.CopyBuffer(destFile, file, buf)
+	if err != nil {
+		log.Printf("[UploadCover] 保存文件失败: %v", err)
 		http.Error(w, "Failed to save cover file", http.StatusInternalServerError)
 		return
 	}
 
 	// 返回封面路径
 	response := map[string]string{
-		"coverPath": "/static/covers/" + coverFilename,
+		"coverPath": servePath,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+	log.Printf("[UploadCover] 成功上传封面 - Artist: %s, Album: %s, Path: %s", artist, album, coverPath)
 }
 
 // LoginRequest represents the login request body
@@ -695,8 +784,10 @@ type RegisterRequest struct {
 
 // LoginHandler handles user login requests
 func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("Received login request")
+	log.Printf("[Login] 收到登录请求 - IP: %s, User-Agent: %s", r.RemoteAddr, r.UserAgent())
+
 	if r.Method != http.MethodPost {
+		log.Printf("[Login] 无效的请求方法: %s", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -707,11 +798,13 @@ func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[Login] 解析请求体失败: %v", err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if req.Username == "" || req.Password == "" {
+		log.Printf("[Login] 缺少必要字段 - Username: %v, Password: %v", req.Username != "", req.Password != "")
 		http.Error(w, "Username/Email and password are required", http.StatusBadRequest)
 		return
 	}
@@ -721,29 +814,39 @@ func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if strings.Contains(req.Username, "@") {
 		// 如果是邮箱格式，使用邮箱查询
+		log.Printf("[Login] 尝试使用邮箱登录: %s", req.Username)
 		user, err = h.userRepo.GetUserByEmail(req.Username)
 	} else {
 		// 否则使用用户名查询
+		log.Printf("[Login] 尝试使用用户名登录: %s", req.Username)
 		user, err = h.userRepo.GetUserByUsername(req.Username)
 	}
 
 	if err != nil {
 		if err == sql.ErrNoRows {
+			log.Printf("[Login] 用户不存在 - Username/Email: %s", req.Username)
 			http.Error(w, "Invalid username/email or password", http.StatusUnauthorized)
 		} else {
-			log.Printf("Error querying user: %v", err)
+			log.Printf("[Login] 查询用户失败 - Username/Email: %s, Error: %v", req.Username, err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
 		return
 	}
 
 	if user == nil {
+		log.Printf("[Login] 用户不存在 - Username/Email: %s", req.Username)
 		http.Error(w, "Invalid username/email or password", http.StatusUnauthorized)
 		return
 	}
 
 	// 验证密码
+	log.Printf("[Login] 开始验证密码 - UserID: %d, Username: %s", user.ID, user.Username)
+	log.Printf("[Login] 密码哈希长度: %d", len(user.PasswordHash))
+
+	// 验证密码
 	if !auth.VerifyPassword(req.Password, user.PasswordHash) {
+		log.Printf("[Login] 密码验证失败 - UserID: %d, Username: %s", user.ID, user.Username)
+		log.Printf("[Login] 密码验证详情 - 输入密码长度: %d, 存储的密码哈希长度: %d", len(req.Password), len(user.PasswordHash))
 		http.Error(w, "Invalid username/email or password", http.StatusUnauthorized)
 		return
 	}
@@ -751,7 +854,7 @@ func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// 生成JWT token
 	token, err := auth.GenerateToken(user.ID, user.Username)
 	if err != nil {
-		log.Printf("Error generating token: %v", err)
+		log.Printf("[Login] 生成Token失败 - UserID: %d, Username: %s, Error: %v", user.ID, user.Username, err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -780,6 +883,8 @@ func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	if user.Preferences.Valid {
 		response.User.Preferences = user.Preferences
 	}
+
+	log.Printf("[Login] 登录成功 - UserID: %d, Username: %s", user.ID, user.Username)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)

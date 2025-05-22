@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
@@ -16,6 +17,14 @@ import (
 // Start initializes and starts the HTTP server.
 func Start() {
 	cfg := config.Load()
+
+	// 设置服务器超时
+	server := &http.Server{
+		Addr:         ":8080",
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
 
 	// 初始化 MinIO 客户端
 	// if err := storage.InitMinio(); err != nil {
@@ -94,6 +103,8 @@ func Start() {
 	uiFileServer := http.FileServer(http.Dir(cfg.WebAppDir))
 	mux.Handle("/", uiFileServer)
 
+	server.Handler = mux
+
 	log.Println("Server starting on :8080...")
 	log.Println("Access the UI at http://localhost:8080/")
 	log.Println("Upload tracks via POST to http://localhost:8080/api/upload")
@@ -102,7 +113,7 @@ func Start() {
 	log.Println("Manage playlist via /api/playlist endpoints")
 	log.Println("Manage albums via /api/albums endpoints")
 
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

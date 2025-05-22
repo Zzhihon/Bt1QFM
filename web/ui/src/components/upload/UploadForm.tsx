@@ -58,6 +58,25 @@ const UploadForm: React.FC<UploadFormProps> = ({ onUploadSuccess, onCancel, isBa
     };
   }> => {
     return new Promise((resolve, reject) => {
+      // 首先尝试从文件名提取基本信息
+      const fileName = file.name;
+      const fileNameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'));
+      const defaultMetadata = {
+        title: fileNameWithoutExt,
+        artist: '',
+        album: '',
+        year: '',
+        genre: '',
+        picture: undefined
+      };
+
+      // 如果文件类型不支持元数据，直接返回文件名作为标题
+      if (!['audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/x-m4a'].includes(file.type)) {
+        console.log('文件类型不支持元数据，使用文件名作为标题');
+        resolve(defaultMetadata);
+        return;
+      }
+
       if (!window.jsmediatags) {
         const script = document.createElement('script');
         script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js';
@@ -65,7 +84,8 @@ const UploadForm: React.FC<UploadFormProps> = ({ onUploadSuccess, onCancel, isBa
           readMetadata();
         };
         script.onerror = () => {
-          reject(new Error('Failed to load jsmediatags'));
+          console.warn('无法加载jsmediatags库，使用文件名作为标题');
+          resolve(defaultMetadata);
         };
         document.head.appendChild(script);
       } else {
@@ -75,19 +95,25 @@ const UploadForm: React.FC<UploadFormProps> = ({ onUploadSuccess, onCancel, isBa
       function readMetadata() {
         window.jsmediatags.read(file, {
           onSuccess: (tag) => {
-            const metadata = {
-              title: tag.tags.title,
-              artist: tag.tags.artist,
-              album: tag.tags.album,
-              year: tag.tags.year,
-              genre: tag.tags.genre,
-              picture: tag.tags.picture
-            };
-            resolve(metadata);
+            try {
+              const metadata = {
+                title: tag.tags.title || defaultMetadata.title,
+                artist: tag.tags.artist || defaultMetadata.artist,
+                album: tag.tags.album || defaultMetadata.album,
+                year: tag.tags.year || defaultMetadata.year,
+                genre: tag.tags.genre || defaultMetadata.genre,
+                picture: tag.tags.picture
+              };
+              console.log('成功读取元数据:', metadata);
+              resolve(metadata);
+            } catch (error) {
+              console.warn('解析元数据时出错，使用默认值:', error);
+              resolve(defaultMetadata);
+            }
           },
           onError: (error) => {
-            console.error('Error reading metadata:', error);
-            reject(error);
+            console.warn('读取元数据失败，使用文件名作为标题:', error);
+            resolve(defaultMetadata);
           }
         });
       }
@@ -100,8 +126,14 @@ const UploadForm: React.FC<UploadFormProps> = ({ onUploadSuccess, onCancel, isBa
     if (!files || files.length === 0) return;
 
     try {
+      const file = files[0];
+      if (!validateFileType(file)) {
+        addToast('不支持的文件类型', 'error');
+        return;
+      }
+
       if (isBatch) {
-        const metadata = await extractMetadata(files[0]);
+        const metadata = await extractMetadata(file);
         const form = e.target.form;
         if (form) {
           const artistInput = form.querySelector('input[name="artist"]') as HTMLInputElement;
@@ -110,20 +142,24 @@ const UploadForm: React.FC<UploadFormProps> = ({ onUploadSuccess, onCancel, isBa
           if (albumInput) albumInput.value = metadata.album || '';
         }
       } else {
-        const metadata = await extractMetadata(files[0]);
+        const metadata = await extractMetadata(file);
         setTitle(metadata.title || '');
         setArtist(metadata.artist || '');
         setAlbum(metadata.album || '');
         
         if (metadata.picture) {
-          const blob = new Blob([metadata.picture.data], { type: metadata.picture.format });
-          const coverFile = new File([blob], 'cover.jpg', { type: metadata.picture.format });
-          setCoverFile(coverFile);
+          try {
+            const blob = new Blob([metadata.picture.data], { type: metadata.picture.format });
+            const coverFile = new File([blob], 'cover.jpg', { type: metadata.picture.format });
+            setCoverFile(coverFile);
+          } catch (error) {
+            console.warn('无法处理封面图片:', error);
+          }
         }
       }
     } catch (error) {
-      console.error('Error extracting metadata:', error);
-      addToast('无法读取音频文件元数据', 'warning');
+      console.error('处理文件时出错:', error);
+      addToast('处理文件时出错，请检查文件格式是否正确', 'warning');
     }
   };
 
@@ -210,52 +246,97 @@ const UploadForm: React.FC<UploadFormProps> = ({ onUploadSuccess, onCancel, isBa
       coverFormData.append('cover', coverFile);
       coverFormData.append('artist', artist);
       coverFormData.append('album', album);
-      coverFormData.append('targetDir', 'static/cover');
+      coverFormData.append('targetDir', 'static/cover'); // 添加目标目录参数
 
-      const coverResponse = await fetch('/api/upload/cover', {
-        method: 'POST',
-        body: coverFormData,
-      });
+      // 添加重试机制
+      let retryCount = 0;
+      const maxRetries = 3;
+      let coverUploadSuccess = false;
+      let coverPath = '';
 
-      if (!coverResponse.ok) {
-        throw new Error('Failed to upload cover');
+      while (retryCount < maxRetries && !coverUploadSuccess) {
+        try {
+          const coverResponse = await fetch('/api/upload/cover', {
+            method: 'POST',
+            body: coverFormData,
+            headers: {
+              ...(authToken && { 'Authorization': `Bearer ${authToken}` })
+            }
+          });
+
+          if (!coverResponse.ok) {
+            const errorData = await coverResponse.json();
+            throw new Error(errorData.error || `封面上传失败: ${coverResponse.status}`);
+          }
+
+          const coverResult = await coverResponse.json();
+          console.log('封面上传成功:', coverResult);
+          coverPath = coverResult.coverPath;
+          coverUploadSuccess = true;
+        } catch (error) {
+          retryCount++;
+          console.warn(`封面上传失败，第${retryCount}次重试:`, error);
+          if (retryCount === maxRetries) {
+            throw new Error('封面上传失败，请稍后重试');
+          }
+          // 等待一段时间后重试
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+        }
       }
 
-      const coverData = await coverResponse.json();
-      const coverPath = coverData.coverPath;
-
-      // 2. 批量上传音频文件
+      // 2. 上传音频文件
       const totalFiles = audioFiles.length;
-      let uploadedCount = 0;
+      let successCount = 0;
+      let failCount = 0;
 
-      for (const audioFile of audioFiles) {
-        const audioFormData = new FormData();
-        audioFormData.append('trackFile', audioFile);
-        audioFormData.append('artist', artist);
-        audioFormData.append('album', album);
-        audioFormData.append('title', audioFile.name.replace(/\.[^/.]+$/, ''));
-        audioFormData.append('coverPath', coverPath);
-
-        const audioResponse = await fetch('/api/upload', {
-          method: 'POST',
-          body: audioFormData,
-        });
-
-        if (!audioResponse.ok) {
-          throw new Error(`Failed to upload ${audioFile.name}`);
+      for (let i = 0; i < totalFiles; i++) {
+        const file = audioFiles[i];
+        const trackFormData = new FormData();
+        trackFormData.append('title', file.name.replace(/\.[^/.]+$/, ''));
+        trackFormData.append('artist', artist);
+        trackFormData.append('album', album);
+        trackFormData.append('trackFile', file);
+        if (coverPath) {
+          trackFormData.append('coverPath', coverPath); // 添加封面路径
         }
 
-        uploadedCount++;
-        setUploadProgress((uploadedCount / totalFiles) * 100);
+        try {
+          const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: trackFormData,
+            headers: {
+              ...(authToken && { 'Authorization': `Bearer ${authToken}` })
+            }
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `上传失败: ${response.status}`);
+          }
+
+          const result = await response.json();
+          console.log(`文件 ${i + 1}/${totalFiles} 上传成功:`, result);
+          successCount++;
+        } catch (error) {
+          console.error(`文件 ${i + 1}/${totalFiles} 上传失败:`, error);
+          failCount++;
+        }
+
+        // 更新进度
+        setUploadProgress(Math.round(((i + 1) / totalFiles) * 100));
       }
 
-      addToast('专辑上传成功！', 'success');
-      onUploadSuccess?.();
-      onCancel?.();
+      // 显示最终结果
+      if (successCount === totalFiles) {
+        addToast(`所有文件上传成功！`, 'success');
+      } else {
+        addToast(`上传完成：${successCount}个成功，${failCount}个失败`, 'warning');
+      }
 
-    } catch (error) {
-      console.error('Upload error:', error);
-      addToast('上传失败，请重试', 'error');
+      onUploadSuccess?.();
+    } catch (error: any) {
+      console.error('批量上传失败:', error);
+      addToast(error.message || '上传过程中发生错误', 'error');
     } finally {
       setUploading(false);
       setUploadProgress(0);

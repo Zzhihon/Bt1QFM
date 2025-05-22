@@ -2,6 +2,7 @@ package auth
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -21,8 +22,17 @@ func HashPassword(password string) (string, error) {
 
 // VerifyPassword compares a password with a bcrypt hash.
 func VerifyPassword(password, hash string) bool {
+	log.Printf("[Auth] 开始密码验证 - 密码长度: %d, 哈希长度: %d", len(password), len(hash))
+	log.Printf("[Auth] 密码哈希前10个字符: %s", hash[:10])
+
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	return err == nil
+	if err != nil {
+		log.Printf("[Auth] 密码验证失败: %v", err)
+		return false
+	}
+
+	log.Printf("[Auth] 密码验证成功")
+	return true
 }
 
 // Claims represents the JWT claims

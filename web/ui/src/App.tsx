@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/layout/Navbar';
 import LoginForm from './components/auth/LoginForm';
 import RegisterForm from './components/auth/RegisterForm';
 import ProfileView from './components/views/ProfileView';
 import MusicLibraryView from './components/views/MusicLibraryView';
+import AlbumsView from './components/views/AlbumsView';
+import AlbumDetailView from './components/views/AlbumDetailView';
 import Player from './components/player/Player';
 import { useAuth } from './contexts/AuthContext';
 import { usePlayer } from './contexts/PlayerContext';
@@ -17,11 +20,11 @@ function App() {
   useEffect(() => {
     // If user is logged in, default to music library, else to login
     if (!authIsLoading) {
-        if (currentUser) {
-            setCurrentView('musicLibrary');
-        } else {
-            setCurrentView('login');
-        }
+      if (currentUser) {
+        setCurrentView('musicLibrary');
+      } else {
+        setCurrentView('login');
+      }
     }
   }, [currentUser, authIsLoading]);
 
@@ -56,23 +59,33 @@ function App() {
     case 'musicLibrary':
       viewToRender = currentUser ? <MusicLibraryView /> : <LoginForm onNavigate={handleNavigate} onLoginSuccess={handleLoginSuccess} />;
       break;
+    case 'albums':
+      viewToRender = currentUser ? <AlbumsView /> : <LoginForm onNavigate={handleNavigate} onLoginSuccess={handleLoginSuccess} />;
+      break;
     default:
       viewToRender = currentUser ? <MusicLibraryView /> : <LoginForm onNavigate={handleNavigate} onLoginSuccess={handleLoginSuccess} />;
   }
 
   return (
-    <div className="min-h-screen bg-cyber-bg flex flex-col">
-      <Navbar onNavigate={handleNavigate} />
-      <main className="flex-grow container mx-auto px-0 py-0 md:px-4 md:py-4">
-        {viewToRender}
-      </main>
-      {/* 只有当用户登录时显示播放器 */}
-      {currentUser && <Player />}
-      {/* Footer could go here */}
-      {/* <footer className='bg-cyber-bg-darker text-center p-4 border-t-2 border-cyber-secondary text-cyber-muted'>
-        1QFM &copy; 2024 - Your Cyber Radio Experience
-      </footer> */}
-    </div>
+    <Router>
+      <div className="min-h-screen bg-cyber-bg flex flex-col">
+        <Navbar onNavigate={handleNavigate} />
+        <main className="flex-grow container mx-auto px-0 py-0 md:px-4 md:py-4">
+          <Routes>
+            <Route path="/login" element={!currentUser ? <LoginForm onNavigate={handleNavigate} onLoginSuccess={handleLoginSuccess} /> : <Navigate to="/music-library" />} />
+            <Route path="/register" element={!currentUser ? <RegisterForm onNavigate={handleNavigate} /> : <Navigate to="/music-library" />} />
+            <Route path="/profile" element={currentUser ? <ProfileView /> : <Navigate to="/login" />} />
+            <Route path="/music-library" element={currentUser ? <MusicLibraryView /> : <Navigate to="/login" />} />
+            <Route path="/albums" element={currentUser ? <AlbumsView /> : <Navigate to="/login" />} />
+            <Route path="/album/:id" element={currentUser ? <AlbumDetailView /> : <Navigate to="/login" />} />
+            <Route path="/" element={<Navigate to={currentUser ? "/music-library" : "/login"} />} />
+          </Routes>
+          {viewToRender}
+        </main>
+        {/* 只有当用户登录时显示播放器 */}
+        {currentUser && <Player />}
+      </div>
+    </Router>
   );
 }
 

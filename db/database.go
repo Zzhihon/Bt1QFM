@@ -37,23 +37,7 @@ func ConnectDB(cfg *config.Config) error {
 // InitDB initializes the database schema, creating tables if they don't exist,
 // and performs necessary data migrations.
 func InitDB() error {
-	// 先删除现有表（注意顺序：先删除有外键约束的表）
-	dropTables := []string{
-		"album_tracks",
-		"albums",
-		"tracks",
-		"users",
-	}
-
-	for _, table := range dropTables {
-		_, err := DB.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", table))
-		if err != nil {
-			return fmt.Errorf("failed to drop table %s: %w", table, err)
-		}
-		log.Printf("Dropped table %s if exists", table)
-	}
-
-	// 按顺序创建表
+	// 按顺序创建表（如果不存在）
 	if err := createUsersTable(); err != nil {
 		return err
 	}
@@ -67,6 +51,7 @@ func InitDB() error {
 		return err
 	}
 
+	// 检查是否需要迁移初始用户数据
 	if err := migrateInitialUserAndTracks(); err != nil {
 		return err
 	}

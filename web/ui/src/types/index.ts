@@ -58,4 +58,44 @@ export interface PlayerState {
   duration: number;
   playMode: PlayMode;
   playlist: PlaylistItem[];
+}
+
+// 专辑类型
+export interface Album {
+  id: number;
+  userId: number;
+  artist: string;
+  name: string;
+  coverPath?: string;
+  releaseTime?: string;
+  genre?: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+  tracks?: Track[]; // 专辑中的歌曲
+}
+
+// 专辑创建请求
+export interface CreateAlbumRequest {
+  artist: string;
+  name: string;
+  coverPath?: string;
+  releaseTime?: string;
+  genre?: string;
+  description?: string;
+}
+
+// 专辑更新请求
+export interface UpdateAlbumRequest extends Partial<CreateAlbumRequest> {
+  id: number;
+}
+
+// 专辑响应
+export interface AlbumResponse {
+  album: Album;
+}
+
+// 专辑列表响应
+export interface AlbumsResponse {
+  albums: Album[];
 } 
