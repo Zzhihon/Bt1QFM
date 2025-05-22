@@ -3,10 +3,12 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { Album, CreateAlbumRequest } from '../../types';
 import { Plus, Disc, Music2, Edit2, Trash2, UploadCloud, Upload } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 const AlbumsView: React.FC = () => {
   const { currentUser, authToken } = useAuth();
   const { addToast } = useToast();
+  const navigate = useNavigate();
   const [albums, setAlbums] = useState<Album[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -118,7 +120,7 @@ const AlbumsView: React.FC = () => {
       }
 
       const data = await response.json();
-      setAlbums(prev => [...prev, data.album]);
+      setAlbums(prev => [...prev, data.album || data]);
       setShowCreateForm(false);
       setNewAlbum({
         artist: '',
@@ -129,6 +131,10 @@ const AlbumsView: React.FC = () => {
       });
       setSelectedCover(null);
       addToast('专辑创建成功', 'success');
+      const albumId = (data.album && data.album.id) || data.id;
+      if (albumId) {
+        navigate(`/album/${albumId}`);
+      }
     } catch (error) {
       console.error('Error creating album:', error);
       addToast('创建专辑失败', 'error');
