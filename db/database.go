@@ -4,10 +4,10 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"strings" // Added for checking alter table error
 
-	"Bt1QFM/core/auth" // Added for password hashing
+	// Added for checking alter table error
 	"Bt1QFM/config"
+	"Bt1QFM/core/auth" // Added for password hashing
 
 	_ "github.com/go-sql-driver/mysql" // MySQL driver
 )
@@ -30,8 +30,6 @@ func ConnectDB(cfg *config.Config) error {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
-
-
 	log.Println("Successfully connected to the database.")
 	return nil
 }
@@ -39,19 +37,33 @@ func ConnectDB(cfg *config.Config) error {
 // InitDB initializes the database schema, creating tables if they don't exist,
 // and performs necessary data migrations.
 func InitDB() error {
+	// 先删除现有表（注意顺序：先删除有外键约束的表）
+	dropTables := []string{
+		"album_tracks",
+		"albums",
+		"tracks",
+		"users",
+	}
+
+	for _, table := range dropTables {
+		_, err := DB.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", table))
+		if err != nil {
+			return fmt.Errorf("failed to drop table %s: %w", table, err)
+		}
+		log.Printf("Dropped table %s if exists", table)
+	}
+
+	// 按顺序创建表
 	if err := createUsersTable(); err != nil {
 		return err
 	}
-	if err := alterTracksTableAddUserID(); err != nil {
-		// It's possible the column already exists, especially during development.
-		// A more robust migration system would handle this more gracefully.
-		// For now, we check for a common error string.
-		if !strings.Contains(err.Error(), "Duplicate column name") && !strings.Contains(err.Error(), "already exists") {
-			return err
-		}
-		log.Println("Column 'user_id' likely already exists in 'tracks' table or other alter error:", err)
+	if err := createTracksTable(); err != nil {
+		return err
 	}
-	if err := createTracksTable(); err != nil { // Ensures tracks table exists, potentially with new structure if it was just altered
+	if err := createAlbumsTable(); err != nil {
+		return err
+	}
+	if err := createAlbumTracksTable(); err != nil {
 		return err
 	}
 
@@ -66,7 +78,7 @@ func InitDB() error {
 func createUsersTable() error {
 	query := `
 	CREATE TABLE IF NOT EXISTS users (
-		id INT AUTO_INCREMENT PRIMARY KEY,
+		id BIGINT AUTO_INCREMENT PRIMARY KEY,
 		username VARCHAR(100) NOT NULL UNIQUE,
 		email VARCHAR(255) NOT NULL UNIQUE,
 		password_hash VARCHAR(255) NOT NULL,
@@ -74,51 +86,39 @@ func createUsersTable() error {
 		preferences TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-	);
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 	`
 	_, err := DB.Exec(query)
 	if err != nil {
 		return fmt.Errorf("failed to create users table: %w", err)
 	}
-	log.Println("Users table initialized successfully (or already exists).")
+	log.Println("Users table initialized successfully.")
 	return nil
 }
 
 func createTracksTable() error {
-	// This function now primarily ensures the table exists.
-	// The user_id column and FK constraint are added by alterTracksTableAddUserID.
-	// The UNIQUE constraint on file_path is modified there as well.
 	query := `
 	CREATE TABLE IF NOT EXISTS tracks (
-		id INT AUTO_INCREMENT PRIMARY KEY,
+		id BIGINT AUTO_INCREMENT PRIMARY KEY,
 		title VARCHAR(255) NOT NULL,
 		artist VARCHAR(255),
 		album VARCHAR(255),
-		file_path VARCHAR(767) NOT NULL, 
-		cover_art_path VARCHAR(767),
-		hls_playlist_path VARCHAR(767),
+		file_path VARCHAR(255) NOT NULL, 
+		cover_art_path VARCHAR(255),
+		hls_playlist_path VARCHAR(255),
 		duration FLOAT,
-		user_id INT,
+		user_id BIGINT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 		CONSTRAINT fk_user_tracks FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 		CONSTRAINT uq_user_filepath UNIQUE (user_id, file_path)
-	);
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 	`
-	// Attempt to remove old unique constraint if it exists, before creating the new one.
-	// This is a best-effort for development and might fail if table is new or constraint name is different.
-	// A proper migration tool would handle this more robustly.
-	_, err := DB.Exec("ALTER TABLE tracks DROP INDEX file_path;")
+	_, err := DB.Exec(query)
 	if err != nil {
-		log.Printf("Could not drop old unique constraint on file_path (may not exist or different name): %v", err)
+		return fmt.Errorf("failed to create tracks table: %w", err)
 	}
-
-	_, err = DB.Exec(query)
-	if err != nil {
-		return fmt.Errorf("failed to create/update tracks table: %w", err)
-	}
-
-	log.Println("Tracks table structure ensured/updated (or already exists with new structure).")
+	log.Println("Tracks table initialized successfully.")
 	return nil
 }
 
@@ -131,7 +131,7 @@ func alterTracksTableAddUserID() error {
 	}
 
 	if !columnExists {
-		alterQuery := `ALTER TABLE tracks ADD COLUMN user_id INT;`
+		alterQuery := `ALTER TABLE tracks ADD COLUMN user_id BIGINT;`
 		_, err = DB.Exec(alterQuery)
 		if err != nil {
 			return fmt.Errorf("failed to add user_id column to tracks table: %w", err)
@@ -141,11 +141,6 @@ func alterTracksTableAddUserID() error {
 		log.Println("Column 'user_id' already exists in 'tracks' table.")
 	}
 
-	// Note: Foreign key and unique constraint (user_id, file_path) are now part of createTracksTable
-	// because CREATE TABLE IF NOT EXISTS is safer for defining these.
-	// If we alter them here, we need more complex logic to drop/add them conditionally.
-	// The initial createTracksTable might have created a simple file_path UNIQUE constraint.
-	// We will try to drop it and the createTracksTable will add the composite one.
 	return nil
 }
 
@@ -195,5 +190,56 @@ func migrateInitialUserAndTracks() error {
 	rowsAffected, _ := updateRes.RowsAffected()
 	log.Printf("%d existing tracks (with NULL user_id) assigned to user ID %d.", rowsAffected, userIDToAssign)
 
+	return nil
+}
+
+// createAlbumsTable 创建专辑表
+func createAlbumsTable() error {
+	query := `
+	CREATE TABLE IF NOT EXISTS albums (
+		id BIGINT PRIMARY KEY AUTO_INCREMENT,
+		user_id BIGINT NOT NULL,
+		artist VARCHAR(255) NOT NULL,
+		name VARCHAR(255) NOT NULL,
+		cover_path VARCHAR(255),
+		release_time DATETIME,
+		genre VARCHAR(100),
+		description TEXT,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		INDEX idx_user_id (user_id)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+	`
+	_, err := DB.Exec(query)
+	if err != nil {
+		return fmt.Errorf("failed to create albums table: %w", err)
+	}
+	log.Println("Albums table initialized successfully.")
+	return nil
+}
+
+// createAlbumTracksTable 创建专辑歌曲关联表
+func createAlbumTracksTable() error {
+	query := `
+	CREATE TABLE IF NOT EXISTS album_tracks (
+		id BIGINT PRIMARY KEY AUTO_INCREMENT,
+		album_id BIGINT NOT NULL,
+		track_id BIGINT NOT NULL,
+		position INT NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
+		FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
+		UNIQUE KEY unique_album_track (album_id, track_id),
+		INDEX idx_album_id (album_id),
+		INDEX idx_track_id (track_id)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+	`
+	_, err := DB.Exec(query)
+	if err != nil {
+		return fmt.Errorf("failed to create album_tracks table: %w", err)
+	}
+	log.Println("Album tracks table initialized successfully.")
 	return nil
 }

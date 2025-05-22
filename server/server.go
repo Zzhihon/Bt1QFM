@@ -50,9 +50,10 @@ func Start() {
 	audioProcessor := audio.NewFFmpegProcessor(cfg.FFmpegPath)
 	trackRepo := repository.NewMySQLTrackRepository()
 	userRepo := repository.NewMySQLUserRepository(db.DB)
+	albumRepo := repository.NewMySQLAlbumRepository(db.DB)
 
 	// Pass cfg, trackRepo, and userRepo to handlers
-	apiHandler := NewAPIHandler(trackRepo, userRepo, audioProcessor, cfg)
+	apiHandler := NewAPIHandler(trackRepo, userRepo, albumRepo, audioProcessor, cfg)
 
 	mux := http.NewServeMux()
 
@@ -65,6 +66,16 @@ func Start() {
 	// 新增播放列表相关的API端点
 	mux.HandleFunc("/api/playlist", apiHandler.AuthMiddleware(apiHandler.PlaylistHandler))                   // 处理基本的播放列表操作
 	mux.HandleFunc("/api/playlist/all", apiHandler.AuthMiddleware(apiHandler.AddAllTracksToPlaylistHandler)) // 添加所有歌曲到播放列表
+
+	// 新增专辑相关的API端点
+	mux.HandleFunc("/api/albums", apiHandler.AuthMiddleware(apiHandler.CreateAlbumHandler))                         // POST /api/albums
+	mux.HandleFunc("/api/albums/", apiHandler.AuthMiddleware(apiHandler.GetAlbumHandler))                           // GET /api/albums/:id
+	mux.HandleFunc("/api/albums/user", apiHandler.AuthMiddleware(apiHandler.GetUserAlbumsHandler))                  // GET /api/albums/user
+	mux.HandleFunc("/api/albums/update", apiHandler.AuthMiddleware(apiHandler.UpdateAlbumHandler))                  // PUT /api/albums/update
+	mux.HandleFunc("/api/albums/delete", apiHandler.AuthMiddleware(apiHandler.DeleteAlbumHandler))                  // DELETE /api/albums/delete
+	mux.HandleFunc("/api/albums/tracks", apiHandler.AuthMiddleware(apiHandler.AddTrackToAlbumHandler))              // POST /api/albums/tracks
+	mux.HandleFunc("/api/albums/tracks/remove", apiHandler.AuthMiddleware(apiHandler.RemoveTrackFromAlbumHandler))  // DELETE /api/albums/tracks/remove
+	mux.HandleFunc("/api/albums/tracks/position", apiHandler.AuthMiddleware(apiHandler.UpdateTrackPositionHandler)) // PUT /api/albums/tracks/position
 
 	// 新增用户认证相关的API端点
 	mux.HandleFunc("/api/auth/login", apiHandler.LoginHandler)       // POST /api/auth/login
@@ -89,6 +100,7 @@ func Start() {
 	log.Println("List tracks via GET from http://localhost:8080/api/tracks")
 	log.Println("Stream tracks via GET from http://localhost:8080/stream/{track_id}/playlist.m3u8")
 	log.Println("Manage playlist via /api/playlist endpoints")
+	log.Println("Manage albums via /api/albums endpoints")
 
 	if err := http.ListenAndServe(":8080", mux); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
@@ -27,13 +28,20 @@ import (
 type APIHandler struct {
 	trackRepo repository.TrackRepository
 	userRepo  repository.UserRepository
+	albumRepo repository.AlbumRepository
 	ap        audio.Processor
 	cfg       *config.Config
 }
 
 // NewAPIHandler creates a new APIHandler.
-func NewAPIHandler(trackRepo repository.TrackRepository, userRepo repository.UserRepository, ap audio.Processor, cfg *config.Config) *APIHandler {
-	return &APIHandler{trackRepo: trackRepo, userRepo: userRepo, ap: ap, cfg: cfg}
+func NewAPIHandler(trackRepo repository.TrackRepository, userRepo repository.UserRepository, albumRepo repository.AlbumRepository, ap audio.Processor, cfg *config.Config) *APIHandler {
+	return &APIHandler{
+		trackRepo: trackRepo,
+		userRepo:  userRepo,
+		albumRepo: albumRepo,
+		ap:        ap,
+		cfg:       cfg,
+	}
 }
 
 var nonAlphaNumeric = regexp.MustCompile(`[^a-zA-Z0-9_\-\.]`)
@@ -903,4 +911,429 @@ func GetUsernameFromContext(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("username not found in context")
 	}
 	return username, nil
+}
+
+// CreateAlbumHandler 处理创建专辑的请求
+func (h *APIHandler) CreateAlbumHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 获取用户ID
+	userID, err := GetUserIDFromContext(r.Context())
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// 解析请求体
+	var req struct {
+		Artist      string    `json:"artist"`
+		Name        string    `json:"name"`
+		CoverPath   string    `json:"coverPath"`
+		ReleaseTime time.Time `json:"releaseTime"`
+		Genre       string    `json:"genre"`
+		Description string    `json:"description"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// 验证必填字段
+	if req.Artist == "" || req.Name == "" {
+		http.Error(w, "Artist and name are required", http.StatusBadRequest)
+		return
+	}
+
+	// 创建专辑对象
+	album := &model.Album{
+		UserID:      userID,
+		Artist:      req.Artist,
+		Name:        req.Name,
+		CoverPath:   req.CoverPath,
+		ReleaseTime: req.ReleaseTime,
+		Genre:       req.Genre,
+		Description: sql.NullString{
+			String: req.Description,
+			Valid:  req.Description != "",
+		},
+	}
+
+	// 保存到数据库
+	albumID, err := h.albumRepo.CreateAlbum(r.Context(), album)
+	if err != nil {
+		log.Printf("Error creating album: %v", err)
+		http.Error(w, "Failed to create album", http.StatusInternalServerError)
+		return
+	}
+
+	// 返回创建的专辑信息
+	album.ID = albumID
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(album)
+}
+
+// GetAlbumHandler 处理获取专辑详情的请求
+func (h *APIHandler) GetAlbumHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 从URL中获取专辑ID
+	albumIDStr := r.URL.Query().Get("id")
+	if albumIDStr == "" {
+		http.Error(w, "Album ID is required", http.StatusBadRequest)
+		return
+	}
+
+	albumID, err := strconv.ParseInt(albumIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid album ID", http.StatusBadRequest)
+		return
+	}
+
+	// 获取专辑信息
+	album, err := h.albumRepo.GetAlbumByID(r.Context(), albumID)
+	if err != nil {
+		log.Printf("Error getting album: %v", err)
+		http.Error(w, "Failed to get album", http.StatusInternalServerError)
+		return
+	}
+	if album == nil {
+		http.Error(w, "Album not found", http.StatusNotFound)
+		return
+	}
+
+	// 获取专辑中的歌曲
+	tracks, err := h.albumRepo.GetAlbumTracks(r.Context(), albumID)
+	if err != nil {
+		log.Printf("Error getting album tracks: %v", err)
+		http.Error(w, "Failed to get album tracks", http.StatusInternalServerError)
+		return
+	}
+
+	// 返回专辑信息和歌曲列表
+	response := model.AlbumWithTracks{
+		Album:  *album,
+		Tracks: tracks,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// GetUserAlbumsHandler 处理获取用户所有专辑的请求
+func (h *APIHandler) GetUserAlbumsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 获取用户ID
+	userID, err := GetUserIDFromContext(r.Context())
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// 获取用户的所有专辑
+	albums, err := h.albumRepo.GetAlbumsByUserID(r.Context(), userID)
+	if err != nil {
+		log.Printf("Error getting user albums: %v", err)
+		http.Error(w, "Failed to get albums", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(albums)
+}
+
+// UpdateAlbumHandler 处理更新专辑信息的请求
+func (h *APIHandler) UpdateAlbumHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "Only PUT method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 获取用户ID
+	userID, err := GetUserIDFromContext(r.Context())
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// 解析请求体
+	var album model.Album
+	if err := json.NewDecoder(r.Body).Decode(&album); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// 验证专辑所有权
+	existingAlbum, err := h.albumRepo.GetAlbumByID(r.Context(), album.ID)
+	if err != nil {
+		log.Printf("Error getting album: %v", err)
+		http.Error(w, "Failed to get album", http.StatusInternalServerError)
+		return
+	}
+	if existingAlbum == nil {
+		http.Error(w, "Album not found", http.StatusNotFound)
+		return
+	}
+	if existingAlbum.UserID != userID {
+		http.Error(w, "Unauthorized to update this album", http.StatusForbidden)
+		return
+	}
+
+	// 更新专辑信息
+	album.UserID = userID // 确保用户ID不被修改
+	if err := h.albumRepo.UpdateAlbum(r.Context(), &album); err != nil {
+		log.Printf("Error updating album: %v", err)
+		http.Error(w, "Failed to update album", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(album)
+}
+
+// DeleteAlbumHandler 处理删除专辑的请求
+func (h *APIHandler) DeleteAlbumHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Only DELETE method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 获取用户ID
+	userID, err := GetUserIDFromContext(r.Context())
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// 从URL中获取专辑ID
+	albumIDStr := r.URL.Query().Get("id")
+	if albumIDStr == "" {
+		http.Error(w, "Album ID is required", http.StatusBadRequest)
+		return
+	}
+
+	albumID, err := strconv.ParseInt(albumIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid album ID", http.StatusBadRequest)
+		return
+	}
+
+	// 验证专辑所有权
+	album, err := h.albumRepo.GetAlbumByID(r.Context(), albumID)
+	if err != nil {
+		log.Printf("Error getting album: %v", err)
+		http.Error(w, "Failed to get album", http.StatusInternalServerError)
+		return
+	}
+	if album == nil {
+		http.Error(w, "Album not found", http.StatusNotFound)
+		return
+	}
+	if album.UserID != userID {
+		http.Error(w, "Unauthorized to delete this album", http.StatusForbidden)
+		return
+	}
+
+	// 删除专辑
+	if err := h.albumRepo.DeleteAlbum(r.Context(), albumID); err != nil {
+		log.Printf("Error deleting album: %v", err)
+		http.Error(w, "Failed to delete album", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Album deleted successfully"})
+}
+
+// AddTrackToAlbumHandler 处理添加歌曲到专辑的请求
+func (h *APIHandler) AddTrackToAlbumHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 获取用户ID
+	userID, err := GetUserIDFromContext(r.Context())
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// 解析请求体
+	var req struct {
+		AlbumID  int64 `json:"albumId"`
+		TrackID  int64 `json:"trackId"`
+		Position int   `json:"position"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// 验证专辑所有权
+	album, err := h.albumRepo.GetAlbumByID(r.Context(), req.AlbumID)
+	if err != nil {
+		log.Printf("Error getting album: %v", err)
+		http.Error(w, "Failed to get album", http.StatusInternalServerError)
+		return
+	}
+	if album == nil {
+		http.Error(w, "Album not found", http.StatusNotFound)
+		return
+	}
+	if album.UserID != userID {
+		http.Error(w, "Unauthorized to modify this album", http.StatusForbidden)
+		return
+	}
+
+	// 验证歌曲所有权
+	track, err := h.trackRepo.GetTrackByID(req.TrackID)
+	if err != nil {
+		log.Printf("Error getting track: %v", err)
+		http.Error(w, "Failed to get track", http.StatusInternalServerError)
+		return
+	}
+	if track == nil {
+		http.Error(w, "Track not found", http.StatusNotFound)
+		return
+	}
+	if track.UserID != userID {
+		http.Error(w, "Unauthorized to add this track", http.StatusForbidden)
+		return
+	}
+
+	// 添加歌曲到专辑
+	if err := h.albumRepo.AddTrackToAlbum(r.Context(), req.AlbumID, req.TrackID, req.Position); err != nil {
+		log.Printf("Error adding track to album: %v", err)
+		http.Error(w, "Failed to add track to album", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Track added to album successfully"})
+}
+
+// RemoveTrackFromAlbumHandler 处理从专辑中移除歌曲的请求
+func (h *APIHandler) RemoveTrackFromAlbumHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Only DELETE method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 获取用户ID
+	userID, err := GetUserIDFromContext(r.Context())
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// 从URL中获取专辑ID和歌曲ID
+	albumIDStr := r.URL.Query().Get("albumId")
+	trackIDStr := r.URL.Query().Get("trackId")
+	if albumIDStr == "" || trackIDStr == "" {
+		http.Error(w, "Album ID and track ID are required", http.StatusBadRequest)
+		return
+	}
+
+	albumID, err := strconv.ParseInt(albumIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid album ID", http.StatusBadRequest)
+		return
+	}
+
+	trackID, err := strconv.ParseInt(trackIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid track ID", http.StatusBadRequest)
+		return
+	}
+
+	// 验证专辑所有权
+	album, err := h.albumRepo.GetAlbumByID(r.Context(), albumID)
+	if err != nil {
+		log.Printf("Error getting album: %v", err)
+		http.Error(w, "Failed to get album", http.StatusInternalServerError)
+		return
+	}
+	if album == nil {
+		http.Error(w, "Album not found", http.StatusNotFound)
+		return
+	}
+	if album.UserID != userID {
+		http.Error(w, "Unauthorized to modify this album", http.StatusForbidden)
+		return
+	}
+
+	// 从专辑中移除歌曲
+	if err := h.albumRepo.RemoveTrackFromAlbum(r.Context(), albumID, trackID); err != nil {
+		log.Printf("Error removing track from album: %v", err)
+		http.Error(w, "Failed to remove track from album", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Track removed from album successfully"})
+}
+
+// UpdateTrackPositionHandler 处理更新专辑中歌曲位置的请求
+func (h *APIHandler) UpdateTrackPositionHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "Only PUT method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 获取用户ID
+	userID, err := GetUserIDFromContext(r.Context())
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// 解析请求体
+	var req struct {
+		AlbumID     int64 `json:"albumId"`
+		TrackID     int64 `json:"trackId"`
+		NewPosition int   `json:"newPosition"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// 验证专辑所有权
+	album, err := h.albumRepo.GetAlbumByID(r.Context(), req.AlbumID)
+	if err != nil {
+		log.Printf("Error getting album: %v", err)
+		http.Error(w, "Failed to get album", http.StatusInternalServerError)
+		return
+	}
+	if album == nil {
+		http.Error(w, "Album not found", http.StatusNotFound)
+		return
+	}
+	if album.UserID != userID {
+		http.Error(w, "Unauthorized to modify this album", http.StatusForbidden)
+		return
+	}
+
+	// 更新歌曲位置
+	if err := h.albumRepo.UpdateTrackPosition(r.Context(), req.AlbumID, req.TrackID, req.NewPosition); err != nil {
+		log.Printf("Error updating track position: %v", err)
+		http.Error(w, "Failed to update track position", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Track position updated successfully"})
 }
