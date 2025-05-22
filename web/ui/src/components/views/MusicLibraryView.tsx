@@ -33,6 +33,28 @@ const MusicLibraryView: React.FC = () => {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
 
+  // 定义支持的文件类型
+  const SUPPORTED_AUDIO_TYPES = {
+    'audio/mpeg': '.mp3',
+    'audio/wav': '.wav',
+    'audio/flac': '.flac',
+    'audio/x-flac': '.flac',
+    'audio/aac': '.aac',
+    'audio/mp4': '.m4a'
+  };
+
+  // 验证文件类型
+  const validateFileType = (file: File): boolean => {
+    // 检查文件类型是否在支持列表中
+    if (SUPPORTED_AUDIO_TYPES[file.type as keyof typeof SUPPORTED_AUDIO_TYPES]) {
+      return true;
+    }
+
+    // 检查文件扩展名
+    const extension = file.name.toLowerCase().split('.').pop();
+    return extension === 'mp3' || extension === 'wav' || extension === 'flac' || extension === 'aac' || extension === 'm4a';
+  };
+
   useEffect(() => {
     if (!currentUser) {
       setIsLoading(false);
@@ -321,7 +343,7 @@ const MusicLibraryView: React.FC = () => {
                 <input
                   type="file"
                   name="audioFiles"
-                  accept="audio/*"
+                  accept="audio/*,.flac,.wav,.mp3,.aac,.m4a"
                   multiple
                   required
                   className="w-full bg-cyber-bg border border-cyber-primary text-cyber-text p-2 rounded"
@@ -374,7 +396,7 @@ const MusicLibraryView: React.FC = () => {
             </div>
             <div>
                 <label htmlFor="trackFile" className="block text-sm font-medium text-cyber-secondary">Track File (WAV/MP3):</label>
-                <input type="file" id="trackFile" onChange={(e) => setTrackFile(e.target.files ? e.target.files[0] : null)} accept=".wav,.mp3" required className="mt-1 block w-full text-sm text-cyber-text file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyber-primary file:text-cyber-bg-darker hover:file:bg-cyber-hover-primary file:cursor-pointer" />
+                <input type="file" id="trackFile" onChange={(e) => setTrackFile(e.target.files ? e.target.files[0] : null)} accept=".wav,.mp3,.flac,.aac,.m4a" required className="mt-1 block w-full text-sm text-cyber-text file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyber-primary file:text-cyber-bg-darker hover:file:bg-cyber-hover-primary file:cursor-pointer" />
             </div>
             <div>
                 <label htmlFor="coverFile" className="block text-sm font-medium text-cyber-secondary">Cover Art (JPG, PNG):</label>

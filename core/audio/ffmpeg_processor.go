@@ -22,6 +22,45 @@ func NewFFmpegProcessor(ffmpegPath string) *FFmpegProcessor {
 	return &FFmpegProcessor{ffmpegPath: ffmpegPath}
 }
 
+// getAudioFormat 获取音频文件的格式
+func (p *FFmpegProcessor) getAudioFormat(inputFile string) (string, error) {
+	ffprobePath := strings.Replace(p.ffmpegPath, "ffmpeg", "ffprobe", 1)
+
+	args := []string{
+		"-v", "error",
+		"-select_streams", "a:0",
+		"-show_entries", "stream=codec_name",
+		"-of", "json",
+		inputFile,
+	}
+
+	cmd := exec.Command(ffprobePath, args...)
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("ffprobe execution failed for %s: %w\nFFprobe Error: %s", inputFile, err, stderr.String())
+	}
+
+	var probeData struct {
+		Streams []struct {
+			CodecName string `json:"codec_name"`
+		} `json:"streams"`
+	}
+
+	if err := json.Unmarshal(out.Bytes(), &probeData); err != nil {
+		return "", fmt.Errorf("failed to unmarshal ffprobe output: %w", err)
+	}
+
+	if len(probeData.Streams) == 0 {
+		return "", fmt.Errorf("no audio streams found in file")
+	}
+
+	return probeData.Streams[0].CodecName, nil
+}
+
 // ProcessToHLS transcodes an audio file to HLS format (M3U8 playlist and TS segments).
 // It returns the duration of the audio file in seconds.
 func (p *FFmpegProcessor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hlsBaseURL, audioBitrate, hlsSegmentTime string) (float32, error) {
@@ -37,22 +76,41 @@ func (p *FFmpegProcessor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hl
 	duration, err := p.GetAudioDuration(inputFile)
 	if err != nil {
 		log.Printf("Warning: could not get audio duration for %s: %v. Proceeding without duration.", inputFile, err)
-		// You might choose to return an error here if duration is critical for your HLS settings
-		// or use a default/placeholder if HLS generation can proceed without it.
 	}
 
+	// 获取音频格式
+	format, err := p.getAudioFormat(inputFile)
+	if err != nil {
+		log.Printf("Warning: could not detect audio format for %s: %v. Using default settings.", inputFile, err)
+	}
+
+	// 构建FFmpeg参数
 	args := []string{
 		"-i", inputFile,
 		"-c:a", "aac",
-		"-b:a", audioBitrate,
+	}
+
+	// 根据输入格式调整编码参数
+	if format == "flac" {
+		// 对于FLAC文件，使用更高的比特率以保持音质
+		args = append(args, "-b:a", "320k")
+		// 添加音频过滤器以优化FLAC转码
+		args = append(args, "-af", "aformat=sample_fmts=fltp")
+	} else {
+		// 其他格式使用配置的比特率
+		args = append(args, "-b:a", audioBitrate)
+	}
+
+	// 添加HLS相关参数
+	args = append(args,
 		"-hls_time", hlsSegmentTime,
-		"-hls_playlist_type", "vod", // Video on Demand type, segments won't be removed
-		"-hls_list_size", "0", // Keep all segments in the playlist
-		"-hls_segment_filename", segmentPattern, // e.g., static/streams/track123/segment_%03d.ts
-		"-hls_base_url", hlsBaseURL, // e.g., /static/streams/track123/
+		"-hls_playlist_type", "vod",
+		"-hls_list_size", "0",
+		"-hls_segment_filename", segmentPattern,
+		"-hls_base_url", hlsBaseURL,
 		"-f", "hls",
 		outputM3U8,
-	}
+	)
 
 	cmd := exec.Command(p.ffmpegPath, args...)
 	var stderr bytes.Buffer
