@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/layout/Navbar';
 import LoginForm from './components/auth/LoginForm';
@@ -15,26 +15,6 @@ import { Loader2 } from 'lucide-react';
 function App() {
   const { currentUser, isLoading: authIsLoading } = useAuth();
   const { playerState } = usePlayer();
-  const [currentView, setCurrentView] = useState('login'); // Default view
-
-  useEffect(() => {
-    // If user is logged in, default to music library, else to login
-    if (!authIsLoading) {
-      if (currentUser) {
-        setCurrentView('musicLibrary');
-      } else {
-        setCurrentView('login');
-      }
-    }
-  }, [currentUser, authIsLoading]);
-
-  const handleNavigate = (view: string) => {
-    setCurrentView(view);
-  };
-
-  const handleLoginSuccess = () => {
-    setCurrentView('musicLibrary');
-  };
 
   if (authIsLoading) {
     return (
@@ -45,44 +25,21 @@ function App() {
     );
   }
 
-  let viewToRender;
-  switch (currentView) {
-    case 'login':
-      viewToRender = <LoginForm onNavigate={handleNavigate} onLoginSuccess={handleLoginSuccess} />;
-      break;
-    case 'register':
-      viewToRender = <RegisterForm onNavigate={handleNavigate} />;
-      break;
-    case 'profile':
-      viewToRender = currentUser ? <ProfileView /> : <LoginForm onNavigate={handleNavigate} onLoginSuccess={handleLoginSuccess} />;
-      break;
-    case 'musicLibrary':
-      viewToRender = currentUser ? <MusicLibraryView /> : <LoginForm onNavigate={handleNavigate} onLoginSuccess={handleLoginSuccess} />;
-      break;
-    case 'albums':
-      viewToRender = currentUser ? <AlbumsView /> : <LoginForm onNavigate={handleNavigate} onLoginSuccess={handleLoginSuccess} />;
-      break;
-    default:
-      viewToRender = currentUser ? <MusicLibraryView /> : <LoginForm onNavigate={handleNavigate} onLoginSuccess={handleLoginSuccess} />;
-  }
-
   return (
     <Router>
       <div className="min-h-screen bg-cyber-bg flex flex-col">
-        <Navbar onNavigate={handleNavigate} />
+        <Navbar />
         <main className="flex-grow container mx-auto px-0 py-0 md:px-4 md:py-4">
           <Routes>
-            <Route path="/login" element={!currentUser ? <LoginForm onNavigate={handleNavigate} onLoginSuccess={handleLoginSuccess} /> : <Navigate to="/music-library" />} />
-            <Route path="/register" element={!currentUser ? <RegisterForm onNavigate={handleNavigate} /> : <Navigate to="/music-library" />} />
+            <Route path="/login" element={!currentUser ? <LoginForm /> : <Navigate to="/music-library" />} />
+            <Route path="/register" element={!currentUser ? <RegisterForm /> : <Navigate to="/music-library" />} />
             <Route path="/profile" element={currentUser ? <ProfileView /> : <Navigate to="/login" />} />
             <Route path="/music-library" element={currentUser ? <MusicLibraryView /> : <Navigate to="/login" />} />
             <Route path="/albums" element={currentUser ? <AlbumsView /> : <Navigate to="/login" />} />
             <Route path="/album/:id" element={currentUser ? <AlbumDetailView /> : <Navigate to="/login" />} />
             <Route path="/" element={<Navigate to={currentUser ? "/music-library" : "/login"} />} />
           </Routes>
-          {viewToRender}
         </main>
-        {/* 只有当用户登录时显示播放器 */}
         {currentUser && <Player />}
       </div>
     </Router>

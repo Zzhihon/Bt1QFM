@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
-interface RegisterFormProps {
-  onNavigate: (view: string) => void;
-}
-
-const RegisterForm: React.FC<RegisterFormProps> = ({ onNavigate }) => {
+const RegisterForm: React.FC = () => {
   const { register } = useAuth();
+  const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,7 +26,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onNavigate }) => {
       setEmail('');
       setPassword('');
       setPhone('');
-      setTimeout(() => onNavigate('login'), 2000); // Navigate to login after a delay
+      setTimeout(() => navigate('/login'), 2000); // Navigate to login after a delay
     } catch (err: any) {
       setError(err.message || 'Registration failed. Please try again.');
     } finally {
@@ -108,7 +106,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onNavigate }) => {
         </form>
         <p className="mt-4 text-center text-sm text-cyber-muted">
           Already have an account?{' '}
-          <button onClick={() => onNavigate('login')} className="font-medium text-cyber-primary hover:text-cyber-hover-primary underline">
+          <button onClick={() => navigate('/login')} className="font-medium text-cyber-primary hover:text-cyber-hover-primary underline">
             Login here
           </button>
         </p>

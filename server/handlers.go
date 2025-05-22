@@ -784,10 +784,7 @@ type RegisterRequest struct {
 
 // LoginHandler handles user login requests
 func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[Login] 收到登录请求 - IP: %s, User-Agent: %s", r.RemoteAddr, r.UserAgent())
-
 	if r.Method != http.MethodPost {
-		log.Printf("[Login] 无效的请求方法: %s", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -804,7 +801,6 @@ func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Username == "" || req.Password == "" {
-		log.Printf("[Login] 缺少必要字段 - Username: %v, Password: %v", req.Username != "", req.Password != "")
 		http.Error(w, "Username/Email and password are required", http.StatusBadRequest)
 		return
 	}
@@ -813,40 +809,31 @@ func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var user *model.User
 	var err error
 	if strings.Contains(req.Username, "@") {
-		// 如果是邮箱格式，使用邮箱查询
-		log.Printf("[Login] 尝试使用邮箱登录: %s", req.Username)
 		user, err = h.userRepo.GetUserByEmail(req.Username)
 	} else {
-		// 否则使用用户名查询
-		log.Printf("[Login] 尝试使用用户名登录: %s", req.Username)
 		user, err = h.userRepo.GetUserByUsername(req.Username)
 	}
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			log.Printf("[Login] 用户不存在 - Username/Email: %s", req.Username)
+			log.Printf("[Login] 用户不存在: %s", req.Username)
 			http.Error(w, "Invalid username/email or password", http.StatusUnauthorized)
 		} else {
-			log.Printf("[Login] 查询用户失败 - Username/Email: %s, Error: %v", req.Username, err)
+			log.Printf("[Login] 查询用户失败: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
 		return
 	}
 
 	if user == nil {
-		log.Printf("[Login] 用户不存在 - Username/Email: %s", req.Username)
+		log.Printf("[Login] 用户不存在: %s", req.Username)
 		http.Error(w, "Invalid username/email or password", http.StatusUnauthorized)
 		return
 	}
 
 	// 验证密码
-	log.Printf("[Login] 开始验证密码 - UserID: %d, Username: %s", user.ID, user.Username)
-	log.Printf("[Login] 密码哈希长度: %d", len(user.PasswordHash))
-
-	// 验证密码
 	if !auth.VerifyPassword(req.Password, user.PasswordHash) {
-		log.Printf("[Login] 密码验证失败 - UserID: %d, Username: %s", user.ID, user.Username)
-		log.Printf("[Login] 密码验证详情 - 输入密码长度: %d, 存储的密码哈希长度: %d", len(req.Password), len(user.PasswordHash))
+		log.Printf("[Login] 密码验证失败: %s", req.Username)
 		http.Error(w, "Invalid username/email or password", http.StatusUnauthorized)
 		return
 	}
@@ -854,7 +841,7 @@ func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// 生成JWT token
 	token, err := auth.GenerateToken(user.ID, user.Username)
 	if err != nil {
-		log.Printf("[Login] 生成Token失败 - UserID: %d, Username: %s, Error: %v", user.ID, user.Username, err)
+		log.Printf("[Login] 生成Token失败: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -874,17 +861,14 @@ func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	// 如果手机号有效，添加到响应中
 	if user.Phone.Valid {
 		response.User.Phone = user.Phone
 	}
-
-	// 如果偏好设置有效，添加到响应中
 	if user.Preferences.Valid {
 		response.User.Preferences = user.Preferences
 	}
 
-	log.Printf("[Login] 登录成功 - UserID: %d, Username: %s", user.ID, user.Username)
+	log.Printf("[Login] 登录成功: %s", user.Username)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)

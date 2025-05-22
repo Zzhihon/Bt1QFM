@@ -1,13 +1,10 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
-interface LoginFormProps {
-  onNavigate: (view: string) => void;
-  onLoginSuccess: () => void;
-}
-
-const LoginForm: React.FC<LoginFormProps> = ({ onNavigate, onLoginSuccess }) => {
+const LoginForm: React.FC = () => {
   const { login } = useAuth();
+  const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +16,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onNavigate, onLoginSuccess }) => 
     setIsLoading(true);
     try {
       await login(username, password);
-      onLoginSuccess(); // Callback to App.tsx to navigate
+      navigate('/music-library');
     } catch (err: any) {
       setError(err.message || 'Failed to login. Please check your credentials.');
     } finally {
@@ -73,7 +70,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onNavigate, onLoginSuccess }) => 
         </form>
         <p className="mt-4 text-center text-sm text-cyber-muted">
           Don't have an account?{' '}
-          <button onClick={() => onNavigate('register')} className="font-medium text-cyber-secondary hover:text-cyber-primary underline">
+          <button onClick={() => navigate('/register')} className="font-medium text-cyber-secondary hover:text-cyber-primary underline">
             Register here
           </button>
         </p>
