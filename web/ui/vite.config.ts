@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8080', // Your Go backend address
+        target: 'http://localhost:8080',
         changeOrigin: true,
       },
       '/stream': {

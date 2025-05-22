@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { Album, CreateAlbumRequest } from '../../types';
-import { Plus, Disc, Music2, Edit2, Trash2 } from 'lucide-react';
+import { Plus, Disc, Music2, Edit2, Trash2, UploadCloud } from 'lucide-react';
 
 const AlbumsView: React.FC = () => {
   const { currentUser, authToken } = useAuth();
@@ -15,7 +15,10 @@ const AlbumsView: React.FC = () => {
     name: '',
     genre: '',
     description: '',
+    releaseTime: new Date().toISOString().split('T')[0],
   });
+  const [selectedCover, setSelectedCover] = useState<File | null>(null);
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
 
   useEffect(() => {
     if (currentUser) {
@@ -26,35 +29,88 @@ const AlbumsView: React.FC = () => {
   const fetchAlbums = async () => {
     try {
       const response = await fetch('/api/albums', {
+        method: 'GET',
         headers: {
+          'Content-Type': 'application/json',
           ...(authToken && { 'Authorization': `Bearer ${authToken}` })
         }
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch albums');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to fetch albums');
       }
 
       const data = await response.json();
-      setAlbums(data.albums);
+      if (!data || !Array.isArray(data)) {
+        console.error('Invalid response format:', data);
+        throw new Error('Invalid response format');
+      }
+      
+      setAlbums(data);
     } catch (error) {
       console.error('Error fetching albums:', error);
-      addToast('获取专辑列表失败', 'error');
+      addToast(error instanceof Error ? error.message : '获取专辑列表失败', 'error');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleCoverUpload = async (file: File) => {
+    if (!file) return null;
+    
+    setIsUploadingCover(true);
+    try {
+      const formData = new FormData();
+      formData.append('cover', file);
+      formData.append('artist', newAlbum.artist);
+      formData.append('album', newAlbum.name);
+      formData.append('targetDir', 'static/cover');
+
+      const response = await fetch('/api/upload/cover', {
+        method: 'POST',
+        headers: {
+          ...(authToken && { 'Authorization': `Bearer ${authToken}` })
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to upload cover');
+      }
+
+      const data = await response.json();
+      return data.coverPath;
+    } catch (error) {
+      console.error('Error uploading cover:', error);
+      addToast('封面上传失败', 'error');
+      return null;
+    } finally {
+      setIsUploadingCover(false);
     }
   };
 
   const handleCreateAlbum = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      let coverPath = '';
+      if (selectedCover) {
+        coverPath = await handleCoverUpload(selectedCover) || '';
+      }
+
+      const albumData = {
+        ...newAlbum,
+        coverPath,
+        releaseTime: newAlbum.releaseTime ? new Date(newAlbum.releaseTime).toISOString() : new Date().toISOString()
+      };
+
       const response = await fetch('/api/albums', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(authToken && { 'Authorization': `Bearer ${authToken}` })
         },
-        body: JSON.stringify(newAlbum)
+        body: JSON.stringify(albumData)
       });
 
       if (!response.ok) {
@@ -69,7 +125,9 @@ const AlbumsView: React.FC = () => {
         name: '',
         genre: '',
         description: '',
+        releaseTime: new Date().toISOString().split('T')[0],
       });
+      setSelectedCover(null);
       addToast('专辑创建成功', 'success');
     } catch (error) {
       console.error('Error creating album:', error);
@@ -158,6 +216,40 @@ const AlbumsView: React.FC = () => {
               />
             </div>
             <div>
+              <label className="block text-cyber-secondary mb-2">发行日期</label>
+              <input
+                type="date"
+                value={newAlbum.releaseTime}
+                onChange={(e) => setNewAlbum(prev => ({ ...prev, releaseTime: e.target.value }))}
+                className="w-full p-2 bg-cyber-bg border-2 border-cyber-secondary rounded text-cyber-text"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-cyber-secondary mb-2">封面图片</label>
+              <div className="flex items-center space-x-4">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setSelectedCover(e.target.files?.[0] || null)}
+                  className="hidden"
+                  id="cover-upload"
+                />
+                <label
+                  htmlFor="cover-upload"
+                  className="flex items-center px-4 py-2 bg-cyber-secondary text-cyber-bg-darker rounded cursor-pointer hover:bg-cyber-hover-secondary transition-colors"
+                >
+                  <UploadCloud className="mr-2 h-5 w-5" />
+                  {selectedCover ? '更换封面' : '选择封面'}
+                </label>
+                {selectedCover && (
+                  <span className="text-cyber-text">
+                    {selectedCover.name}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div>
               <label className="block text-cyber-secondary mb-2">描述</label>
               <textarea
                 value={newAlbum.description}
@@ -176,9 +268,10 @@ const AlbumsView: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-cyber-primary text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
+                disabled={isUploadingCover}
+                className={`px-4 py-2 bg-cyber-primary text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors ${isUploadingCover ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                创建
+                {isUploadingCover ? '上传中...' : '创建'}
               </button>
             </div>
           </form>

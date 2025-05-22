@@ -67,7 +67,7 @@ export interface Album {
   artist: string;
   name: string;
   coverPath?: string;
-  releaseTime?: string;
+  releaseTime: string;
   genre?: string;
   description?: string;
   createdAt: string;
@@ -80,7 +80,7 @@ export interface CreateAlbumRequest {
   artist: string;
   name: string;
   coverPath?: string;
-  releaseTime?: string;
+  releaseTime: string;
   genre?: string;
   description?: string;
 }

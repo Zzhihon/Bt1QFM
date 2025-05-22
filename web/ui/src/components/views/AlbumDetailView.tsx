@@ -141,7 +141,13 @@ const AlbumDetailView: React.FC = () => {
               {album.releaseTime && (
                 <div>
                   <h2 className="text-lg font-semibold text-cyber-secondary">发行时间</h2>
-                  <p className="text-cyber-text">{new Date(album.releaseTime).toLocaleDateString()}</p>
+                  <p className="text-cyber-text">
+                    {new Date(album.releaseTime).toLocaleDateString('zh-CN', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })}
+                  </p>
                 </div>
               )}
             </div>

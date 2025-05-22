@@ -11,7 +11,8 @@ import (
 	"Bt1QFM/core/audio"
 	"Bt1QFM/db"
 	"Bt1QFM/repository"
-	// "Bt1QFM/storage"
+
+	"github.com/gorilla/mux"
 )
 
 // Start initializes and starts the HTTP server.
@@ -64,46 +65,65 @@ func Start() {
 	// Pass cfg, trackRepo, and userRepo to handlers
 	apiHandler := NewAPIHandler(trackRepo, userRepo, albumRepo, audioProcessor, cfg)
 
-	mux := http.NewServeMux()
+	// 使用 gorilla/mux 创建路由器
+	router := mux.NewRouter()
+
+	// 添加 CORS 中间件
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	})
 
 	// API Endpoints
-	mux.HandleFunc("/api/tracks", apiHandler.AuthMiddleware(apiHandler.GetTracksHandler))         // GET /api/tracks
-	mux.HandleFunc("/api/upload", apiHandler.AuthMiddleware(apiHandler.UploadTrackHandler))       // POST /api/upload
-	mux.HandleFunc("/api/upload/cover", apiHandler.AuthMiddleware(apiHandler.UploadCoverHandler)) // POST /api/upload/cover
-	mux.HandleFunc("/stream/", apiHandler.StreamHandler)                                          // GET /stream/{trackID}/playlist.m3u8
+	router.HandleFunc("/api/tracks", apiHandler.AuthMiddleware(apiHandler.GetTracksHandler)).Methods(http.MethodGet)
+	router.HandleFunc("/api/upload", apiHandler.AuthMiddleware(apiHandler.UploadTrackHandler)).Methods(http.MethodPost)
+	router.HandleFunc("/api/upload/cover", apiHandler.AuthMiddleware(apiHandler.UploadCoverHandler)).Methods(http.MethodPost)
+	router.HandleFunc("/stream/{track_id}/playlist.m3u8", apiHandler.StreamHandler).Methods(http.MethodGet)
 
-	// 新增播放列表相关的API端点
-	mux.HandleFunc("/api/playlist", apiHandler.AuthMiddleware(apiHandler.PlaylistHandler))                   // 处理基本的播放列表操作
-	mux.HandleFunc("/api/playlist/all", apiHandler.AuthMiddleware(apiHandler.AddAllTracksToPlaylistHandler)) // 添加所有歌曲到播放列表
+	// 播放列表相关的API端点
+	router.HandleFunc("/api/playlist", apiHandler.AuthMiddleware(apiHandler.PlaylistHandler)).Methods(http.MethodGet, http.MethodPost, http.MethodDelete)
+	router.HandleFunc("/api/playlist/all", apiHandler.AuthMiddleware(apiHandler.AddAllTracksToPlaylistHandler)).Methods(http.MethodPost)
 
-	// 新增专辑相关的API端点
-	mux.HandleFunc("/api/albums", apiHandler.AuthMiddleware(apiHandler.CreateAlbumHandler))                         // POST /api/albums
-	mux.HandleFunc("/api/albums/", apiHandler.AuthMiddleware(apiHandler.GetAlbumHandler))                           // GET /api/albums/:id
-	mux.HandleFunc("/api/albums/user", apiHandler.AuthMiddleware(apiHandler.GetUserAlbumsHandler))                  // GET /api/albums/user
-	mux.HandleFunc("/api/albums/update", apiHandler.AuthMiddleware(apiHandler.UpdateAlbumHandler))                  // PUT /api/albums/update
-	mux.HandleFunc("/api/albums/delete", apiHandler.AuthMiddleware(apiHandler.DeleteAlbumHandler))                  // DELETE /api/albums/delete
-	mux.HandleFunc("/api/albums/tracks", apiHandler.AuthMiddleware(apiHandler.AddTrackToAlbumHandler))              // POST /api/albums/tracks
-	mux.HandleFunc("/api/albums/tracks/remove", apiHandler.AuthMiddleware(apiHandler.RemoveTrackFromAlbumHandler))  // DELETE /api/albums/tracks/remove
-	mux.HandleFunc("/api/albums/tracks/position", apiHandler.AuthMiddleware(apiHandler.UpdateTrackPositionHandler)) // PUT /api/albums/tracks/position
+	// 专辑相关的API端点
+	router.HandleFunc("/api/albums", apiHandler.AuthMiddleware(apiHandler.GetUserAlbumsHandler)).Methods(http.MethodGet)
+	router.HandleFunc("/api/albums", apiHandler.AuthMiddleware(apiHandler.CreateAlbumHandler)).Methods(http.MethodPost)
+	router.HandleFunc("/api/albums/user", apiHandler.AuthMiddleware(apiHandler.GetUserAlbumsHandler)).Methods(http.MethodGet)
+	router.HandleFunc("/api/albums/{id}", apiHandler.AuthMiddleware(apiHandler.GetAlbumHandler)).Methods(http.MethodGet)
+	router.HandleFunc("/api/albums/{id}", apiHandler.AuthMiddleware(apiHandler.UpdateAlbumHandler)).Methods(http.MethodPut)
+	router.HandleFunc("/api/albums/{id}", apiHandler.AuthMiddleware(apiHandler.DeleteAlbumHandler)).Methods(http.MethodDelete)
+	router.HandleFunc("/api/albums/{id}/tracks", apiHandler.AuthMiddleware(apiHandler.GetAlbumTracksHandler)).Methods(http.MethodGet)
+	router.HandleFunc("/api/albums/{id}/tracks", apiHandler.AuthMiddleware(apiHandler.AddTrackToAlbumHandler)).Methods(http.MethodPost)
+	router.HandleFunc("/api/albums/{id}/tracks/{track_id}", apiHandler.AuthMiddleware(apiHandler.RemoveTrackFromAlbumHandler)).Methods(http.MethodDelete)
+	router.HandleFunc("/api/albums/{id}/tracks/{track_id}/position", apiHandler.AuthMiddleware(apiHandler.UpdateTrackPositionHandler)).Methods(http.MethodPut)
 
-	// 新增用户认证相关的API端点
-	mux.HandleFunc("/api/auth/login", apiHandler.LoginHandler)       // POST /api/auth/login
-	mux.HandleFunc("/api/auth/register", apiHandler.RegisterHandler) // POST /api/auth/register
+	// 用户认证相关的API端点
+	router.HandleFunc("/api/auth/login", apiHandler.LoginHandler).Methods(http.MethodPost)
+	router.HandleFunc("/api/auth/register", apiHandler.RegisterHandler).Methods(http.MethodPost)
 
 	// Static file serving for HLS segments and cover art
 	// This will serve files from ./static (e.g., /static/streams/... and /static/covers/...)
 	staticFileServer := http.FileServer(http.Dir(cfg.StaticDir))
-	mux.Handle("/static/", http.StripPrefix("/static/", staticFileServer))
+	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", staticFileServer))
 
 	// Static file serving for uploaded original audio and covers (if needed for direct access, usually not for audio)
 	uploadsFileServer := http.FileServer(http.Dir(cfg.UploadDir))
-	mux.Handle("/uploads/", http.StripPrefix("/uploads/", uploadsFileServer))
+	router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", uploadsFileServer))
 
 	// Frontend UI serving
 	uiFileServer := http.FileServer(http.Dir(cfg.WebAppDir))
-	mux.Handle("/", uiFileServer)
+	router.PathPrefix("/").Handler(uiFileServer)
 
-	server.Handler = mux
+	server.Handler = router
 
 	log.Println("Server starting on :8080...")
 	log.Println("Access the UI at http://localhost:8080/")
