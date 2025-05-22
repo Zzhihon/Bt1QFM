@@ -1,28 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { usePlayer } from '../../contexts/PlayerContext';
 import { Album, Track } from '../../types';
-import { UploadCloud, Music2, PlayCircle, PauseCircle, Plus, Trash2, ArrowLeft } from 'lucide-react';
+import { Music2, Trash2, Upload, Plus } from 'lucide-react';
 import UploadForm from '../upload/UploadForm';
 
 const AlbumDetailView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const { currentUser, authToken } = useAuth();
   const { addToast } = useToast();
-  const { playTrack, playerState } = usePlayer();
-  
+  const navigate = useNavigate();
   const [album, setAlbum] = useState<Album | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [showUploadForm, setShowUploadForm] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadMode, setUploadMode] = useState<'single' | 'batch'>('single');
+  const [tracks, setTracks] = useState<Track[]>([]);
 
   useEffect(() => {
-    if (currentUser && id) {
+    if (id) {
       fetchAlbumDetails();
+      fetchAlbumTracks();
     }
-  }, [currentUser, id]);
+  }, [id]);
 
   const fetchAlbumDetails = async () => {
     try {
@@ -33,11 +33,19 @@ const AlbumDetailView: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch album details');
+        throw new Error('获取专辑详情失败');
       }
 
       const data = await response.json();
-      setAlbum(data.album);
+      if (data && typeof data === 'object') {
+        const albumData = data.album || data;
+        if (albumData.tracks && !Array.isArray(albumData.tracks)) {
+          albumData.tracks = [];
+        }
+        setAlbum(albumData);
+      } else {
+        throw new Error('无效的专辑数据格式');
+      }
     } catch (error) {
       console.error('Error fetching album details:', error);
       addToast('获取专辑详情失败', 'error');
@@ -46,11 +54,35 @@ const AlbumDetailView: React.FC = () => {
     }
   };
 
+  const fetchAlbumTracks = async () => {
+    try {
+      const response = await fetch(`/api/albums/${id}/tracks`, {
+        headers: {
+          ...(authToken && { 'Authorization': `Bearer ${authToken}` })
+        }
+      });
+      if (!response.ok) {
+        throw new Error('获取专辑歌曲失败');
+      }
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        setTracks(data);
+      } else if (data && Array.isArray(data.tracks)) {
+        setTracks(data.tracks);
+      } else {
+        setTracks([]);
+      }
+    } catch (error) {
+      console.error('Error fetching album tracks:', error);
+      addToast('获取专辑歌曲失败', 'error');
+    }
+  };
+
   const handleRemoveTrack = async (trackId: number) => {
-    if (!window.confirm('确定要从专辑中移除这首歌吗？')) return;
+    if (!album || !id) return;
 
     try {
-      const response = await fetch(`/api/albums/${id}/tracks/${trackId}`, {
+      const response = await fetch(`/api/albums/${Number(id)}/tracks/${trackId}`, {
         method: 'DELETE',
         headers: {
           ...(authToken && { 'Authorization': `Bearer ${authToken}` })
@@ -58,28 +90,20 @@ const AlbumDetailView: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to remove track from album');
+        throw new Error('删除歌曲失败');
       }
 
-      // 更新本地状态
-      setAlbum(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          tracks: prev.tracks?.filter(track => track.id !== trackId)
-        };
-      });
-
-      addToast('歌曲已从专辑中移除', 'success');
+      addToast('歌曲已删除', 'success');
+      fetchAlbumTracks();
     } catch (error) {
-      console.error('Error removing track from album:', error);
-      addToast('移除歌曲失败', 'error');
+      console.error('Error removing track:', error);
+      addToast('删除歌曲失败', 'error');
     }
   };
 
   if (isLoading) {
     return (
-      <div className="min-h-[calc(100vh-150px)] flex items-center justify-center">
+      <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-cyber-primary"></div>
       </div>
     );
@@ -87,29 +111,28 @@ const AlbumDetailView: React.FC = () => {
 
   if (!album) {
     return (
-      <div className="min-h-[calc(100vh-150px)] flex items-center justify-center text-cyber-red">
-        专辑不存在或已被删除
+      <div className="text-center py-8">
+        <p className="text-cyber-secondary">专辑不存在或已被删除</p>
       </div>
     );
   }
 
+  const albumName = String(album.name || '');
+  const artistName = String(album.artist || '');
+  const genre = String(album.genre || '未分类');
+  const description = String(album.description || '暂无简介');
+  const releaseTime = album.releaseTime ? new Date(album.releaseTime).toLocaleDateString() : '未知';
+
   return (
     <div className="container mx-auto p-4 min-h-[calc(100vh-100px)] pb-32">
-      <button
-        onClick={() => navigate('/albums')}
-        className="flex items-center text-cyber-secondary hover:text-cyber-primary mb-6 transition-colors"
-      >
-        <ArrowLeft className="mr-2 h-5 w-5" /> 返回专辑列表
-      </button>
-
-      <div className="bg-cyber-bg-darker rounded-lg p-6 mb-8 border-2 border-cyber-primary">
-        <div className="flex flex-col md:flex-row gap-6">
-          <div className="w-full md:w-1/3">
-            <div className="aspect-square bg-cyber-bg rounded-lg overflow-hidden">
+      <div className="space-y-6">
+        <div className="bg-cyber-bg-darker border-2 border-cyber-secondary rounded-lg p-6">
+          <div className="flex flex-col md:flex-row gap-6">
+            <div className="w-full md:w-1/3 aspect-square bg-cyber-bg rounded-lg overflow-hidden">
               {album.coverPath ? (
                 <img
-                  src={album.coverPath}
-                  alt={album.name}
+                  src={String(album.coverPath)}
+                  alt={albumName}
                   className="w-full h-full object-cover"
                 />
               ) : (
@@ -118,109 +141,118 @@ const AlbumDetailView: React.FC = () => {
                 </div>
               )}
             </div>
-          </div>
-          <div className="w-full md:w-2/3">
-            <h1 className="text-4xl font-bold text-cyber-primary mb-4">{album.name}</h1>
-            <div className="space-y-4">
+            <div className="flex-1 space-y-4">
               <div>
-                <h2 className="text-lg font-semibold text-cyber-secondary">艺术家</h2>
-                <p className="text-cyber-text">{album.artist}</p>
+                <h1 className="text-3xl font-bold text-cyber-primary">{albumName}</h1>
+                <p className="text-xl text-cyber-secondary">{artistName}</p>
               </div>
-              {album.genre && (
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <h2 className="text-lg font-semibold text-cyber-secondary">风格</h2>
-                  <p className="text-cyber-text">{album.genre}</p>
+                  <p className="text-sm text-cyber-muted">流派</p>
+                  <p className="text-cyber-secondary">{genre}</p>
                 </div>
-              )}
-              {album.description && (
                 <div>
-                  <h2 className="text-lg font-semibold text-cyber-secondary">描述</h2>
-                  <p className="text-cyber-text">{album.description}</p>
+                  <p className="text-sm text-cyber-muted">发行时间</p>
+                  <p className="text-cyber-secondary">{releaseTime}</p>
                 </div>
-              )}
-              {album.releaseTime && (
-                <div>
-                  <h2 className="text-lg font-semibold text-cyber-secondary">发行时间</h2>
-                  <p className="text-cyber-text">
-                    {new Date(album.releaseTime).toLocaleDateString('zh-CN', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
-                    })}
-                  </p>
-                </div>
-              )}
+              </div>
+              <div>
+                <p className="text-sm text-cyber-muted">简介</p>
+                <p className="text-cyber-secondary whitespace-pre-wrap">{description}</p>
+              </div>
+              <div className="flex justify-between items-center">
+                <button
+                  onClick={() => navigate(`/album/${album.id}/edit`)}
+                  className="px-4 py-2 bg-cyber-primary text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
+                >
+                  编辑专辑
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-cyber-primary">专辑歌曲</h2>
-        <button
-          onClick={() => setShowUploadForm(!showUploadForm)}
-          className="flex items-center bg-cyber-primary text-cyber-bg-darker px-4 py-2 rounded-lg hover:bg-cyber-hover-primary transition-colors"
-        >
-          <UploadCloud className="mr-2 h-5 w-5" /> 上传歌曲
-        </button>
-      </div>
-
-      {showUploadForm && (
-        <div className="mb-8">
-          <UploadForm
-            albumId={album.id}
-            onUploadSuccess={() => {
-              setShowUploadForm(false);
-              fetchAlbumDetails();
-            }}
-            onCancel={() => setShowUploadForm(false)}
-          />
-        </div>
-      )}
-
-      <div className="space-y-4">
-        {album.tracks && album.tracks.length > 0 ? (
-          album.tracks.map((track) => {
-            const isCurrentlyPlaying = playerState.currentTrack?.id === track.id && playerState.isPlaying;
-            
-            return (
-              <div
-                key={track.id}
-                className="flex items-center justify-between p-4 bg-cyber-bg-darker rounded-lg border-2 border-cyber-secondary hover:border-cyber-primary transition-colors"
+        <div className="bg-cyber-bg-darker border-2 border-cyber-secondary rounded-lg p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-cyber-primary">歌曲列表</h2>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => {
+                  setUploadMode('single');
+                  setShowUploadModal(true);
+                }}
+                className="flex items-center px-3 py-1 text-sm bg-cyber-primary text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
               >
-                <div className="flex items-center space-x-4">
-                  <button
-                    onClick={() => playTrack(track)}
-                    className="text-cyber-primary hover:text-cyber-hover-primary transition-colors"
-                  >
-                    {isCurrentlyPlaying ? (
-                      <PauseCircle className="h-8 w-8" />
+                <Plus className="mr-1 h-4 w-4" /> 添加单曲
+              </button>
+              <button
+                onClick={() => {
+                  setUploadMode('batch');
+                  setShowUploadModal(true);
+                }}
+                className="flex items-center px-3 py-1 text-sm bg-cyber-primary text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
+              >
+                <Upload className="mr-1 h-4 w-4" /> 批量上传
+              </button>
+            </div>
+          </div>
+          {tracks && tracks.length > 0 ? (
+            <div className="space-y-2">
+              {tracks.map((track) => (
+                <div
+                  key={track.id}
+                  className="flex items-center justify-between p-3 bg-cyber-bg rounded hover:bg-cyber-hover-secondary transition-colors"
+                >
+                  <div className="flex items-center space-x-4">
+                    {track.coverArtPath || (album && album.coverPath) ? (
+                      <img
+                        src={track.coverArtPath ? String(track.coverArtPath) : String(album?.coverPath)}
+                        alt={String(track.title || '')}
+                        className="h-10 w-10 object-cover rounded"
+                      />
                     ) : (
-                      <PlayCircle className="h-8 w-8" />
+                      <Music2 className="h-5 w-5 text-cyber-primary" />
                     )}
-                  </button>
-                  <div>
-                    <h3 className="text-lg font-semibold text-cyber-primary">{track.title}</h3>
-                    <p className="text-sm text-cyber-secondary">{track.artist || album.artist}</p>
+                    <div>
+                      <p className="text-cyber-secondary font-medium">{String(track.title || '')}</p>
+                      <p className="text-sm text-cyber-muted">{String(track.artist || '')}</p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center space-x-4">
                   <button
-                    onClick={() => handleRemoveTrack(track.id)}
+                    onClick={() => handleRemoveTrack(Number(track.id))}
                     className="p-2 text-cyber-secondary hover:text-cyber-red transition-colors"
                   >
                     <Trash2 className="h-5 w-5" />
                   </button>
                 </div>
-              </div>
-            );
-          })
-        ) : (
-          <div className="text-center py-8 text-cyber-muted">
-            这个专辑还没有歌曲，点击"上传歌曲"按钮添加歌曲
-          </div>
-        )}
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-cyber-secondary mb-4">这个专辑还没有歌曲</p>
+            </div>
+          )}
+        </div>
       </div>
+
+      {showUploadModal && album && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-cyber-bg-darker p-6 rounded-lg w-full max-w-md">
+            <h2 className="text-2xl font-bold text-cyber-primary mb-4">
+              {uploadMode === 'single' ? '添加单曲' : '批量上传'}
+            </h2>
+            <UploadForm
+              albumId={Number(album.id)}
+              isBatch={uploadMode === 'batch'}
+              onUploadSuccess={() => {
+                setShowUploadModal(false);
+                fetchAlbumTracks();
+              }}
+              onCancel={() => setShowUploadModal(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

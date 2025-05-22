@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { Album, CreateAlbumRequest } from '../../types';
-import { Plus, Disc, Music2, Edit2, Trash2, UploadCloud } from 'lucide-react';
+import { Plus, Disc, Music2, Edit2, Trash2, UploadCloud, Upload } from 'lucide-react';
 
 const AlbumsView: React.FC = () => {
   const { currentUser, authToken } = useAuth();
@@ -301,6 +301,14 @@ const AlbumsView: React.FC = () => {
               <h3 className="text-lg font-semibold text-cyber-primary truncate">{album.name}</h3>
               <p className="text-sm text-cyber-secondary truncate">{album.artist}</p>
               <p className="text-xs text-cyber-muted truncate">{album.genre || '未分类'}</p>
+              
+              {/* 添加空状态提示 */}
+              {(!album.tracks || album.tracks.length === 0) && (
+                <div className="mt-4 p-4 bg-cyber-bg rounded-lg border border-cyber-secondary">
+                  <p className="text-cyber-secondary text-sm">这个专辑还没有歌曲</p>
+                </div>
+              )}
+
               <div className="mt-4 flex justify-between items-center">
                 <button
                   onClick={() => window.location.href = `/album/${album.id}`}

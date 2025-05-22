@@ -37,6 +37,9 @@ type AlbumRepository interface {
 
 	// UpdateTrackPosition 更新专辑中歌曲的位置
 	UpdateTrackPosition(ctx context.Context, albumID, trackID int64, newPosition int) error
+
+	// AddTracksToAlbum 批量添加歌曲到专辑
+	AddTracksToAlbum(ctx context.Context, albumID int64, trackIDs []int64) error
 }
 
 // MySQLAlbumRepository MySQL实现的专辑仓库
@@ -399,6 +402,78 @@ func (r *MySQLAlbumRepository) UpdateTrackPosition(ctx context.Context, albumID,
 		logger.Int64("albumId", albumID),
 		logger.Int64("trackId", trackID),
 		logger.Int("newPosition", newPosition),
+	)
+	return nil
+}
+
+// AddTracksToAlbum 批量添加歌曲到专辑
+func (r *MySQLAlbumRepository) AddTracksToAlbum(ctx context.Context, albumID int64, trackIDs []int64) error {
+	logger.Debug("Adding multiple tracks to album",
+		logger.Int64("albumId", albumID),
+		logger.Int("trackCount", len(trackIDs)),
+	)
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		logger.Error("Failed to begin transaction",
+			logger.Int64("albumId", albumID),
+			logger.ErrorField(err),
+		)
+		return err
+	}
+	defer tx.Rollback()
+
+	// 获取当前专辑中最大的position
+	var maxPosition int
+	err = tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(position), 0) FROM album_tracks WHERE album_id = ?", albumID).Scan(&maxPosition)
+	if err != nil {
+		logger.Error("Failed to get max position",
+			logger.Int64("albumId", albumID),
+			logger.ErrorField(err),
+		)
+		return err
+	}
+
+	// 准备批量插入语句
+	query := `
+		INSERT INTO album_tracks (album_id, track_id, position, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?)
+	`
+	stmt, err := tx.PrepareContext(ctx, query)
+	if err != nil {
+		logger.Error("Failed to prepare statement",
+			logger.Int64("albumId", albumID),
+			logger.ErrorField(err),
+		)
+		return err
+	}
+	defer stmt.Close()
+
+	now := time.Now()
+	for i, trackID := range trackIDs {
+		position := maxPosition + i + 1
+		_, err = stmt.ExecContext(ctx, albumID, trackID, position, now, now)
+		if err != nil {
+			logger.Error("Failed to add track to album",
+				logger.Int64("albumId", albumID),
+				logger.Int64("trackId", trackID),
+				logger.ErrorField(err),
+			)
+			return err
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		logger.Error("Failed to commit transaction",
+			logger.Int64("albumId", albumID),
+			logger.ErrorField(err),
+		)
+		return err
+	}
+
+	logger.Info("Successfully added multiple tracks to album",
+		logger.Int64("albumId", albumID),
+		logger.Int("trackCount", len(trackIDs)),
 	)
 	return nil
 }

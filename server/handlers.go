@@ -26,23 +26,29 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// APIHandler holds dependencies for HTTP handlers.
+// APIHandler 处理所有API请求
 type APIHandler struct {
-	trackRepo repository.TrackRepository
-	userRepo  repository.UserRepository
-	albumRepo repository.AlbumRepository
-	ap        audio.Processor
-	cfg       *config.Config
+	trackRepo      repository.TrackRepository
+	userRepo       repository.UserRepository
+	albumRepo      repository.AlbumRepository
+	audioProcessor *audio.FFmpegProcessor
+	cfg            *config.Config
 }
 
-// NewAPIHandler creates a new APIHandler.
-func NewAPIHandler(trackRepo repository.TrackRepository, userRepo repository.UserRepository, albumRepo repository.AlbumRepository, ap audio.Processor, cfg *config.Config) *APIHandler {
+// NewAPIHandler 创建新的API处理器
+func NewAPIHandler(
+	trackRepo repository.TrackRepository,
+	userRepo repository.UserRepository,
+	albumRepo repository.AlbumRepository,
+	audioProcessor *audio.FFmpegProcessor,
+	cfg *config.Config,
+) *APIHandler {
 	return &APIHandler{
-		trackRepo: trackRepo,
-		userRepo:  userRepo,
-		albumRepo: albumRepo,
-		ap:        ap,
-		cfg:       cfg,
+		trackRepo:      trackRepo,
+		userRepo:       userRepo,
+		albumRepo:      albumRepo,
+		audioProcessor: audioProcessor,
+		cfg:            cfg,
 	}
 }
 
@@ -320,7 +326,7 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		duration, procErr := h.ap.ProcessToHLS(track.FilePath, m3u8DiskPath, segmentDiskPattern, hlsBaseURL, h.cfg.AudioBitrate, h.cfg.HLSSegmentTime)
+		duration, procErr := h.audioProcessor.ProcessToHLS(track.FilePath, m3u8DiskPath, segmentDiskPattern, hlsBaseURL, h.cfg.AudioBitrate, h.cfg.HLSSegmentTime)
 		if procErr != nil {
 			http.Error(w, fmt.Sprintf("Failed to process audio to HLS for track %d: %v", trackID, procErr), http.StatusInternalServerError)
 			return
@@ -341,7 +347,7 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Track %d HLS path was empty in DB, but m3u8 may exist or was just generated. Using: %s", trackID, m3u8ServePath)
 		track.HLSPlaylistPath = m3u8ServePath
 		if track.Duration == 0 {
-			duration, durErr := h.ap.GetAudioDuration(track.FilePath)
+			duration, durErr := h.audioProcessor.GetAudioDuration(track.FilePath)
 			if durErr == nil && duration > 0 {
 				if errDb := h.trackRepo.UpdateTrackHLSPath(trackID, m3u8ServePath, duration); errDb != nil {
 					log.Printf("Error updating HLS path (with duration) for track ID %d in DB: %v.", trackID, errDb)
@@ -1432,6 +1438,22 @@ func (h *APIHandler) GetAlbumTracksHandler(w http.ResponseWriter, r *http.Reques
 		logger.Int64("albumId", albumID),
 	)
 
+	// 新增：获取专辑信息
+	album, err := h.albumRepo.GetAlbumByID(r.Context(), albumID)
+	if err != nil {
+		logger.Error("Failed to get album",
+			logger.Int64("albumId", albumID),
+			logger.ErrorField(err),
+		)
+		http.Error(w, "Failed to get album", http.StatusInternalServerError)
+		return
+	}
+	if album == nil {
+		logger.Warn("Album not found", logger.Int64("albumId", albumID))
+		http.Error(w, "Album not found", http.StatusNotFound)
+		return
+	}
+
 	tracks, err := h.albumRepo.GetAlbumTracks(r.Context(), albumID)
 	if err != nil {
 		logger.Error("Failed to get album tracks",
@@ -1440,6 +1462,16 @@ func (h *APIHandler) GetAlbumTracksHandler(w http.ResponseWriter, r *http.Reques
 		)
 		http.Error(w, "Failed to get album tracks", http.StatusInternalServerError)
 		return
+	}
+
+	// 新增：自动补全 coverArtPath
+	for _, track := range tracks {
+		if (track.CoverArtPath == "" || track.CoverArtPath == "null") && album.CoverPath != "" {
+			err := h.trackRepo.UpdateTrackCoverArtPath(track.ID, album.CoverPath)
+			if err == nil {
+				track.CoverArtPath = album.CoverPath
+			}
+		}
 	}
 
 	logger.Info("Successfully retrieved album tracks",
