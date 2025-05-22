@@ -16,7 +16,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true); // Initially true to check localStorage
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
     // Try to load user and token from localStorage on initial load
@@ -37,52 +37,101 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const login = async (usernameOrEmail: string, password: string) => {
     setIsLoading(true);
-    // Simulate API call
-    console.log("Attempting login for:", usernameOrEmail);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username: usernameOrEmail,
+          password: password,
+        }),
+      });
 
-    // Hardcoded credentials for now, like in original player.js
-    if (usernameOrEmail === "bt1q" && password === "qweasd2417") {
-      const user: User = { id: 1, username: "bt1q", email: "bt1q@tatakal.com", phone: "13434206007", createdAt: new Date().toISOString() };
-      const token = "fake-auth-token-" + Date.now();
-      
-      setCurrentUser(user);
-      setAuthToken(token);
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || 'Login failed');
+      }
+
+      const data = await response.json();
+      const { token, user } = data;
+
+      // 先清除旧的存储
+      localStorage.removeItem('currentUser');
+      localStorage.removeItem('authToken');
+
+      // 存储新的数据
       localStorage.setItem('currentUser', JSON.stringify(user));
       localStorage.setItem('authToken', token);
+
+      // 更新状态
+      setCurrentUser(user);
+      setAuthToken(token);
+
+      // 使用replace而不是href，避免在历史记录中留下登录页面
+      window.location.replace('/music-library');
+    } catch (error: any) {
+      throw new Error(error.message || 'Login failed');
+    } finally {
       setIsLoading(false);
-    } else {
-      setIsLoading(false);
-      throw new Error("Invalid username or password.");
     }
   };
 
   const register = async (username: string, email: string, password: string, phone?: string) => {
     setIsLoading(true);
-    // Simulate API call
-    console.log("Attempting registration for:", username, email, phone, password);
-    await new Promise(resolve => setTimeout(resolve, 1000)); 
-    
-    // Simulate success for now - in a real app, this would create a user and then likely auto-login or redirect to login
-    // For this example, we won't auto-login after register to keep it simple.
-    // const newUser: User = { id: Date.now(), username, email, phone, createdAt: new Date().toISOString() };
-    // const token = "fake-register-token-" + Date.now();
-    // setCurrentUser(newUser);
-    // setAuthToken(token);
-    // localStorage.setItem('currentUser', JSON.stringify(newUser));
-    // localStorage.setItem('authToken', token);
-    setIsLoading(false);
-    // Simulate success, but user will have to login manually
-    // throw new Error("Registration failed (simulated)."); 
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username,
+          email,
+          password,
+          phone,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || 'Registration failed');
+      }
+
+      const data = await response.json();
+      const { token, user } = data;
+
+      // 先清除旧的存储
+      localStorage.removeItem('currentUser');
+      localStorage.removeItem('authToken');
+
+      // 存储新的数据
+      localStorage.setItem('currentUser', JSON.stringify(user));
+      localStorage.setItem('authToken', token);
+
+      // 更新状态
+      setCurrentUser(user);
+      setAuthToken(token);
+
+      // 使用replace而不是href，避免在历史记录中留下注册页面
+      window.location.replace('/music-library');
+    } catch (error: any) {
+      throw new Error(error.message || 'Registration failed');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const logout = () => {
+    // 清除状态和存储
     setCurrentUser(null);
     setAuthToken(null);
     localStorage.removeItem('currentUser');
     localStorage.removeItem('authToken');
-    console.log("User logged out");
-    // Optionally redirect or clear other app state here
+    
+    // 使用replace而不是href，避免在历史记录中留下已登出的页面
+    window.location.replace('/login');
   };
 
   return (

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
+	"Bt1QFM/core/auth"
 	"Bt1QFM/db"
 	"Bt1QFM/model"
 	"Bt1QFM/repository"
@@ -84,8 +86,12 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// TODO: Implement actual user authentication. For now, assume user ID 1.
-	currentUserID := int64(1)
+	// Get user ID from context (set by AuthMiddleware)
+	userID, err := GetUserIDFromContext(r.Context())
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	if err := r.ParseMultipartForm(32 << 20); err != nil { // 32MB max memory
 		http.Error(w, fmt.Sprintf("Failed to parse multipart form: %v", err), http.StatusBadRequest)
@@ -139,7 +145,7 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 
 	// Create track entry with determined paths
 	newTrack := &model.Track{
-		UserID:       currentUserID,
+		UserID:       userID,
 		Title:        title,
 		Artist:       artist,
 		Album:        album,
@@ -215,12 +221,16 @@ func (h *APIHandler) GetTracksHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implement actual user authentication. For now, assume user ID 1.
-	currentUserID := int64(1)
-
-	tracks, err := h.trackRepo.GetAllTracksByUserID(currentUserID)
+	// Get user ID from context (set by AuthMiddleware)
+	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to retrieve tracks for user %d: %v", currentUserID, err), http.StatusInternalServerError)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	tracks, err := h.trackRepo.GetAllTracksByUserID(userID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to retrieve tracks for user %d: %v", userID, err), http.StatusInternalServerError)
 		return
 	}
 
@@ -339,32 +349,35 @@ func (h *APIHandler) PlaylistHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 获取当前用户ID（实际项目中应该基于认证信息）
-	// TODO: 实现更好的用户认证。目前假设用户ID为1。
-	currentUserID := int64(1)
+	// 获取当前用户ID（从认证中间件中获取）
+	userID, err := GetUserIDFromContext(r.Context())
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	ctx := r.Context()
 
 	switch r.Method {
 	case http.MethodGet:
 		// 获取播放列表
-		h.GetPlaylistHandler(ctx, currentUserID, w, r)
+		h.GetPlaylistHandler(ctx, userID, w, r)
 	case http.MethodPost:
 		// 添加歌曲到播放列表
-		h.AddToPlaylistHandler(ctx, currentUserID, w, r)
+		h.AddToPlaylistHandler(ctx, userID, w, r)
 	case http.MethodDelete:
 		// 可能是从播放列表中删除歌曲或清空播放列表
 		if r.URL.Query().Get("clear") == "true" {
-			h.ClearPlaylistHandler(ctx, currentUserID, w, r)
+			h.ClearPlaylistHandler(ctx, userID, w, r)
 		} else {
-			h.RemoveFromPlaylistHandler(ctx, currentUserID, w, r)
+			h.RemoveFromPlaylistHandler(ctx, userID, w, r)
 		}
 	case http.MethodPut:
 		// 可能是更新播放列表顺序或洗牌
 		if r.URL.Query().Get("shuffle") == "true" {
-			h.ShufflePlaylistHandler(ctx, currentUserID, w, r)
+			h.ShufflePlaylistHandler(ctx, userID, w, r)
 		} else {
-			h.UpdatePlaylistOrderHandler(ctx, currentUserID, w, r)
+			h.UpdatePlaylistOrderHandler(ctx, userID, w, r)
 		}
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -560,21 +573,24 @@ func (h *APIHandler) AddAllTracksToPlaylistHandler(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 获取当前用户ID（实际项目中应该基于认证信息）
-	// TODO: 实现更好的用户认证。目前假设用户ID为1。
-	currentUserID := int64(1)
+	// 获取当前用户ID（从认证中间件中获取）
+	userID, err := GetUserIDFromContext(r.Context())
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	ctx := r.Context()
 
 	// 首先清空现有播放列表
-	if err := db.ClearPlaylist(ctx, currentUserID); err != nil {
+	if err := db.ClearPlaylist(ctx, userID); err != nil {
 		log.Printf("Error clearing playlist before adding all tracks: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to clear existing playlist: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	// 获取用户的所有歌曲
-	tracks, err := h.trackRepo.GetAllTracksByUserID(currentUserID)
+	tracks, err := h.trackRepo.GetAllTracksByUserID(userID)
 	if err != nil {
 		log.Printf("Error getting user tracks: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to get user tracks: %v", err), http.StatusInternalServerError)
@@ -591,7 +607,7 @@ func (h *APIHandler) AddAllTracksToPlaylistHandler(w http.ResponseWriter, r *htt
 			Position: i,
 		}
 
-		if err := db.AddTrackToPlaylist(ctx, currentUserID, item); err != nil {
+		if err := db.AddTrackToPlaylist(ctx, userID, item); err != nil {
 			log.Printf("Warning: Failed to add track %d to playlist: %v", track.ID, err)
 			continue
 		}
@@ -653,4 +669,230 @@ func (h *APIHandler) UploadCoverHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// LoginRequest represents the login request body
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// RegisterRequest represents the registration request body
+type RegisterRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Email    string `json:"email"`
+	Phone    string `json:"phone"`
+}
+
+// LoginHandler handles user login requests
+func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("收到登录请求: %s", r.RemoteAddr)
+
+	if r.Method != http.MethodPost {
+		log.Printf("无效的请求方法: %s", r.Method)
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("解析请求体失败: %v", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.Username == "" || req.Password == "" {
+		log.Printf("用户名或密码为空: username=%s, password=%s", req.Username, "***")
+		http.Error(w, "Username and password are required", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("尝试登录用户: %s", req.Username)
+
+	// Get user from database
+	user, err := h.userRepo.GetUserByUsername(req.Username)
+	if err != nil {
+		log.Printf("查询用户失败: username=%s, error=%v", req.Username, err)
+		http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if user exists
+	if user == nil {
+		log.Printf("用户不存在: username=%s", req.Username)
+		http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+		return
+	}
+
+	// Verify password
+	if !auth.VerifyPassword(req.Password, user.PasswordHash) {
+		log.Printf("密码验证失败: username=%s", req.Username)
+		http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+		return
+	}
+
+	log.Printf("密码验证成功: username=%s", req.Username)
+
+	// Generate JWT token
+	token, err := auth.GenerateToken(user.ID, user.Username)
+	if err != nil {
+		log.Printf("生成token失败: username=%s, error=%v", req.Username, err)
+		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("登录成功: username=%s, userID=%d", req.Username, user.ID)
+
+	// Return user info and token
+	userResponse := map[string]interface{}{
+		"id":       user.ID,
+		"username": user.Username,
+		"email":    user.Email,
+	}
+
+	// 只有当Phone字段有效时才添加到响应中
+	if user.Phone.Valid {
+		userResponse["phone"] = user.Phone.String
+	}
+
+	// 只有当Preferences字段有效时才添加到响应中
+	if user.Preferences.Valid {
+		userResponse["preferences"] = user.Preferences.String
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"token": token,
+		"user":  userResponse,
+	})
+}
+
+// RegisterHandler handles user registration requests
+func (h *APIHandler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.Username == "" || req.Password == "" || req.Email == "" {
+		http.Error(w, "Username, password and email are required", http.StatusBadRequest)
+		return
+	}
+
+	// Hash password
+	hashedPassword, err := auth.HashPassword(req.Password)
+	if err != nil {
+		http.Error(w, "Failed to process password", http.StatusInternalServerError)
+		return
+	}
+
+	// Create user
+	user := &model.User{
+		Username:     req.Username,
+		Email:        req.Email,
+		PasswordHash: hashedPassword,
+	}
+
+	// 只有当Phone字段不为空时才设置
+	if req.Phone != "" {
+		user.Phone = sql.NullString{
+			String: req.Phone,
+			Valid:  true,
+		}
+	}
+
+	userID, err := h.userRepo.CreateUser(user)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate entry") {
+			http.Error(w, "Username or email already exists", http.StatusConflict)
+		} else {
+			http.Error(w, "Failed to create user", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Generate JWT token
+	token, err := auth.GenerateToken(userID, user.Username)
+	if err != nil {
+		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+		return
+	}
+
+	// Return user info and token
+	userResponse := map[string]interface{}{
+		"id":       userID,
+		"username": user.Username,
+		"email":    user.Email,
+	}
+
+	// 只有当Phone字段有效时才添加到响应中
+	if user.Phone.Valid {
+		userResponse["phone"] = user.Phone.String
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"token": token,
+		"user":  userResponse,
+	})
+}
+
+// AuthMiddleware is a middleware function that checks for a valid JWT token
+func (h *APIHandler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get the Authorization header
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "Authorization header is required", http.StatusUnauthorized)
+			return
+		}
+
+		// Check if the header has the correct format
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			http.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
+			return
+		}
+
+		// Parse and validate the token
+		claims, err := auth.ParseToken(parts[1])
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		// Add user info to the request context
+		ctx := context.WithValue(r.Context(), "userID", claims.UserID)
+		ctx = context.WithValue(ctx, "username", claims.Username)
+
+		// Call the next handler with the updated context
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+// GetUserIDFromContext extracts the user ID from the request context
+func GetUserIDFromContext(ctx context.Context) (int64, error) {
+	userID, ok := ctx.Value("userID").(int64)
+	if !ok {
+		return 0, fmt.Errorf("user ID not found in context")
+	}
+	return userID, nil
+}
+
+// GetUsernameFromContext extracts the username from the request context
+func GetUsernameFromContext(ctx context.Context) (string, error) {
+	username, ok := ctx.Value("username").(string)
+	if !ok {
+		return "", fmt.Errorf("username not found in context")
+	}
+	return username, nil
 }

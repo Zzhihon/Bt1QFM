@@ -10,7 +10,7 @@ import (
 	"Bt1QFM/core/audio"
 	"Bt1QFM/db"
 	"Bt1QFM/repository"
-	"Bt1QFM/storage"
+	// "Bt1QFM/storage"
 )
 
 // Start initializes and starts the HTTP server.
@@ -18,9 +18,9 @@ func Start() {
 	cfg := config.Load()
 
 	// 初始化 MinIO 客户端
-	if err := storage.InitMinio(); err != nil {
-		log.Fatalf("Failed to initialize MinIO: %v", err)
-	}
+	// if err := storage.InitMinio(); err != nil {
+	// 	log.Fatalf("Failed to initialize MinIO: %v", err)
+	// }
 
 	// Connect to the database
 	if err := db.ConnectDB(cfg); err != nil {
@@ -57,14 +57,18 @@ func Start() {
 	mux := http.NewServeMux()
 
 	// API Endpoints
-	mux.HandleFunc("/api/tracks", apiHandler.GetTracksHandler)         // GET /api/tracks
-	mux.HandleFunc("/api/upload", apiHandler.UploadTrackHandler)       // POST /api/upload
-	mux.HandleFunc("/api/upload/cover", apiHandler.UploadCoverHandler) // POST /api/upload/cover
-	mux.HandleFunc("/stream/", apiHandler.StreamHandler)               // GET /stream/{trackID}/playlist.m3u8
+	mux.HandleFunc("/api/tracks", apiHandler.AuthMiddleware(apiHandler.GetTracksHandler))         // GET /api/tracks
+	mux.HandleFunc("/api/upload", apiHandler.AuthMiddleware(apiHandler.UploadTrackHandler))       // POST /api/upload
+	mux.HandleFunc("/api/upload/cover", apiHandler.AuthMiddleware(apiHandler.UploadCoverHandler)) // POST /api/upload/cover
+	mux.HandleFunc("/stream/", apiHandler.StreamHandler)                                          // GET /stream/{trackID}/playlist.m3u8
 
 	// 新增播放列表相关的API端点
-	mux.HandleFunc("/api/playlist", apiHandler.PlaylistHandler)                   // 处理基本的播放列表操作
-	mux.HandleFunc("/api/playlist/all", apiHandler.AddAllTracksToPlaylistHandler) // 添加所有歌曲到播放列表
+	mux.HandleFunc("/api/playlist", apiHandler.AuthMiddleware(apiHandler.PlaylistHandler))                   // 处理基本的播放列表操作
+	mux.HandleFunc("/api/playlist/all", apiHandler.AuthMiddleware(apiHandler.AddAllTracksToPlaylistHandler)) // 添加所有歌曲到播放列表
+
+	// 新增用户认证相关的API端点
+	mux.HandleFunc("/api/auth/login", apiHandler.LoginHandler)       // POST /api/auth/login
+	mux.HandleFunc("/api/auth/register", apiHandler.RegisterHandler) // POST /api/auth/register
 
 	// Static file serving for HLS segments and cover art
 	// This will serve files from ./static (e.g., /static/streams/... and /static/covers/...)
