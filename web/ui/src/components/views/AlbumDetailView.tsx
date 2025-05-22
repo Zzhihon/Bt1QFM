@@ -5,6 +5,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { Album, Track } from '../../types';
 import { Music2, Trash2, Upload, Plus } from 'lucide-react';
 import UploadForm from '../upload/UploadForm';
+import TrackListItem from '../common/TrackListItem';
 
 const AlbumDetailView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -163,7 +164,8 @@ const AlbumDetailView: React.FC = () => {
               <div className="flex justify-between items-center">
                 <button
                   onClick={() => navigate(`/album/${album.id}/edit`)}
-                  className="px-4 py-2 bg-cyber-primary text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
+                  className="px-4 py-2 text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
+                  style={{ backgroundColor: 'rgb(55, 41, 99)' }}
                 >
                   编辑专辑
                 </button>
@@ -181,46 +183,32 @@ const AlbumDetailView: React.FC = () => {
                   setUploadMode('single');
                   setShowUploadModal(true);
                 }}
-                className="flex items-center px-3 py-1 text-sm bg-cyber-primary text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
+                className="flex items-center px-4 py-2 text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
+                style={{ backgroundColor: 'rgb(55, 41, 99)' }}
               >
-                <Plus className="mr-1 h-4 w-4" /> 添加单曲
+                <Plus className="mr-2 h-5 w-5" /> 添加单曲
               </button>
               <button
                 onClick={() => {
                   setUploadMode('batch');
                   setShowUploadModal(true);
                 }}
-                className="flex items-center px-3 py-1 text-sm bg-cyber-primary text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
+                className="flex items-center px-4 py-2 text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
+                style={{ backgroundColor: 'rgb(55, 41, 99)' }}
               >
-                <Upload className="mr-1 h-4 w-4" /> 批量上传
+                <Upload className="mr-2 h-5 w-5" /> 批量上传
               </button>
             </div>
           </div>
           {tracks && tracks.length > 0 ? (
             <div className="space-y-2">
               {tracks.map((track) => (
-                <div
-                  key={track.id}
-                  className="flex items-center justify-between p-3 bg-cyber-bg rounded hover:bg-cyber-hover-secondary transition-colors"
-                >
-                  <div className="flex items-center space-x-4">
-                    {track.coverArtPath || (album && album.coverPath) ? (
-                      <img
-                        src={track.coverArtPath ? String(track.coverArtPath) : String(album?.coverPath)}
-                        alt={String(track.title || '')}
-                        className="h-10 w-10 object-cover rounded"
-                      />
-                    ) : (
-                      <Music2 className="h-5 w-5 text-cyber-primary" />
-                    )}
-                    <div>
-                      <p className="text-cyber-secondary font-medium">{String(track.title || '')}</p>
-                      <p className="text-sm text-cyber-muted">{String(track.artist || '')}</p>
-                    </div>
-                  </div>
+                <div key={track.id} className="relative group">
+                  <TrackListItem track={{ ...track, coverArtPath: track.coverArtPath || album?.coverPath }} />
                   <button
                     onClick={() => handleRemoveTrack(Number(track.id))}
-                    className="p-2 text-cyber-secondary hover:text-cyber-red transition-colors"
+                    className="absolute top-1 right-1 p-2 text-cyber-secondary hover:text-cyber-red transition-colors opacity-0 group-hover:opacity-100 bg-cyber-bg-darker rounded-full z-10"
+                    title="删除歌曲"
                   >
                     <Trash2 className="h-5 w-5" />
                   </button>

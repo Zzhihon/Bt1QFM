@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
@@ -1070,13 +1071,54 @@ func (h *APIHandler) CreateAlbumHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// 读取原始请求体内容
+	bodyBytes, _ := io.ReadAll(r.Body)
+	logger.Debug("Raw request body", logger.String("body", string(bodyBytes)))
+	// 需要重置 r.Body 以便后续解码
+	r.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
+
 	var album model.Album
 	if err := json.NewDecoder(r.Body).Decode(&album); err != nil {
-		logger.Error("Failed to decode album data",
+		logger.Error("Failed to decode album data (model.Album)",
 			logger.ErrorField(err),
 		)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
+		// 再次尝试用自定义结构体解码
+		r.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
+		type albumInput struct {
+			Artist      string `json:"artist"`
+			Name        string `json:"name"`
+			CoverPath   string `json:"coverPath"`
+			ReleaseTime string `json:"releaseTime"`
+			Genre       string `json:"genre"`
+			Description string `json:"description"`
+		}
+		var input albumInput
+		if err2 := json.NewDecoder(r.Body).Decode(&input); err2 == nil {
+			logger.Debug("Decoded albumInput struct", logger.String("artist", input.Artist), logger.String("name", input.Name), logger.String("releaseTime", input.ReleaseTime))
+			parsedTime, timeErr := time.Parse(time.RFC3339, input.ReleaseTime)
+			if timeErr != nil {
+				logger.Error("Failed to parse releaseTime",
+					logger.String("releaseTime", input.ReleaseTime),
+					logger.ErrorField(timeErr),
+				)
+				http.Error(w, "Invalid releaseTime format", http.StatusBadRequest)
+				return
+			}
+			album.Artist = input.Artist
+			album.Name = input.Name
+			album.CoverPath = input.CoverPath
+			album.ReleaseTime = parsedTime
+			album.Genre = input.Genre
+			album.Description = sql.NullString{String: input.Description, Valid: input.Description != ""}
+		} else {
+			logger.Error("Failed to decode albumInput struct",
+				logger.ErrorField(err2),
+			)
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+	} else {
+		logger.Debug("Decoded model.Album struct", logger.String("artist", album.Artist), logger.String("name", album.Name))
 	}
 
 	userID, err := GetUserIDFromContext(r.Context())

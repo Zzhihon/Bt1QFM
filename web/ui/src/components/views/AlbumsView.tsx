@@ -302,13 +302,6 @@ const AlbumsView: React.FC = () => {
               <p className="text-sm text-cyber-secondary truncate">{album.artist}</p>
               <p className="text-xs text-cyber-muted truncate">{album.genre || '未分类'}</p>
               
-              {/* 添加空状态提示 */}
-              {(!album.tracks || album.tracks.length === 0) && (
-                <div className="mt-4 p-4 bg-cyber-bg rounded-lg border border-cyber-secondary">
-                  <p className="text-cyber-secondary text-sm">这个专辑还没有歌曲</p>
-                </div>
-              )}
-
               <div className="mt-4 flex justify-between items-center">
                 <button
                   onClick={() => window.location.href = `/album/${album.id}`}
