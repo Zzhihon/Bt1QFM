@@ -10,7 +10,7 @@ import (
 	"Bt1QFM/core/audio"
 	"Bt1QFM/db"
 	"Bt1QFM/repository"
-	// "Bt1QFM/storage"
+	"Bt1QFM/storage"
 )
 
 // Start initializes and starts the HTTP server.
@@ -18,9 +18,9 @@ func Start() {
 	cfg := config.Load()
 
 	// 初始化 MinIO 客户端
-	// if err := storage.InitMinio(); err != nil {
-	// 	log.Fatalf("Failed to initialize MinIO: %v", err)
-	// }
+	if err := storage.InitMinio(); err != nil {
+		log.Fatalf("Failed to initialize MinIO: %v", err)
+	}
 
 	// Connect to the database
 	if err := db.ConnectDB(cfg); err != nil {
@@ -57,9 +57,10 @@ func Start() {
 	mux := http.NewServeMux()
 
 	// API Endpoints
-	mux.HandleFunc("/api/tracks", apiHandler.GetTracksHandler)   // GET /api/tracks
-	mux.HandleFunc("/api/upload", apiHandler.UploadTrackHandler) // POST /api/upload
-	mux.HandleFunc("/stream/", apiHandler.StreamHandler)         // GET /stream/{trackID}/playlist.m3u8
+	mux.HandleFunc("/api/tracks", apiHandler.GetTracksHandler)         // GET /api/tracks
+	mux.HandleFunc("/api/upload", apiHandler.UploadTrackHandler)       // POST /api/upload
+	mux.HandleFunc("/api/upload/cover", apiHandler.UploadCoverHandler) // POST /api/upload/cover
+	mux.HandleFunc("/stream/", apiHandler.StreamHandler)               // GET /stream/{trackID}/playlist.m3u8
 
 	// 新增播放列表相关的API端点
 	mux.HandleFunc("/api/playlist", apiHandler.PlaylistHandler)                   // 处理基本的播放列表操作

@@ -604,3 +604,53 @@ func (h *APIHandler) AddAllTracksToPlaylistHandler(w http.ResponseWriter, r *htt
 		"count":   addedCount,
 	})
 }
+
+// UploadCoverHandler 处理专辑封面上传
+func (h *APIHandler) UploadCoverHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 解析multipart表单
+	err := r.ParseMultipartForm(10 << 20) // 10MB
+	if err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	// 获取表单数据
+	artist := r.FormValue("artist")
+	album := r.FormValue("album")
+	if artist == "" || album == "" {
+		http.Error(w, "Artist and album are required", http.StatusBadRequest)
+		return
+	}
+
+	// 获取封面文件
+	file, header, err := r.FormFile("cover")
+	if err != nil {
+		http.Error(w, "Failed to get cover file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// 生成安全的文件名
+	safeFilename := generateSafeFilenamePrefix(artist, album, "")
+	coverFilename := fmt.Sprintf("%s_cover%s", safeFilename, filepath.Ext(header.Filename))
+	coverPath := filepath.Join(h.cfg.CoverUploadDir, coverFilename)
+
+	// 保存封面文件
+	err = saveUploadedFile(file, coverPath)
+	if err != nil {
+		http.Error(w, "Failed to save cover file", http.StatusInternalServerError)
+		return
+	}
+
+	// 返回封面路径
+	response := map[string]string{
+		"coverPath": "/static/covers/" + coverFilename,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}

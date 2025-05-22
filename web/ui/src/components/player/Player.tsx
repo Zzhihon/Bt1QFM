@@ -30,105 +30,125 @@ const Player: React.FC = () => {
   
   // 初始化HLS实例
   const hlsInstanceRef = useRef<Hls | null>(null);
+  const retryCountRef = useRef(0);
+  const MAX_RETRIES = 3;
 
-  // 初始化HLS.js
+  // 当currentTrack改变时更新HLS源
   useEffect(() => {
-    if (!audioRef.current) return;
+    if (!playerState.currentTrack?.hlsPlaylistUrl || !audioRef.current) return;
     
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        debug: false,
-      });
-      hlsInstanceRef.current = hls;
-      hls.attachMedia(audioRef.current);
-      
-      // 错误处理
-      hls.on(Hls.Events.ERROR, (event, data) => {
-        console.error('HLS error:', event, data);
+    // 每次切换曲目时，先销毁旧的HLS实例
+    if (hlsInstanceRef.current) {
+      hlsInstanceRef.current.destroy();
+      hlsInstanceRef.current = null;
+    }
+    
+    // 重置重试计数
+    retryCountRef.current = 0;
+    
+    try {
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          debug: false,
+          enableWorker: true,
+          lowLatencyMode: true,
+          backBufferLength: 90,
+          maxBufferLength: 30,
+          maxMaxBufferLength: 600,
+          maxBufferSize: 60 * 1000 * 1000, // 60MB
+          maxBufferHole: 0.5,
+          highBufferWatchdogPeriod: 2,
+          nudgeMaxRetry: 5,
+          nudgeOffset: 0.2,
+          manifestLoadingTimeOut: 20000,
+          manifestLoadingMaxRetry: 3,
+          manifestLoadingRetryDelay: 1000,
+          levelLoadingTimeOut: 20000,
+          levelLoadingMaxRetry: 3,
+          levelLoadingRetryDelay: 1000,
+          fragLoadingTimeOut: 20000,
+          fragLoadingMaxRetry: 3,
+          fragLoadingRetryDelay: 1000,
+          startFragPrefetch: true,
+          testBandwidth: true,
+          progressive: true
+        });
         
-        if (data.fatal) {
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              console.log('Fatal network error, trying to recover...');
-              hls.startLoad();
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              console.log('Fatal media error, trying to recover...');
-              hls.recoverMediaError();
-              break;
-            default:
-              console.log('Fatal error, destroying HLS instance...');
-              // 重新初始化HLS实例
+        hlsInstanceRef.current = hls;
+        hls.attachMedia(audioRef.current);
+        
+        // 错误处理
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          console.error('HLS error:', event, data);
+          
+          if (data.fatal) {
+            if (retryCountRef.current < MAX_RETRIES) {
+              retryCountRef.current++;
+              console.log(`Retrying... (${retryCountRef.current}/${MAX_RETRIES})`);
+              
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  console.log('Fatal network error, trying to recover...');
+                  hls.startLoad();
+                  break;
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  console.log('Fatal media error, trying to recover...');
+                  hls.recoverMediaError();
+                  break;
+                default:
+                  console.log('Fatal error, destroying HLS instance...');
+                  hls.destroy();
+                  hlsInstanceRef.current = null;
+                  break;
+              }
+            } else {
+              console.log('Max retries reached, giving up...');
+              alert('该曲目暂时无法播放，请稍后重试');
               hls.destroy();
-              initHls();
-              break;
+              hlsInstanceRef.current = null;
+            }
           }
-        }
-      });
+        });
+        
+        // 监听其他重要事件
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          console.log('HLS manifest parsed');
+          retryCountRef.current = 0;
+          if (audioRef.current) {
+            audioRef.current.play().catch(err => {
+              console.error('Error playing audio after manifest parsed:', err);
+            });
+          }
+        });
+        
+        hls.on(Hls.Events.LEVEL_LOADED, () => {
+          console.log('HLS level loaded');
+        });
+        
+        hls.on(Hls.Events.FRAG_LOADED, () => {
+          console.log('HLS fragment loaded');
+        });
+        
+        // 加载新的源
+        hls.loadSource(playerState.currentTrack.hlsPlaylistUrl);
+      } else if (audioRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari等浏览器原生支持HLS
+        audioRef.current.src = playerState.currentTrack.hlsPlaylistUrl;
+        audioRef.current.play().catch(err => {
+          console.error('Error playing audio natively:', err);
+        });
+      }
+    } catch (error) {
+      console.error("Error loading HLS stream:", error);
     }
     
     return () => {
       if (hlsInstanceRef.current) {
         hlsInstanceRef.current.destroy();
+        hlsInstanceRef.current = null;
       }
     };
-  }, []); // 仅在组件挂载时运行一次
-  
-  // 当currentTrack改变时更新HLS源
-  useEffect(() => {
-    if (!playerState.currentTrack?.hlsPlaylistUrl || !audioRef.current || !hlsInstanceRef.current) return;
-    
-    try {
-      if (Hls.isSupported() && hlsInstanceRef.current) {
-        // 先停止之前的加载
-        hlsInstanceRef.current.stopLoad();
-        
-        // 加载新的源
-        hlsInstanceRef.current.loadSource(playerState.currentTrack.hlsPlaylistUrl);
-        
-        hlsInstanceRef.current.once(Hls.Events.MANIFEST_PARSED, () => {
-          if (audioRef.current) {
-            audioRef.current.play().catch(err => console.error('Error playing audio after source change:', err));
-          }
-        });
-      } else if (audioRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari等浏览器原生支持HLS
-        audioRef.current.src = playerState.currentTrack.hlsPlaylistUrl;
-        audioRef.current.play().catch(err => console.error('Error playing audio natively:', err));
-      }
-    } catch (error) {
-      console.error("Error loading HLS stream:", error);
-    }
   }, [playerState.currentTrack]);
-  
-  // 初始化HLS实例的函数
-  const initHls = () => {
-    if (!audioRef.current) return;
-    
-    try {
-      if (Hls.isSupported()) {
-        if (hlsInstanceRef.current) {
-          hlsInstanceRef.current.destroy();
-        }
-        
-        const hls = new Hls();
-        hlsInstanceRef.current = hls;
-        hls.attachMedia(audioRef.current);
-        
-        // 如果有当前播放的歌曲，重新加载它
-        if (playerState.currentTrack?.hlsPlaylistUrl) {
-          hls.loadSource(playerState.currentTrack.hlsPlaylistUrl);
-          hls.once(Hls.Events.MANIFEST_PARSED, () => {
-            if (playerState.isPlaying && audioRef.current) {
-              audioRef.current.play().catch(err => console.error("Error replaying after HLS reinit:", err));
-            }
-          });
-        }
-      }
-    } catch (error) {
-      console.error("Error initializing HLS:", error);
-    }
-  };
   
   // 处理时间轨道点击
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -390,4 +410,4 @@ const Player: React.FC = () => {
   );
 };
 
-export default Player; 
+export default Player;

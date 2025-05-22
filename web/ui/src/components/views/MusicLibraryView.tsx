@@ -3,6 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePlayer } from '../../contexts/PlayerContext';
 import { Track } from '../../types';
 import { AlertTriangle, UploadCloud, Music2, PlayCircle, PauseCircle, ListMusic, Plus, Loader2 } from 'lucide-react';
+import { useToast } from '../../contexts/ToastContext';
 
 const MusicLibraryView: React.FC = () => {
   const { currentUser, authToken } = useAuth();
@@ -20,6 +21,9 @@ const MusicLibraryView: React.FC = () => {
 
   // Upload form state
   const [showUploadForm, setShowUploadForm] = useState(false);
+  const [showBatchUploadForm, setShowBatchUploadForm] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const { addToast } = useToast();
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('');
   const [album, setAlbum] = useState('');
@@ -159,6 +163,81 @@ const MusicLibraryView: React.FC = () => {
     }
   };
 
+  // 批量上传处理函数
+  const handleBatchUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+
+    const artist = formData.get('artist') as string;
+    const album = formData.get('album') as string;
+    const coverFile = formData.get('cover') as File;
+    const audioFiles = formData.getAll('audioFiles') as File[];
+
+    if (!artist || !album || !coverFile || audioFiles.length === 0) {
+      addToast('请填写所有必要信息', 'error');
+      return;
+    }
+
+    setIsLoading(true);
+    setUploadProgress(0);
+
+    try {
+      // 1. 先上传封面
+      const coverFormData = new FormData();
+      coverFormData.append('cover', coverFile);
+      coverFormData.append('artist', artist);
+      coverFormData.append('album', album);
+
+      const coverResponse = await fetch('/api/upload/cover', {
+        method: 'POST',
+        body: coverFormData,
+      });
+
+      if (!coverResponse.ok) {
+        throw new Error('Failed to upload cover');
+      }
+
+      const coverData = await coverResponse.json();
+      const coverPath = coverData.coverPath;
+
+      // 2. 批量上传音频文件
+      const totalFiles = audioFiles.length;
+      let uploadedCount = 0;
+
+      for (const audioFile of audioFiles) {
+        const audioFormData = new FormData();
+        audioFormData.append('trackFile', audioFile);
+        audioFormData.append('artist', artist);
+        audioFormData.append('album', album);
+        audioFormData.append('title', audioFile.name.replace(/\.[^/.]+$/, '')); // 使用文件名作为标题
+        audioFormData.append('coverPath', coverPath);
+
+        const audioResponse = await fetch('/api/upload', {
+          method: 'POST',
+          body: audioFormData,
+        });
+
+        if (!audioResponse.ok) {
+          throw new Error(`Failed to upload ${audioFile.name}`);
+        }
+
+        uploadedCount++;
+        setUploadProgress((uploadedCount / totalFiles) * 100);
+      }
+
+      addToast('专辑上传成功！', 'success');
+      setShowBatchUploadForm(false);
+      fetchTracks(); // 刷新音乐列表
+    } catch (error) {
+      console.error('Upload error:', error);
+      addToast('上传失败，请重试', 'error');
+    } finally {
+      setIsLoading(false);
+      setUploadProgress(0);
+    }
+  };
+
   if (isLoading) {
     return <div className="min-h-[calc(100vh-150px)] flex items-center justify-center p-4 text-cyber-primary text-xl">Loading music library...</div>;
   }
@@ -194,9 +273,88 @@ const MusicLibraryView: React.FC = () => {
             >
               <UploadCloud className="mr-2 h-5 w-5" /> {showUploadForm ? '取消上传' : '上传音乐'}
             </button>
+            <button
+              onClick={() => setShowBatchUploadForm(true)}
+              className="bg-cyber-primary text-cyber-bg-darker px-4 py-2 rounded hover:bg-cyber-hover-primary transition-colors"
+            >
+              批量上传专辑
+            </button>
           </>
         )}
       </div>
+
+      {showBatchUploadForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-cyber-bg-darker p-6 rounded-lg w-full max-w-2xl">
+            <h2 className="text-xl font-bold text-cyber-primary mb-4">批量上传专辑</h2>
+            <form onSubmit={handleBatchUploadSubmit} className="space-y-4">
+              <div>
+                <label className="block text-cyber-text mb-2">艺术家</label>
+                <input
+                  type="text"
+                  name="artist"
+                  required
+                  className="w-full bg-cyber-bg border border-cyber-primary text-cyber-text p-2 rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-cyber-text mb-2">专辑名称</label>
+                <input
+                  type="text"
+                  name="album"
+                  required
+                  className="w-full bg-cyber-bg border border-cyber-primary text-cyber-text p-2 rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-cyber-text mb-2">专辑封面</label>
+                <input
+                  type="file"
+                  name="cover"
+                  accept="image/*"
+                  required
+                  className="w-full bg-cyber-bg border border-cyber-primary text-cyber-text p-2 rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-cyber-text mb-2">音频文件（可多选）</label>
+                <input
+                  type="file"
+                  name="audioFiles"
+                  accept="audio/*"
+                  multiple
+                  required
+                  className="w-full bg-cyber-bg border border-cyber-primary text-cyber-text p-2 rounded"
+                />
+              </div>
+              {uploadProgress > 0 && (
+                <div className="w-full bg-cyber-bg rounded-full h-2.5">
+                  <div
+                    className="bg-cyber-primary h-2.5 rounded-full"
+                    style={{ width: `${uploadProgress}%` }}
+                  ></div>
+                </div>
+              )}
+              <div className="flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBatchUploadForm(false)}
+                  className="px-4 py-2 text-cyber-text hover:text-cyber-primary transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="bg-cyber-primary text-cyber-bg-darker px-4 py-2 rounded hover:bg-cyber-hover-primary transition-colors disabled:opacity-50"
+                >
+                  {isLoading ? '上传中...' : '上传'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showUploadForm && currentUser && (
         <div className="mb-8 p-6 bg-cyber-bg-darker rounded-lg shadow-xl border border-cyber-primary">
