@@ -687,86 +687,94 @@ type RegisterRequest struct {
 
 // LoginHandler handles user login requests
 func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("收到登录请求: %s", r.RemoteAddr)
-
+	log.Println("Received login request")
 	if r.Method != http.MethodPost {
-		log.Printf("无效的请求方法: %s", r.Method)
-		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var req LoginRequest
+	var req struct {
+		Username string `json:"username"` // 可以是用户名或邮箱
+		Password string `json:"password"`
+	}
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("解析请求体失败: %v", err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	// Validate request
 	if req.Username == "" || req.Password == "" {
-		log.Printf("用户名或密码为空: username=%s, password=%s", req.Username, "***")
-		http.Error(w, "Username and password are required", http.StatusBadRequest)
+		http.Error(w, "Username/Email and password are required", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("尝试登录用户: %s", req.Username)
+	// 查询用户 - 支持用户名或邮箱登录
+	var user *model.User
+	var err error
+	if strings.Contains(req.Username, "@") {
+		// 如果是邮箱格式，使用邮箱查询
+		user, err = h.userRepo.GetUserByEmail(req.Username)
+	} else {
+		// 否则使用用户名查询
+		user, err = h.userRepo.GetUserByUsername(req.Username)
+	}
 
-	// Get user from database
-	user, err := h.userRepo.GetUserByUsername(req.Username)
 	if err != nil {
-		log.Printf("查询用户失败: username=%s, error=%v", req.Username, err)
-		http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+		if err == sql.ErrNoRows {
+			http.Error(w, "Invalid username/email or password", http.StatusUnauthorized)
+		} else {
+			log.Printf("Error querying user: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
 		return
 	}
 
-	// Check if user exists
 	if user == nil {
-		log.Printf("用户不存在: username=%s", req.Username)
-		http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+		http.Error(w, "Invalid username/email or password", http.StatusUnauthorized)
 		return
 	}
 
-	// Verify password
+	// 验证密码
 	if !auth.VerifyPassword(req.Password, user.PasswordHash) {
-		log.Printf("密码验证失败: username=%s", req.Username)
-		http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+		http.Error(w, "Invalid username/email or password", http.StatusUnauthorized)
 		return
 	}
 
-	log.Printf("密码验证成功: username=%s", req.Username)
-
-	// Generate JWT token
+	// 生成JWT token
 	token, err := auth.GenerateToken(user.ID, user.Username)
 	if err != nil {
-		log.Printf("生成token失败: username=%s, error=%v", req.Username, err)
-		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+		log.Printf("Error generating token: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("登录成功: username=%s, userID=%d", req.Username, user.ID)
-
-	// Return user info and token
-	userResponse := map[string]interface{}{
-		"id":       user.ID,
-		"username": user.Username,
-		"email":    user.Email,
+	// 构建响应
+	response := struct {
+		Token string     `json:"token"`
+		User  model.User `json:"user"`
+	}{
+		Token: token,
+		User: model.User{
+			ID:        user.ID,
+			Username:  user.Username,
+			Email:     user.Email,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+		},
 	}
 
-	// 只有当Phone字段有效时才添加到响应中
+	// 如果手机号有效，添加到响应中
 	if user.Phone.Valid {
-		userResponse["phone"] = user.Phone.String
+		response.User.Phone = user.Phone
 	}
 
-	// 只有当Preferences字段有效时才添加到响应中
+	// 如果偏好设置有效，添加到响应中
 	if user.Preferences.Valid {
-		userResponse["preferences"] = user.Preferences.String
+		response.User.Preferences = user.Preferences
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"token": token,
-		"user":  userResponse,
-	})
+	json.NewEncoder(w).Encode(response)
 }
 
 // RegisterHandler handles user registration requests
