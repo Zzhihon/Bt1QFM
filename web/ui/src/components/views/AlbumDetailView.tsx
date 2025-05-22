@@ -203,16 +203,11 @@ const AlbumDetailView: React.FC = () => {
           {tracks && tracks.length > 0 ? (
             <div className="space-y-2">
               {tracks.map((track) => (
-                <div key={track.id} className="relative group">
-                  <TrackListItem track={{ ...track, coverArtPath: track.coverArtPath || album?.coverPath }} />
-                  <button
-                    onClick={() => handleRemoveTrack(Number(track.id))}
-                    className="absolute top-1 right-1 p-2 text-cyber-secondary hover:text-cyber-red transition-colors opacity-0 group-hover:opacity-100 bg-cyber-bg-darker rounded-full z-10"
-                    title="删除歌曲"
-                  >
-                    <Trash2 className="h-5 w-5" />
-                  </button>
-                </div>
+                <TrackListItem
+                  key={track.id}
+                  track={{ ...track, coverArtPath: track.coverArtPath || album?.coverPath }}
+                  onDelete={() => handleRemoveTrack(Number(track.id))}
+                />
               ))}
             </div>
           ) : (
