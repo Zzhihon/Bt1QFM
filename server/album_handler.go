@@ -91,19 +91,6 @@ func (h *APIHandler) UploadTracksToAlbumHandler(w http.ResponseWriter, r *http.R
 		}
 		track.FilePath = filePath
 
-		// 处理音频文件
-		m3u8DiskPath := filepath.Join(h.cfg.StaticDir, "streams", safeFilename+".m3u8")
-		segmentDiskPattern := filepath.Join(h.cfg.StaticDir, "streams", safeFilename+"_%d.ts")
-		hlsBaseURL := "/streams/"
-
-		duration, err := h.audioProcessor.ProcessToHLS(filePath, m3u8DiskPath, segmentDiskPattern, hlsBaseURL, h.cfg.AudioBitrate, h.cfg.HLSSegmentTime)
-		if err != nil {
-			http.Error(w, "Failed to process audio", http.StatusInternalServerError)
-			return
-		}
-		track.HLSPlaylistPath = "/streams/" + filepath.Base(m3u8DiskPath)
-		track.Duration = duration
-
 		// 保存track到数据库
 		trackID, err := h.trackRepo.CreateTrack(track)
 		if err != nil {
