@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { Album, Track } from '../../types';
 import { Music2, Trash2, Upload, Plus } from 'lucide-react';
-import UploadForm from '../upload/UploadForm';
+import AlbumTrackUploadForm from '../upload/AlbumTrackUploadForm';
 import TrackListItem from '../common/TrackListItem';
 
 const AlbumDetailView: React.FC = () => {
@@ -224,7 +224,7 @@ const AlbumDetailView: React.FC = () => {
             <h2 className="text-2xl font-bold text-cyber-primary mb-4">
               {uploadMode === 'single' ? '添加单曲' : '批量上传'}
             </h2>
-            <UploadForm
+            <AlbumTrackUploadForm
               albumId={Number(album.id)}
               isBatch={uploadMode === 'batch'}
               onUploadSuccess={() => {

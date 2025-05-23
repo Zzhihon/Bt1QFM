@@ -34,7 +34,6 @@ const MusicLibraryView: React.FC = () => {
 
   // Upload form state
   const [showUploadForm, setShowUploadForm] = useState(false);
-  const [showBatchUploadForm, setShowBatchUploadForm] = useState(false);
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -134,28 +133,9 @@ const MusicLibraryView: React.FC = () => {
             >
               <UploadCloud className="mr-2 h-5 w-5" /> {showUploadForm ? '取消上传' : '上传音乐'}
             </button>
-            <button
-              onClick={() => setShowBatchUploadForm(true)}
-              className="bg-cyber-primary text-cyber-bg-darker px-4 py-2 rounded hover:bg-cyber-hover-primary transition-colors"
-            >
-              批量上传专辑
-            </button>
           </>
         )}
       </div>
-
-      {showBatchUploadForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <UploadForm 
-            isBatch={true}
-            onUploadSuccess={() => {
-              setShowBatchUploadForm(false);
-              fetchTracks();
-            }}
-            onCancel={() => setShowBatchUploadForm(false)}
-          />
-        </div>
-      )}
 
       {showUploadForm && currentUser && (
         <div className="mb-8">
@@ -169,7 +149,7 @@ const MusicLibraryView: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         {tracks.length === 0 && !isLoading && (
           <p className="col-span-full text-center text-cyber-muted text-lg py-12">
             Your music library is currently empty. Try uploading some tracks!
@@ -249,4 +229,4 @@ const MusicLibraryView: React.FC = () => {
   );
 };
 
-export default MusicLibraryView; 
+export default MusicLibraryView;
