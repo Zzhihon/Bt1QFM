@@ -137,7 +137,7 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		trackFileExt = ".dat" // Fallback extension
 	}
 	trackStoreFileName := safeBaseFilename + trackFileExt
-	
+
 	// MinIO路径：audio/文件名
 	minioTrackPath := "audio/" + trackStoreFileName
 	// 数据库存储路径（保持原格式，前端通过这个路径访问）
@@ -310,11 +310,13 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 	// Generate safe base filename from track metadata for HLS stream directory
 	safeStreamDirName := generateSafeFilenamePrefix(track.Title, track.Artist, track.Album)
 
-	// MinIO中的音频文件路径
+	// 确保所有路径都使用正斜杠，避免Windows路径分隔符问题
 	minioAudioPath := "audio/" + generateSafeFilenamePrefix(track.Title, track.Artist, track.Album) + filepath.Ext(track.FilePath)
-	// MinIO中的HLS流目录
+	// MinIO中的HLS流目录 - 确保使用正斜杠
 	minioHLSDir := "streams/" + safeStreamDirName
-	// 临时本地HLS处理目录
+	minioM3U8Path := minioHLSDir + "/playlist.m3u8"
+	
+	// 本地临时处理目录（仅用于HLS转码输出）
 	localHLSDir := filepath.Join(h.cfg.StaticDir, "streams", safeStreamDirName)
 	m3u8LocalPath := filepath.Join(localHLSDir, "playlist.m3u8")
 	segmentLocalPattern := filepath.Join(localHLSDir, "segment_%03d.ts")
@@ -325,44 +327,50 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 	client := storage.GetMinioClient()
 	cfg := config.Load()
 	ctx := context.Background()
-	
-	minioM3U8Path := minioHLSDir + "/playlist.m3u8"
+
+	// 首先检查是否存在旧的错误路径格式（包含反斜杠）
+	h.cleanupDuplicateHLSFiles(ctx, client, cfg.MinioBucket, safeStreamDirName)
+
 	_, err = client.StatObject(ctx, cfg.MinioBucket, minioM3U8Path, minio.StatObjectOptions{})
 	hlsExistsInMinio := err == nil
 
 	if !hlsExistsInMinio {
 		log.Printf("HLS playlist not found in MinIO for track ID %d (%s). Generating...", trackID, safeStreamDirName)
 
-		// 确保本地临时目录存在
+		// 确保本地临时目录存在（仅用于HLS输出）
 		if err := os.MkdirAll(localHLSDir, 0755); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to create local HLS directory for track %d: %v", trackID, err), http.StatusInternalServerError)
 			return
 		}
 
-		// 从MinIO下载原始音频文件到临时位置
-		tempAudioPath := filepath.Join(h.cfg.StaticDir, "temp", safeStreamDirName+filepath.Ext(track.FilePath))
+		// 创建临时音频文件，但使用更高效的方式
+		tempAudioPath := filepath.Join(h.cfg.StaticDir, "temp", fmt.Sprintf("audio_%d_%s%s", trackID, safeStreamDirName, filepath.Ext(track.FilePath)))
 		if err := os.MkdirAll(filepath.Dir(tempAudioPath), 0755); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to create temp directory: %v", err), http.StatusInternalServerError)
 			return
 		}
 
-		// 从MinIO下载音频文件
+		// 从MinIO下载音频文件到临时位置
 		err = h.downloadFileFromMinio(minioAudioPath, tempAudioPath)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to download audio from MinIO: %v", err), http.StatusInternalServerError)
 			return
 		}
-		defer os.Remove(tempAudioPath) // 清理临时文件
 
 		// 使用临时文件进行HLS转码
 		duration, procErr := h.audioProcessor.ProcessToHLS(tempAudioPath, m3u8LocalPath, segmentLocalPattern, hlsBaseURL, h.cfg.AudioBitrate, h.cfg.HLSSegmentTime)
 		if procErr != nil {
+			// 清理临时文件
+			os.Remove(tempAudioPath)
 			http.Error(w, fmt.Sprintf("Failed to process audio to HLS for track %d: %v", trackID, procErr), http.StatusInternalServerError)
 			return
 		}
 
-		// 上传HLS文件到MinIO
-		if err := h.uploadHLSToMinio(localHLSDir, minioHLSDir); err != nil {
+		// 立即清理临时音频文件
+		os.Remove(tempAudioPath)
+
+		// 上传HLS文件到MinIO，确保路径格式正确
+		if err := h.uploadHLSToMinioFixed(localHLSDir, minioHLSDir); err != nil {
 			log.Printf("Warning: Failed to upload HLS files to MinIO: %v", err)
 		}
 
@@ -387,48 +395,17 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-	
+
 	_, err = io.Copy(w, object)
 	if err != nil {
 		log.Printf("Error serving HLS playlist: %v", err)
 	}
-	
+
 	log.Printf("Served HLS playlist from MinIO for track ID %d (%s)", trackID, safeStreamDirName)
 }
 
-// downloadFileFromMinio 从MinIO下载文件到本地
-func (h *APIHandler) downloadFileFromMinio(objectPath, localPath string) error {
-	client := storage.GetMinioClient()
-	if client == nil {
-		return fmt.Errorf("MinIO client not initialized")
-	}
-
-	cfg := config.Load()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	object, err := client.GetObject(ctx, cfg.MinioBucket, objectPath, minio.GetObjectOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get object from MinIO: %v", err)
-	}
-	defer object.Close()
-
-	localFile, err := os.Create(localPath)
-	if err != nil {
-		return fmt.Errorf("failed to create local file: %v", err)
-	}
-	defer localFile.Close()
-
-	_, err = io.Copy(localFile, object)
-	if err != nil {
-		return fmt.Errorf("failed to copy file: %v", err)
-	}
-
-	return nil
-}
-
-// uploadHLSToMinio 上传HLS文件到MinIO
-func (h *APIHandler) uploadHLSToMinio(localDir, minioDir string) error {
+// uploadHLSToMinioFixed 修复版本的HLS上传函数，确保路径格式正确
+func (h *APIHandler) uploadHLSToMinioFixed(localDir, minioDir string) error {
 	client := storage.GetMinioClient()
 	if client == nil {
 		return fmt.Errorf("MinIO client not initialized")
@@ -451,6 +428,7 @@ func (h *APIHandler) uploadHLSToMinio(localDir, minioDir string) error {
 			return err
 		}
 
+		// 确保MinIO路径使用正斜杠，避免Windows路径分隔符问题
 		minioPath := minioDir + "/" + strings.ReplaceAll(relPath, "\\", "/")
 
 		file, err := os.Open(path)
@@ -481,6 +459,51 @@ func (h *APIHandler) uploadHLSToMinio(localDir, minioDir string) error {
 		log.Printf("Uploaded HLS file to MinIO: %s", minioPath)
 		return nil
 	})
+}
+
+// cleanupDuplicateHLSFiles 清理重复的HLS文件
+func (h *APIHandler) cleanupDuplicateHLSFiles(ctx context.Context, client *minio.Client, bucket, safeStreamDirName string) {
+	// 检查可能的重复路径格式
+	duplicatePaths := []string{
+		"streams\\" + safeStreamDirName + "\\",  // Windows风格路径
+		"streams/" + safeStreamDirName + "/",     // 正确的路径格式
+	}
+
+	correctPath := "streams/" + safeStreamDirName + "/"
+
+	for _, dupPath := range duplicatePaths {
+		if dupPath == correctPath {
+			continue // 跳过正确的路径
+		}
+
+		// 列出该路径下的对象
+		objectCh := client.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+			Prefix:    dupPath,
+			Recursive: true,
+		})
+
+		var objectsToDelete []string
+		for object := range objectCh {
+			if object.Err != nil {
+				log.Printf("Error listing objects with prefix %s: %v", dupPath, object.Err)
+				continue
+			}
+			objectsToDelete = append(objectsToDelete, object.Key)
+		}
+
+		// 删除重复的对象
+		if len(objectsToDelete) > 0 {
+			log.Printf("Found %d duplicate HLS files with incorrect path format, cleaning up...", len(objectsToDelete))
+			for _, objKey := range objectsToDelete {
+				err := client.RemoveObject(ctx, bucket, objKey, minio.RemoveObjectOptions{})
+				if err != nil {
+					log.Printf("Failed to remove duplicate object %s: %v", objKey, err)
+				} else {
+					log.Printf("Successfully removed duplicate object: %s", objKey)
+				}
+			}
+		}
+	}
 }
 
 // UploadCoverHandler 处理封面图片上传
@@ -547,8 +570,6 @@ func (h *APIHandler) UploadCoverHandler(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(response)
 	log.Printf("[UploadCover] 成功上传封面到MinIO - Artist: %s, Album: %s, Path: %s", artist, album, minioCoverPath)
 }
-
-
 
 // UpdateTrackPositionHandler 更新专辑中歌曲的位置
 func (h *APIHandler) UpdateTrackPositionHandler(w http.ResponseWriter, r *http.Request) {
@@ -620,4 +641,35 @@ func (h *APIHandler) UpdateTrackPositionHandler(w http.ResponseWriter, r *http.R
 		logger.Int("newPosition", req.NewPosition),
 	)
 	w.WriteHeader(http.StatusOK)
+}
+
+// downloadFileFromMinio 从MinIO下载文件到本地
+func (h *APIHandler) downloadFileFromMinio(objectPath, localPath string) error {
+	client := storage.GetMinioClient()
+	if client == nil {
+		return fmt.Errorf("MinIO client not initialized")
+	}
+
+	cfg := config.Load()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	object, err := client.GetObject(ctx, cfg.MinioBucket, objectPath, minio.GetObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get object from MinIO: %v", err)
+	}
+	defer object.Close()
+
+	localFile, err := os.Create(localPath)
+	if err != nil {
+		return fmt.Errorf("failed to create local file: %v", err)
+	}
+	defer localFile.Close()
+
+	_, err = io.Copy(localFile, object)
+	if err != nil {
+		return fmt.Errorf("failed to copy file: %v", err)
+	}
+
+	return nil
 }

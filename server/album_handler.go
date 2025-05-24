@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -12,10 +13,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"database/sql"
-
 
 	"Bt1QFM/logger"
+
 	"github.com/gorilla/mux"
 
 	"Bt1QFM/model"
@@ -69,22 +69,25 @@ func (h *APIHandler) UploadTracksToAlbumHandler(w http.ResponseWriter, r *http.R
 		}
 		defer file.Close()
 
+		// 提取原始文件名（去掉扩展名）作为title
+		originalName := strings.TrimSuffix(fileHeader.Filename, filepath.Ext(fileHeader.Filename))
+
 		// 创建新的track记录
 		track := &model.Track{
 			UserID: userID,
-			Title:  filepath.Base(fileHeader.Filename),
+			Title:  originalName, // 使用原始文件名作为标题
 			Artist: album.Artist,
 			Album:  album.Name,
 		}
 
-		// 生成安全的文件名（与UploadTrackHandler保持一致）
+		// 生成安全的文件名（与UploadTrackHandler保持完全一致）
 		safeBaseFilename := generateSafeFilenamePrefix(track.Title, track.Artist, track.Album)
 		fileExt := filepath.Ext(fileHeader.Filename)
 		if fileExt == "" {
 			fileExt = ".mp3" // 默认扩展名
 		}
 		trackStoreFileName := safeBaseFilename + fileExt
-		
+
 		// MinIO路径：audio/文件名
 		minioTrackPath := "audio/" + trackStoreFileName
 		// 数据库存储路径（保持原格式）
@@ -168,7 +171,6 @@ func generateSafeFilename(originalName string) string {
 	// 组合新的文件名
 	return baseName + "-" + randomStr + ext
 }
-
 
 // GetUserAlbumsHandler 获取用户的所有专辑
 func (h *APIHandler) GetUserAlbumsHandler(w http.ResponseWriter, r *http.Request) {
