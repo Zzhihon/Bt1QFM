@@ -1,10 +1,13 @@
 package server
 
 import (
+	"context"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"Bt1QFM/config"
@@ -14,6 +17,7 @@ import (
 	"Bt1QFM/storage"
 
 	"github.com/gorilla/mux"
+	"github.com/minio/minio-go/v7"
 )
 
 // Start initializes and starts the HTTP server.
@@ -112,12 +116,51 @@ func Start() {
 	router.HandleFunc("/api/auth/login", apiHandler.LoginHandler).Methods(http.MethodPost)
 	router.HandleFunc("/api/auth/register", apiHandler.RegisterHandler).Methods(http.MethodPost)
 
-	// Static file serving for HLS segments and cover art
-	// This will serve files from ./static (e.g., /static/streams/... and /static/covers/...)
-	staticFileServer := http.FileServer(http.Dir(cfg.StaticDir))
-	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", staticFileServer))
+	// 添加MinIO文件服务路由，拦截/static/路径并从MinIO获取文件
+	router.PathPrefix("/static/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 提取MinIO对象路径
+		objectPath := strings.TrimPrefix(r.URL.Path, "/static/")
 
-	// Static file serving for uploaded original audio and covers (if needed for direct access, usually not for audio)
+		client := storage.GetMinioClient()
+		if client == nil {
+			http.Error(w, "MinIO client not available", http.StatusInternalServerError)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		object, err := client.GetObject(ctx, cfg.MinioBucket, objectPath, minio.GetObjectOptions{})
+		if err != nil {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+		defer object.Close()
+
+		// 设置适当的Content-Type
+		var contentType string
+		if strings.HasSuffix(objectPath, ".m3u8") {
+			contentType = "application/vnd.apple.mpegurl"
+		} else if strings.HasSuffix(objectPath, ".ts") {
+			contentType = "video/MP2T"
+		} else if strings.HasPrefix(objectPath, "covers/") {
+			contentType = "image/jpeg"
+		} else if strings.HasPrefix(objectPath, "audio/") {
+			contentType = "audio/mpeg"
+		} else {
+			contentType = "application/octet-stream"
+		}
+
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		_, err = io.Copy(w, object)
+		if err != nil {
+			log.Printf("Error serving file from MinIO: %v", err)
+		}
+	})
+
+	// Static file serving for uploaded original audio and covers (fallback to local if needed)
 	uploadsFileServer := http.FileServer(http.Dir(cfg.UploadDir))
 	router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", uploadsFileServer))
 

@@ -77,30 +77,29 @@ func (h *APIHandler) UploadTracksToAlbumHandler(w http.ResponseWriter, r *http.R
 			Album:  album.Name,
 		}
 
-		// 生成安全的文件名
-		safeFilename := generateSafeFilename(fileHeader.Filename)
-
-		// 保存文件并获取路径
-		filePath := filepath.Join(h.cfg.AudioUploadDir, safeFilename)
-		dst, err := os.Create(filePath)
-		if err != nil {
-			http.Error(w, "Failed to save file", http.StatusInternalServerError)
-			return
+		// 生成安全的文件名（与UploadTrackHandler保持一致）
+		safeBaseFilename := generateSafeFilenamePrefix(track.Title, track.Artist, track.Album)
+		fileExt := filepath.Ext(fileHeader.Filename)
+		if fileExt == "" {
+			fileExt = ".mp3" // 默认扩展名
 		}
-		defer dst.Close()
-
-		// 复制文件内容
-		_, err = io.Copy(dst, file)
-		if err != nil {
-			http.Error(w, "Failed to save file", http.StatusInternalServerError)
-			return
-		}
-		track.FilePath = filePath
+		trackStoreFileName := safeBaseFilename + fileExt
+		
+		// MinIO路径：audio/文件名
+		minioTrackPath := "audio/" + trackStoreFileName
+		// 数据库存储路径（保持原格式）
+		track.FilePath = "/static/audio/" + trackStoreFileName
 
 		// 保存track到数据库
 		trackID, err := h.trackRepo.CreateTrack(track)
 		if err != nil {
 			http.Error(w, "Failed to save track", http.StatusInternalServerError)
+			return
+		}
+
+		// 上传文件到MinIO
+		if err := h.uploadFileToMinio(file, minioTrackPath, "audio/mpeg"); err != nil {
+			http.Error(w, "Failed to upload file to MinIO", http.StatusInternalServerError)
 			return
 		}
 

@@ -1,7 +1,8 @@
 package server
 
 import (
-
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,14 +14,17 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
 	"Bt1QFM/logger"
 	"Bt1QFM/model"
 	"Bt1QFM/repository"
+	"Bt1QFM/storage"
 
 	"github.com/gorilla/mux"
+	"github.com/minio/minio-go/v7"
 )
 
 // APIHandler 处理所有API请求
@@ -133,11 +137,14 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		trackFileExt = ".dat" // Fallback extension
 	}
 	trackStoreFileName := safeBaseFilename + trackFileExt
-	trackFilePath := filepath.Join(h.cfg.AudioUploadDir, trackStoreFileName)
+	
+	// MinIO路径：audio/文件名
+	minioTrackPath := "audio/" + trackStoreFileName
+	// 数据库存储路径（保持原格式，前端通过这个路径访问）
+	trackFilePath := "/static/audio/" + trackStoreFileName
 
-	// Handle cover art (optional) - determine path first
-	var coverArtDiskPath string  // Full disk path for saving cover, e.g., static/covers/...
-	var coverArtServePath string // Relative path for client/DB, e.g., /static/covers/...
+	// Handle cover art (optional)
+	var coverArtServePath string
 	var coverFile multipart.File
 	var coverHeader *multipart.FileHeader
 
@@ -146,11 +153,18 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		defer coverFile.Close()
 		coverFileExt := filepath.Ext(coverHeader.Filename)
 		if coverFileExt == "" {
-			coverFileExt = ".jpg" // Fallback extension
+			coverFileExt = ".jpg"
 		}
 		coverStoreFileName := safeBaseFilename + coverFileExt
-		coverArtDiskPath = filepath.Join(h.cfg.StaticDir, "covers", coverStoreFileName)
+		// MinIO路径：covers/文件名
+		minioCoverPath := "covers/" + coverStoreFileName
 		coverArtServePath = "/static/covers/" + coverStoreFileName
+
+		// Upload cover to MinIO
+		if err := h.uploadFileToMinio(coverFile, minioCoverPath, "image/jpeg"); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to upload cover to MinIO: %v", err), http.StatusInternalServerError)
+			return
+		}
 	} else if err != http.ErrMissingFile {
 		http.Error(w, fmt.Sprintf("Error processing cover file: %v", err), http.StatusBadRequest)
 		return
@@ -162,14 +176,12 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		Title:        title,
 		Artist:       artist,
 		Album:        album,
-		FilePath:     trackFilePath,     // e.g., uploads/audio/Artist-Album-Title.wav
-		CoverArtPath: coverArtServePath, // e.g., /static/covers/Artist-Album-Title.jpg or empty
-		// Duration and HLSPlaylistPath will be set after transcoding
+		FilePath:     trackFilePath,
+		CoverArtPath: coverArtServePath,
 	}
 
 	trackID, err := h.trackRepo.CreateTrack(newTrack)
 	if err != nil {
-		// Check if the error is due to UNIQUE constraint violation on (user_id, file_path)
 		if strings.Contains(strings.ToLower(err.Error()), "unique constraint") || strings.Contains(strings.ToLower(err.Error()), "duplicate entry") {
 			http.Error(w, fmt.Sprintf("Failed to create track: A track with a similar name or file path already exists for your account. Original error: %v", err), http.StatusConflict)
 		} else {
@@ -177,34 +189,13 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		}
 		return
 	}
-	newTrack.ID = trackID // Assign the generated ID
+	newTrack.ID = trackID
 
-	// Save the track file
-	if err := saveUploadedFile(trackFile, trackFilePath); err != nil {
-		// If saving fails, we should ideally delete the DB entry or mark it as invalid.
-		// For now, log and return error. A more robust solution would handle this rollback.
-		log.Printf("Error saving track file %s after DB entry: %v. DB entry ID: %d needs cleanup.", trackFilePath, err, trackID)
-		http.Error(w, fmt.Sprintf("Failed to save track file: %v. Database entry created but file save failed.", err), http.StatusInternalServerError)
+	// Upload track file to MinIO
+	if err := h.uploadFileToMinio(trackFile, minioTrackPath, "audio/mpeg"); err != nil {
+		log.Printf("Error uploading track file %s to MinIO after DB entry: %v. DB entry ID: %d needs cleanup.", minioTrackPath, err, trackID)
+		http.Error(w, fmt.Sprintf("Failed to upload track file: %v. Database entry created but file upload failed.", err), http.StatusInternalServerError)
 		return
-	}
-
-	// Save cover art if provided and path was determined
-	if coverFile != nil && coverArtDiskPath != "" {
-		coverDestDir := filepath.Dir(coverArtDiskPath)
-		if err := os.MkdirAll(coverDestDir, 0755); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to create cover art directory: %v", err), http.StatusInternalServerError)
-			// File already saved, DB entry exists. This is a partial failure.
-			return
-		}
-		if err := saveUploadedFile(coverFile, coverArtDiskPath); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to save cover art: %v", err), http.StatusInternalServerError)
-			// File already saved, DB entry exists. This is a partial failure.
-			return
-		}
-		// 更新数据库中的封面路径
-		if err := h.trackRepo.UpdateTrackCoverArtPath(trackID, coverArtServePath); err != nil {
-			log.Printf("Warning: Failed to update cover art path in database: %v", err)
-		}
 	}
 
 	// 生成 HLS 播放列表路径
@@ -217,24 +208,46 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		log.Printf("Warning: Failed to update HLS path in database: %v", err)
 	}
 
-	log.Printf("Successfully uploaded and saved track: ID %d, UserID: %d, Title '%s', File '%s', Cover '%s', HLS '%s'",
-		trackID, newTrack.UserID, newTrack.Title, newTrack.FilePath, newTrack.CoverArtPath, m3u8ServePath)
+	log.Printf("Successfully uploaded and saved track: ID %d, UserID: %d, Title '%s', MinIO Path '%s', Cover '%s', HLS '%s'",
+		trackID, newTrack.UserID, newTrack.Title, minioTrackPath, newTrack.CoverArtPath, m3u8ServePath)
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{"message": "Track uploaded successfully", "trackId": trackID, "track": newTrack})
 }
 
-func saveUploadedFile(file multipart.File, destPath string) error {
-	destFile, err := os.Create(destPath)
-	if err != nil {
-		return fmt.Errorf("failed to create destination file %s: %w", destPath, err)
+// uploadFileToMinio 上传文件到MinIO
+func (h *APIHandler) uploadFileToMinio(file multipart.File, objectPath, contentType string) error {
+	client := storage.GetMinioClient()
+	if client == nil {
+		return fmt.Errorf("MinIO client not initialized")
 	}
-	defer destFile.Close()
 
-	_, err = io.Copy(destFile, file)
-	if err != nil {
-		return fmt.Errorf("failed to copy uploaded file to %s: %w", destPath, err)
+	cfg := config.Load()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 重置文件指针到开始位置
+	if seeker, ok := file.(io.Seeker); ok {
+		seeker.Seek(0, io.SeekStart)
 	}
+
+	// 读取文件内容到缓冲区
+	buffer := &bytes.Buffer{}
+	size, err := io.Copy(buffer, file)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %v", err)
+	}
+
+	opts := minio.PutObjectOptions{
+		ContentType:      contentType,
+		DisableMultipart: true,
+	}
+
+	_, err = client.PutObject(ctx, cfg.MinioBucket, objectPath, bytes.NewReader(buffer.Bytes()), size, opts)
+	if err != nil {
+		return fmt.Errorf("failed to upload to MinIO: %v", err)
+	}
+
 	return nil
 }
 
@@ -271,9 +284,6 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: When full auth is implemented, verify if the authenticated user has access to this trackID.
-	// For now, any valid trackID can be streamed.
-
 	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/stream/"), "/")
 	if len(pathParts) < 2 || pathParts[1] != "playlist.m3u8" {
 		http.Error(w, "Invalid stream URL. Expected /stream/{trackID}/playlist.m3u8", http.StatusBadRequest)
@@ -300,64 +310,177 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 	// Generate safe base filename from track metadata for HLS stream directory
 	safeStreamDirName := generateSafeFilenamePrefix(track.Title, track.Artist, track.Album)
 
-	// Define HLS paths using the safe name
-	// hlsStreamDir is relative to StaticDir, e.g., "streams/Artist-Album-Title"
-	hlsStreamDir := filepath.Join("streams", safeStreamDirName)
-	// m3u8DiskPath is the full disk path, e.g., "static/streams/Artist-Album-Title/playlist.m3u8"
-	m3u8DiskPath := filepath.Join(h.cfg.StaticDir, hlsStreamDir, "playlist.m3u8")
-	// segmentDiskPattern is the full disk path pattern, e.g., "static/streams/Artist-Album-Title/segment_%03d.ts"
-	segmentDiskPattern := filepath.Join(h.cfg.StaticDir, hlsStreamDir, "segment_%03d.ts")
-	// hlsBaseURL is the URL base for segments in M3U8, e.g., "/static/streams/Artist-Album-Title/"
-	// Ensure forward slashes for URL
-	hlsBaseURL := "/static/" + strings.ReplaceAll(filepath.ToSlash(hlsStreamDir), "\\", "/") + "/"
-	// m3u8ServePath is the relative path for client requests and DB storage, e.g. /static/streams/Artist-Album-Title/playlist.m3u8
-	m3u8ServePath := "/static/" + strings.ReplaceAll(filepath.ToSlash(hlsStreamDir), "\\", "/") + "/playlist.m3u8"
+	// MinIO中的音频文件路径
+	minioAudioPath := "audio/" + generateSafeFilenamePrefix(track.Title, track.Artist, track.Album) + filepath.Ext(track.FilePath)
+	// MinIO中的HLS流目录
+	minioHLSDir := "streams/" + safeStreamDirName
+	// 临时本地HLS处理目录
+	localHLSDir := filepath.Join(h.cfg.StaticDir, "streams", safeStreamDirName)
+	m3u8LocalPath := filepath.Join(localHLSDir, "playlist.m3u8")
+	segmentLocalPattern := filepath.Join(localHLSDir, "segment_%03d.ts")
+	hlsBaseURL := "/static/streams/" + safeStreamDirName + "/"
+	m3u8ServePath := "/static/streams/" + safeStreamDirName + "/playlist.m3u8"
 
-	// Check if M3U8 already exists
-	if _, err := os.Stat(m3u8DiskPath); os.IsNotExist(err) {
-		log.Printf("HLS playlist %s not found for track ID %d (%s). Generating...", m3u8DiskPath, trackID, safeStreamDirName)
+	// 检查MinIO中是否已存在HLS播放列表
+	client := storage.GetMinioClient()
+	cfg := config.Load()
+	ctx := context.Background()
+	
+	minioM3U8Path := minioHLSDir + "/playlist.m3u8"
+	_, err = client.StatObject(ctx, cfg.MinioBucket, minioM3U8Path, minio.StatObjectOptions{})
+	hlsExistsInMinio := err == nil
 
-		// Ensure the specific stream directory exists within static/streams/
-		if err := os.MkdirAll(filepath.Dir(m3u8DiskPath), 0755); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to create HLS stream directory for track %d: %v", trackID, err), http.StatusInternalServerError)
+	if !hlsExistsInMinio {
+		log.Printf("HLS playlist not found in MinIO for track ID %d (%s). Generating...", trackID, safeStreamDirName)
+
+		// 确保本地临时目录存在
+		if err := os.MkdirAll(localHLSDir, 0755); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to create local HLS directory for track %d: %v", trackID, err), http.StatusInternalServerError)
 			return
 		}
 
-		duration, procErr := h.audioProcessor.ProcessToHLS(track.FilePath, m3u8DiskPath, segmentDiskPattern, hlsBaseURL, h.cfg.AudioBitrate, h.cfg.HLSSegmentTime)
+		// 从MinIO下载原始音频文件到临时位置
+		tempAudioPath := filepath.Join(h.cfg.StaticDir, "temp", safeStreamDirName+filepath.Ext(track.FilePath))
+		if err := os.MkdirAll(filepath.Dir(tempAudioPath), 0755); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to create temp directory: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// 从MinIO下载音频文件
+		err = h.downloadFileFromMinio(minioAudioPath, tempAudioPath)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to download audio from MinIO: %v", err), http.StatusInternalServerError)
+			return
+		}
+		defer os.Remove(tempAudioPath) // 清理临时文件
+
+		// 使用临时文件进行HLS转码
+		duration, procErr := h.audioProcessor.ProcessToHLS(tempAudioPath, m3u8LocalPath, segmentLocalPattern, hlsBaseURL, h.cfg.AudioBitrate, h.cfg.HLSSegmentTime)
 		if procErr != nil {
 			http.Error(w, fmt.Sprintf("Failed to process audio to HLS for track %d: %v", trackID, procErr), http.StatusInternalServerError)
 			return
 		}
 
-		// Update database with HLS playlist path and duration
+		// 上传HLS文件到MinIO
+		if err := h.uploadHLSToMinio(localHLSDir, minioHLSDir); err != nil {
+			log.Printf("Warning: Failed to upload HLS files to MinIO: %v", err)
+		}
+
+		// 更新数据库
 		if err := h.trackRepo.UpdateTrackHLSPath(trackID, m3u8ServePath, duration); err != nil {
 			log.Printf("Error updating HLS path for track ID %d in DB: %v. Continuing anyway.", trackID, err)
 		}
-		track.HLSPlaylistPath = m3u8ServePath // Update in-memory track object for current request
+		track.HLSPlaylistPath = m3u8ServePath
 		track.Duration = duration
-	} else if err != nil {
-		http.Error(w, fmt.Sprintf("Error checking HLS playlist for track %d: %v", trackID, err), http.StatusInternalServerError)
-		return
+
+		// 清理本地HLS文件
+		defer os.RemoveAll(localHLSDir)
 	}
 
-	if track.HLSPlaylistPath == "" {
-		log.Printf("Track %d HLS path was empty in DB, but m3u8 may exist or was just generated. Using: %s", trackID, m3u8ServePath)
-		track.HLSPlaylistPath = m3u8ServePath
-		if track.Duration == 0 {
-			duration, durErr := h.audioProcessor.GetAudioDuration(track.FilePath)
-			if durErr == nil && duration > 0 {
-				if errDb := h.trackRepo.UpdateTrackHLSPath(trackID, m3u8ServePath, duration); errDb != nil {
-					log.Printf("Error updating HLS path (with duration) for track ID %d in DB: %v.", trackID, errDb)
-				}
-				track.Duration = duration
-			}
-		}
+	// 从MinIO提供M3U8文件
+	object, err := client.GetObject(ctx, cfg.MinioBucket, minioM3U8Path, minio.GetObjectOptions{})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get HLS playlist from MinIO: %v", err), http.StatusInternalServerError)
+		return
 	}
+	defer object.Close()
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-	http.ServeFile(w, r, m3u8DiskPath)
-	log.Printf("Served HLS playlist %s for track ID %d (%s)", m3u8DiskPath, trackID, safeStreamDirName)
+	
+	_, err = io.Copy(w, object)
+	if err != nil {
+		log.Printf("Error serving HLS playlist: %v", err)
+	}
+	
+	log.Printf("Served HLS playlist from MinIO for track ID %d (%s)", trackID, safeStreamDirName)
+}
+
+// downloadFileFromMinio 从MinIO下载文件到本地
+func (h *APIHandler) downloadFileFromMinio(objectPath, localPath string) error {
+	client := storage.GetMinioClient()
+	if client == nil {
+		return fmt.Errorf("MinIO client not initialized")
+	}
+
+	cfg := config.Load()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	object, err := client.GetObject(ctx, cfg.MinioBucket, objectPath, minio.GetObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get object from MinIO: %v", err)
+	}
+	defer object.Close()
+
+	localFile, err := os.Create(localPath)
+	if err != nil {
+		return fmt.Errorf("failed to create local file: %v", err)
+	}
+	defer localFile.Close()
+
+	_, err = io.Copy(localFile, object)
+	if err != nil {
+		return fmt.Errorf("failed to copy file: %v", err)
+	}
+
+	return nil
+}
+
+// uploadHLSToMinio 上传HLS文件到MinIO
+func (h *APIHandler) uploadHLSToMinio(localDir, minioDir string) error {
+	client := storage.GetMinioClient()
+	if client == nil {
+		return fmt.Errorf("MinIO client not initialized")
+	}
+
+	cfg := config.Load()
+	ctx := context.Background()
+
+	return filepath.Walk(localDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(localDir, path)
+		if err != nil {
+			return err
+		}
+
+		minioPath := minioDir + "/" + strings.ReplaceAll(relPath, "\\", "/")
+
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		var contentType string
+		if strings.HasSuffix(path, ".m3u8") {
+			contentType = "application/vnd.apple.mpegurl"
+		} else if strings.HasSuffix(path, ".ts") {
+			contentType = "video/MP2T"
+		} else {
+			contentType = "application/octet-stream"
+		}
+
+		opts := minio.PutObjectOptions{
+			ContentType:      contentType,
+			DisableMultipart: true,
+		}
+
+		_, err = client.PutObject(ctx, cfg.MinioBucket, minioPath, file, info.Size(), opts)
+		if err != nil {
+			return fmt.Errorf("failed to upload %s to MinIO: %v", minioPath, err)
+		}
+
+		log.Printf("Uploaded HLS file to MinIO: %s", minioPath)
+		return nil
+	})
 }
 
 // UploadCoverHandler 处理封面图片上传
@@ -367,7 +490,6 @@ func (h *APIHandler) UploadCoverHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 设置最大文件大小为10MB
 	const maxFileSize = 10 << 20 // 10MB
 	if err := r.ParseMultipartForm(maxFileSize); err != nil {
 		log.Printf("[UploadCover] 解析表单失败: %v", err)
@@ -375,17 +497,14 @@ func (h *APIHandler) UploadCoverHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 获取表单数据
 	artist := r.FormValue("artist")
 	album := r.FormValue("album")
-	targetDir := r.FormValue("targetDir") // 获取目标目录
 	if artist == "" || album == "" {
 		log.Printf("[UploadCover] 缺少必要字段 - Artist: %v, Album: %v", artist != "", album != "")
 		http.Error(w, "Artist and album are required", http.StatusBadRequest)
 		return
 	}
 
-	// 获取封面文件
 	file, header, err := r.FormFile("cover")
 	if err != nil {
 		log.Printf("[UploadCover] 获取文件失败: %v", err)
@@ -394,14 +513,12 @@ func (h *APIHandler) UploadCoverHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	defer file.Close()
 
-	// 检查文件大小
 	if header.Size > maxFileSize {
 		log.Printf("[UploadCover] 文件过大: %d bytes", header.Size)
 		http.Error(w, "File too large", http.StatusBadRequest)
 		return
 	}
 
-	// 检查文件类型
 	contentType := header.Header.Get("Content-Type")
 	if !strings.HasPrefix(contentType, "image/") {
 		log.Printf("[UploadCover] 不支持的文件类型: %s", contentType)
@@ -409,55 +526,26 @@ func (h *APIHandler) UploadCoverHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 生成安全的文件名
 	safeFilename := generateSafeFilenamePrefix(artist, album, "")
 	coverFilename := fmt.Sprintf("%s_cover%s", safeFilename, filepath.Ext(header.Filename))
 
-	// 根据目标目录决定存储路径
-	var coverPath string
-	var servePath string
-	if targetDir == "static/cover" {
-		// 存储到static/cover目录
-		coverPath = filepath.Join(h.cfg.StaticDir, "covers", coverFilename)
-		servePath = "/static/covers/" + coverFilename
-	} else {
-		// 默认存储到上传目录
-		coverPath = filepath.Join(h.cfg.CoverUploadDir, coverFilename)
-		servePath = "/uploads/covers/" + coverFilename
-	}
+	// MinIO路径和服务路径
+	minioCoverPath := "covers/" + coverFilename
+	servePath := "/static/covers/" + coverFilename
 
-	// 确保目录存在
-	if err := os.MkdirAll(filepath.Dir(coverPath), 0755); err != nil {
-		log.Printf("[UploadCover] 创建目录失败: %v", err)
-		http.Error(w, "Failed to create directory", http.StatusInternalServerError)
+	// 上传到MinIO
+	if err := h.uploadFileToMinio(file, minioCoverPath, contentType); err != nil {
+		log.Printf("[UploadCover] 上传到MinIO失败: %v", err)
+		http.Error(w, "Failed to upload cover to MinIO", http.StatusInternalServerError)
 		return
 	}
 
-	// 保存封面文件
-	destFile, err := os.Create(coverPath)
-	if err != nil {
-		log.Printf("[UploadCover] 创建文件失败: %v", err)
-		http.Error(w, "Failed to save cover file", http.StatusInternalServerError)
-		return
-	}
-	defer destFile.Close()
-
-	// 使用缓冲复制文件
-	buf := make([]byte, 32*1024) // 32KB buffer
-	_, err = io.CopyBuffer(destFile, file, buf)
-	if err != nil {
-		log.Printf("[UploadCover] 保存文件失败: %v", err)
-		http.Error(w, "Failed to save cover file", http.StatusInternalServerError)
-		return
-	}
-
-	// 返回封面路径
 	response := map[string]string{
 		"coverPath": servePath,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
-	log.Printf("[UploadCover] 成功上传封面 - Artist: %s, Album: %s, Path: %s", artist, album, coverPath)
+	log.Printf("[UploadCover] 成功上传封面到MinIO - Artist: %s, Album: %s, Path: %s", artist, album, minioCoverPath)
 }
 
 
