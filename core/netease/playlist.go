@@ -9,8 +9,8 @@ import (
 
 // GetPlaylistDetail 获取歌单详情
 func (c *Client) GetPlaylistDetail(playlistID string) (*model.NeteasePlaylist, error) {
-	url := fmt.Sprintf("%s/playlist/detail?id=%s", c.baseURL, playlistID)
-	resp, err := c.httpClient.Get(url)
+	url := fmt.Sprintf("%s/playlist/detail?id=%s", c.BaseURL, playlistID)
+	resp, err := c.HTTPClient.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("请求失败: %w", err)
 	}
@@ -30,8 +30,8 @@ func (c *Client) GetPlaylistDetail(playlistID string) (*model.NeteasePlaylist, e
 
 // GetPlaylistTracks 获取歌单中的歌曲列表
 func (c *Client) GetPlaylistTracks(playlistID string) ([]model.NeteaseSong, error) {
-	url := fmt.Sprintf("%s/playlist/track/all?id=%s", c.baseURL, playlistID)
-	resp, err := c.httpClient.Get(url)
+	url := fmt.Sprintf("%s/playlist/track/all?id=%s", c.BaseURL, playlistID)
+	resp, err := c.HTTPClient.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("请求失败: %w", err)
 	}

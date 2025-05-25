@@ -10,8 +10,8 @@ import (
 
 // GetLyric 获取歌词
 func (c *Client) GetLyric(songID string) (*model.NeteaseLyric, error) {
-	url := fmt.Sprintf("%s/lyric?id=%s", c.baseURL, songID)
-	resp, err := c.httpClient.Get(url)
+	url := fmt.Sprintf("%s/lyric?id=%s", c.BaseURL, songID)
+	resp, err := c.HTTPClient.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("请求失败: %w", err)
 	}

@@ -40,6 +40,8 @@ type Config struct {
 	MinioUseSSL    bool
 	MinioAPI       string // S3 API 版本
 	MinioPath      string // 路径样式
+	// 网易云音乐API配置
+	NeteaseAPIURL string // 网易云音乐API地址
 }
 
 // getEnv gets an environment variable or returns a default value.
@@ -101,5 +103,7 @@ func Load() *Config {
 		MinioUseSSL:    getEnv("MINIO_USE_SSL", "true") == "true",
 		MinioAPI:       getEnv("MINIO_API", "s3v4"),
 		MinioPath:      getEnv("MINIO_PATH", "auto"),
+		// 网易云音乐API配置
+		NeteaseAPIURL: getEnv("NETEASE_API_URL", "http://localhost:3000"), // 默认使用本地代理
 	}
 }

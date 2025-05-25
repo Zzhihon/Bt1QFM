@@ -6,12 +6,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
+	"Bt1QFM/core/netease"
 	"Bt1QFM/db"
 	"Bt1QFM/repository"
 	"Bt1QFM/storage"
@@ -67,8 +70,9 @@ func Start() {
 	userRepo := repository.NewMySQLUserRepository(db.DB)
 	albumRepo := repository.NewMySQLAlbumRepository(db.DB)
 
-	// Pass cfg, trackRepo, and userRepo to handlers
+	// 初始化处理器
 	apiHandler := NewAPIHandler(trackRepo, userRepo, albumRepo, audioProcessor, cfg)
+	neteaseHandler := netease.NewNeteaseHandler(cfg.NeteaseAPIURL)
 
 	// 使用 gorilla/mux 创建路由器
 	router := mux.NewRouter()
@@ -88,6 +92,10 @@ func Start() {
 			next.ServeHTTP(w, r)
 		})
 	})
+
+	// 网易云音乐相关的API端点
+	router.HandleFunc("/api/netease/search", neteaseHandler.HandleSearch).Methods(http.MethodGet)
+	router.HandleFunc("/api/netease/command", neteaseHandler.HandleCommand).Methods(http.MethodGet)
 
 	// API Endpoints
 	router.HandleFunc("/api/tracks", apiHandler.AuthMiddleware(apiHandler.GetTracksHandler)).Methods(http.MethodGet)
@@ -116,11 +124,9 @@ func Start() {
 	router.HandleFunc("/api/auth/login", apiHandler.LoginHandler).Methods(http.MethodPost)
 	router.HandleFunc("/api/auth/register", apiHandler.RegisterHandler).Methods(http.MethodPost)
 
-	// 添加MinIO文件服务路由，拦截/static/路径并从MinIO获取文件
+	// 添加MinIO文件服务路由
 	router.PathPrefix("/static/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 提取MinIO对象路径
 		objectPath := strings.TrimPrefix(r.URL.Path, "/static/")
-
 		client := storage.GetMinioClient()
 		if client == nil {
 			http.Error(w, "MinIO client not available", http.StatusInternalServerError)
@@ -137,7 +143,6 @@ func Start() {
 		}
 		defer object.Close()
 
-		// 设置适当的Content-Type
 		var contentType string
 		if strings.HasSuffix(objectPath, ".m3u8") {
 			contentType = "application/vnd.apple.mpegurl"
@@ -160,7 +165,7 @@ func Start() {
 		}
 	})
 
-	// Static file serving for uploaded original audio and covers (fallback to local if needed)
+	// Static file serving
 	uploadsFileServer := http.FileServer(http.Dir(cfg.UploadDir))
 	router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", uploadsFileServer))
 
@@ -170,17 +175,40 @@ func Start() {
 
 	server.Handler = router
 
-	log.Println("Server starting on :8080...")
-	log.Println("Access the UI at http://localhost:8080/")
-	log.Println("Upload tracks via POST to http://localhost:8080/api/upload")
-	log.Println("List tracks via GET from http://localhost:8080/api/tracks")
-	log.Println("Stream tracks via GET from http://localhost:8080/stream/{track_id}/playlist.m3u8")
-	log.Println("Manage playlist via /api/playlist endpoints")
-	log.Println("Manage albums via /api/albums endpoints")
+	// 创建一个通道来接收操作系统信号
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	// 在goroutine中启动服务器
+	go func() {
+		log.Println("Server starting on :8080...")
+		log.Println("Access the UI at http://localhost:8080/")
+		log.Println("Upload tracks via POST to http://localhost:8080/api/upload")
+		log.Println("List tracks via GET from http://localhost:8080/api/tracks")
+		log.Println("Stream tracks via GET from http://localhost:8080/stream/{track_id}/playlist.m3u8")
+		log.Println("Manage playlist via /api/playlist endpoints")
+		log.Println("Manage albums via /api/albums endpoints")
+		log.Println("Use /api/netease/search and /api/netease/command for Netease Music integration")
+
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start server: %v", err)
+		}
+	}()
+
+	// 等待中断信号
+	<-stop
+	log.Println("Shutting down server...")
+
+	// 创建一个5秒超时的上下文
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// 优雅关闭服务器
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
 	}
+
+	log.Println("Server stopped")
 }
 
 func ensureDirExists(path string) {

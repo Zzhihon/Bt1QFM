@@ -7,6 +7,7 @@ import ProfileView from './components/views/ProfileView';
 import MusicLibraryView from './components/views/MusicLibraryView';
 import AlbumsView from './components/views/AlbumsView';
 import AlbumDetailView from './components/views/AlbumDetailView';
+import BotView from './components/views/BotView';
 import Player from './components/player/Player';
 import { useAuth } from './contexts/AuthContext';
 import { usePlayer } from './contexts/PlayerContext';
@@ -37,6 +38,7 @@ function App() {
             <Route path="/music-library" element={currentUser ? <MusicLibraryView /> : <Navigate to="/login" />} />
             <Route path="/albums" element={currentUser ? <AlbumsView /> : <Navigate to="/login" />} />
             <Route path="/album/:id" element={currentUser ? <AlbumDetailView /> : <Navigate to="/login" />} />
+            <Route path="/bot" element={currentUser ? <BotView /> : <Navigate to="/login" />} />
             <Route path="/" element={<Navigate to={currentUser ? "/music-library" : "/login"} />} />
           </Routes>
         </main>

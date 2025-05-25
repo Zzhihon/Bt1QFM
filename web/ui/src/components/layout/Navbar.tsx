@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { LogIn, LogOut, Music, UserCircle, ListMusic, Disc } from 'lucide-react'; // Icons
+import { LogIn, LogOut, Music, UserCircle, ListMusic, Disc, Bot } from 'lucide-react'; // Icons
 
 const Navbar: React.FC = () => {
   const { currentUser, logout } = useAuth();
@@ -36,6 +36,12 @@ const Navbar: React.FC = () => {
                 className={`text-cyber-secondary hover:text-cyber-primary px-3 py-2 rounded-md text-sm font-medium transition-colors duration-300 flex items-center ${location.pathname === '/albums' ? 'text-cyber-primary' : ''}`}
               >
                 <Disc className="mr-1 h-5 w-5" /> Albums
+              </button>
+              <button 
+                onClick={() => navigate('/bot')} 
+                className={`text-cyber-secondary hover:text-cyber-primary px-3 py-2 rounded-md text-sm font-medium transition-colors duration-300 flex items-center ${location.pathname === '/bot' ? 'text-cyber-primary' : ''}`}
+              >
+                <Bot className="mr-1 h-5 w-5" /> Bot
               </button>
               <button 
                 onClick={() => navigate('/profile')} 

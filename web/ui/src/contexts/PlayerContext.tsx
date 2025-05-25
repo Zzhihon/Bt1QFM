@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { Track, PlaylistItem, PlayMode, PlayerState } from '../types';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
@@ -535,6 +535,76 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       audio.removeEventListener('volumechange', handleVolumeChange);
     };
   }, [playerState.playMode, playerState.playlist, playerState.currentTrack]);
+  
+  // 保存播放状态到localStorage
+  const savePlayerState = useCallback((state: PlayerState) => {
+    try {
+      // 创建一个最小化的状态对象，只保存必要信息
+      const stateToSave = {
+        currentTrack: state.currentTrack ? {
+          id: state.currentTrack.id,
+          title: state.currentTrack.title,
+          artist: state.currentTrack.artist,
+          album: state.currentTrack.album,
+          coverArtPath: state.currentTrack.coverArtPath,
+          position: state.currentTrack.position,
+          // 不保存url和hlsPlaylistUrl
+        } : null,
+        isPlaying: state.isPlaying,
+        volume: state.volume,
+        muted: state.muted,
+        currentTime: state.currentTime,
+        duration: state.duration,
+        playMode: state.playMode,
+        playlist: state.playlist.map(item => ({
+          id: item.id,
+          title: item.title,
+          artist: item.artist,
+          album: item.album,
+          coverArtPath: item.coverArtPath,
+          position: item.position,
+          // 不保存url和hlsPlaylistUrl
+        }))
+      };
+      localStorage.setItem('playerState', JSON.stringify(stateToSave));
+    } catch (error) {
+      console.error('保存播放状态失败:', error);
+    }
+  }, []);
+
+  // 从localStorage加载播放状态
+  const loadPlayerState = useCallback((): PlayerState => {
+    try {
+      const savedState = localStorage.getItem('playerState');
+      if (savedState) {
+        const parsedState = JSON.parse(savedState);
+        return {
+          ...parsedState,
+          // 确保所有必要的字段都有默认值
+          currentTrack: parsedState.currentTrack || null,
+          isPlaying: parsedState.isPlaying || false,
+          volume: parsedState.volume || 0.7,
+          muted: parsedState.muted || false,
+          currentTime: parsedState.currentTime || 0,
+          duration: parsedState.duration || 0,
+          playMode: parsedState.playMode || PlayMode.SEQUENTIAL,
+          playlist: parsedState.playlist || []
+        };
+      }
+    } catch (error) {
+      console.error('加载播放状态失败:', error);
+    }
+    return {
+      currentTrack: null,
+      isPlaying: false,
+      volume: 0.7,
+      muted: false,
+      currentTime: 0,
+      duration: 0,
+      playMode: PlayMode.SEQUENTIAL,
+      playlist: []
+    };
+  }, []);
   
   return (
     <PlayerContext.Provider 

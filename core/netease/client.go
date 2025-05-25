@@ -7,15 +7,15 @@ import (
 
 // Client 网易云音乐API客户端
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
+	BaseURL    string
+	HTTPClient *http.Client
 }
 
 // NewClient 创建新的API客户端
 func NewClient() *Client {
 	return &Client{
-		baseURL: "http://localhost:3000",
-		httpClient: &http.Client{
+		BaseURL: "https://netease-api.example.com",
+		HTTPClient: &http.Client{
 			Timeout: time.Second * 10,
 		},
 	}
@@ -23,10 +23,10 @@ func NewClient() *Client {
 
 // SetBaseURL 设置API基础URL
 func (c *Client) SetBaseURL(url string) {
-	c.baseURL = url
+	c.BaseURL = url
 }
 
 // SetTimeout 设置请求超时时间
 func (c *Client) SetTimeout(timeout time.Duration) {
-	c.httpClient.Timeout = timeout
+	c.HTTPClient.Timeout = timeout
 }
