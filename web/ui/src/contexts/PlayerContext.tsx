@@ -116,25 +116,109 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
   
   // 播放特定音乐
-  const playTrack = (track: Track) => {
-    // 播放逻辑
+  const playTrack = async (track: Track) => {
     console.log('Playing track:', track);
-    setPlayerState(prev => ({ ...prev, currentTrack: track }));
     
-    // 播放实际操作在Player组件中的useEffect hook中处理
+    try {
+      // 如果当前正在播放，先暂停并等待一小段时间
+      if (playerState.isPlaying && audioRef.current) {
+        audioRef.current.pause();
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      // 更新状态，但不立即设置isPlaying
+      setPlayerState(prev => ({ 
+        ...prev, 
+        currentTrack: track,
+        isPlaying: false // 先设置为false，等加载完成后再设置为true
+      }));
+      
+      // 等待DOM更新
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      if (!audioRef.current) return;
+      
+      // 设置音频源
+      if (track.hlsPlaylistUrl) {
+        audioRef.current.src = track.hlsPlaylistUrl;
+      } else if (track.url) {
+        audioRef.current.src = track.url;
+      }
+      
+      // 等待音频加载
+      await new Promise((resolve, reject) => {
+        const handleCanPlay = () => {
+          audioRef.current.removeEventListener('canplay', handleCanPlay);
+          audioRef.current.removeEventListener('error', handleError);
+          resolve(null);
+        };
+        
+        const handleError = (error: Event) => {
+          audioRef.current.removeEventListener('canplay', handleCanPlay);
+          audioRef.current.removeEventListener('error', handleError);
+          reject(error);
+        };
+        
+        audioRef.current.addEventListener('canplay', handleCanPlay);
+        audioRef.current.addEventListener('error', handleError);
+        
+        // 设置超时
+        setTimeout(() => {
+          audioRef.current.removeEventListener('canplay', handleCanPlay);
+          audioRef.current.removeEventListener('error', handleError);
+          reject(new Error('Audio loading timeout'));
+        }, 10000);
+      });
+      
+      // 开始播放
+      await audioRef.current.play();
+      setPlayerState(prev => ({ ...prev, isPlaying: true }));
+      
+    } catch (error) {
+      console.error('Error playing audio:', error);
+      setPlayerState(prev => ({ ...prev, isPlaying: false }));
+      addToast({
+        type: 'error',
+        message: '播放失败，请重试'
+      });
+    }
   };
   
   // 播放/暂停切换
-  const togglePlayPause = () => {
-    if (!audioRef.current) return;
+  const togglePlayPause = async () => {
+    if (!audioRef.current || !playerState.currentTrack) return;
     
-    if (playerState.isPlaying) {
-      audioRef.current.pause();
-    } else {
-      if (playerState.currentTrack) {
-        audioRef.current.play()
-          .catch(error => console.error('Error playing audio:', error));
+    try {
+      if (playerState.isPlaying) {
+        audioRef.current.pause();
+        setPlayerState(prev => ({ ...prev, isPlaying: false }));
+      } else {
+        // 如果当前没有播放，先确保音频已加载
+        if (audioRef.current.readyState < 3) { // HAVE_FUTURE_DATA
+          await new Promise((resolve, reject) => {
+            const handleCanPlay = () => {
+              audioRef.current.removeEventListener('canplay', handleCanPlay);
+              audioRef.current.removeEventListener('error', handleError);
+              resolve(null);
+            };
+            
+            const handleError = (error: Event) => {
+              audioRef.current.removeEventListener('canplay', handleCanPlay);
+              audioRef.current.removeEventListener('error', handleError);
+              reject(error);
+            };
+            
+            audioRef.current.addEventListener('canplay', handleCanPlay);
+            audioRef.current.addEventListener('error', handleError);
+          });
+        }
+        
+        await audioRef.current.play();
+        setPlayerState(prev => ({ ...prev, isPlaying: true }));
       }
+    } catch (error) {
+      console.error('Error toggling play/pause:', error);
+      setPlayerState(prev => ({ ...prev, isPlaying: false }));
     }
   };
   

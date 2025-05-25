@@ -38,37 +38,6 @@ const Player: React.FC = () => {
     if (playerState.currentTrack && audioRef.current) {
       console.log('当前播放曲目:', playerState.currentTrack);
       
-      // 如果有直接URL，优先使用
-      if (playerState.currentTrack.url) {
-        console.log('检测到URL:', playerState.currentTrack.url.substring(0, 50) + '...');
-        
-        // 检查是否是base64编码的音频数据
-        if (playerState.currentTrack.url.startsWith('data:audio')) {
-          console.log('使用Base64音频数据播放');
-          audioRef.current.src = playerState.currentTrack.url;
-        } else {
-          console.log('使用普通URL播放');
-          audioRef.current.src = playerState.currentTrack.url;
-        }
-      } else if (playerState.currentTrack.hlsPlaylistUrl) {
-        console.log('使用HLS播放列表:', playerState.currentTrack.hlsPlaylistUrl);
-        // 否则使用HLS播放列表
-        if (Hls.isSupported()) {
-          if (hlsInstanceRef.current) {
-            console.log('销毁旧的HLS实例');
-            hlsInstanceRef.current.destroy();
-          }
-          console.log('创建新的HLS实例');
-          const hls = new Hls();
-          hls.loadSource(playerState.currentTrack.hlsPlaylistUrl);
-          hls.attachMedia(audioRef.current);
-          hlsInstanceRef.current = hls;
-        } else if (audioRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-          console.log('使用原生HLS支持播放');
-          audioRef.current.src = playerState.currentTrack.hlsPlaylistUrl;
-        }
-      }
-
       // 添加音频加载事件监听
       audioRef.current.onloadeddata = () => {
         console.log('音频数据已加载');
