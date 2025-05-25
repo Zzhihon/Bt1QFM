@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { Track, PlaylistItem, PlayMode, PlayerState } from '../types';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
+import Hls from 'hls.js';
 
 interface PlayerContextType {
   playerState: PlayerState;
@@ -32,7 +33,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const { currentUser, authToken } = useAuth();
   const { addToast } = useToast();
   const audioRef = React.useRef<HTMLAudioElement>(new Audio());
-  const hlsInstanceRef = React.useRef<any>(null);
+  const hlsInstanceRef = React.useRef<Hls | null>(null);
   
   const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
@@ -126,6 +127,12 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
+      // 清理之前的HLS实例
+      if (hlsInstanceRef.current) {
+        hlsInstanceRef.current.destroy();
+        hlsInstanceRef.current = null;
+      }
+      
       // 更新状态，但不立即设置isPlaying
       setPlayerState(prev => ({ 
         ...prev, 
@@ -139,24 +146,159 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       if (!audioRef.current) return;
       
       // 设置音频源
+      let audioUrl = '';
       if (track.hlsPlaylistUrl) {
-        audioRef.current.src = track.hlsPlaylistUrl;
+        // 确保URL指向后端服务器
+        const backendUrl = 'http://localhost:8080'; // 后端服务器地址
+        audioUrl = track.hlsPlaylistUrl.startsWith('http') 
+          ? track.hlsPlaylistUrl 
+          : `${backendUrl}${track.hlsPlaylistUrl}`;
+          
+        // 使用HLS.js加载流
+        if (Hls.isSupported()) {
+          console.log('使用HLS.js加载流:', audioUrl);
+          const hls = new Hls({
+            debug: false,
+            enableWorker: true,
+            lowLatencyMode: true,
+            backBufferLength: 90,
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
+            maxBufferSize: 60 * 1000 * 1000, // 60MB
+            maxBufferHole: 0.5,
+            highBufferWatchdogPeriod: 2,
+            nudgeMaxRetry: 5,
+            nudgeOffset: 0.1,
+            startLevel: -1,
+            manifestLoadingTimeOut: 20000,
+            manifestLoadingMaxRetry: 3,
+            manifestLoadingRetryDelay: 1000,
+            levelLoadingTimeOut: 20000,
+            levelLoadingMaxRetry: 3,
+            levelLoadingRetryDelay: 1000,
+            fragLoadingTimeOut: 20000,
+            fragLoadingMaxRetry: 3,
+            fragLoadingRetryDelay: 1000
+          });
+          
+          hlsInstanceRef.current = hls;
+          
+          // 绑定HLS事件
+          hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+            console.log('HLS: 媒体已附加');
+          });
+          
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            console.log('HLS: 清单已解析');
+            audioRef.current.play().catch(error => {
+              console.error('HLS播放错误:', error);
+              addToast('播放失败，请重试', 'error');
+            });
+          });
+          
+          hls.on(Hls.Events.ERROR, (event, data) => {
+            console.error('HLS错误:', data);
+            if (data.fatal) {
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  addToast('网络错误，请检查网络连接', 'error');
+                  break;
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  addToast('媒体错误，请重试', 'error');
+                  break;
+                default:
+                  addToast('播放错误，请重试', 'error');
+                  break;
+              }
+            }
+          });
+          
+          // 加载HLS流
+          hls.loadSource(audioUrl);
+          hls.attachMedia(audioRef.current);
+          
+          // 等待HLS加载完成
+          await new Promise((resolve, reject) => {
+            const handleManifestParsed = () => {
+              hls.off(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
+              hls.off(Hls.Events.ERROR, handleError);
+              resolve(null);
+            };
+            
+            const handleError = (event: any, data: any) => {
+              hls.off(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
+              hls.off(Hls.Events.ERROR, handleError);
+              reject(new Error(data.details || 'HLS加载失败'));
+            };
+            
+            hls.on(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
+            hls.on(Hls.Events.ERROR, handleError);
+            
+            // 设置超时
+            setTimeout(() => {
+              hls.off(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
+              hls.off(Hls.Events.ERROR, handleError);
+              reject(new Error('HLS加载超时'));
+            }, 30000); // 30秒超时
+          });
+          
+        } else if (audioRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+          // 对于原生支持HLS的浏览器（如Safari）
+          console.log('使用原生HLS支持');
+          audioRef.current.src = audioUrl;
+        } else {
+          throw new Error('您的浏览器不支持HLS播放');
+        }
       } else if (track.url) {
-        audioRef.current.src = track.url;
+        // 直接URL（如网易云音乐的音源）
+        audioUrl = track.url;
+        audioRef.current.src = audioUrl;
+      } else if (track.filePath) {
+        // 如果是MinIO的音频文件，使用filePath
+        audioUrl = track.filePath;
+        audioRef.current.src = audioUrl;
       }
+      
+      if (!audioUrl) {
+        throw new Error('没有可用的音频源');
+      }
+      
+      console.log('设置音频源:', audioUrl);
       
       // 等待音频加载
       await new Promise((resolve, reject) => {
         const handleCanPlay = () => {
+          console.log('音频数据已加载');
           audioRef.current.removeEventListener('canplay', handleCanPlay);
           audioRef.current.removeEventListener('error', handleError);
           resolve(null);
         };
         
         const handleError = (error: Event) => {
+          console.error('音频加载错误:', error);
           audioRef.current.removeEventListener('canplay', handleCanPlay);
           audioRef.current.removeEventListener('error', handleError);
-          reject(error);
+          
+          // 获取更详细的错误信息
+          const audioElement = error.target as HTMLAudioElement;
+          let errorMessage = '未知错误';
+          if (audioElement.error) {
+            switch (audioElement.error.code) {
+              case MediaError.MEDIA_ERR_ABORTED:
+                errorMessage = '音频加载被中断';
+                break;
+              case MediaError.MEDIA_ERR_NETWORK:
+                errorMessage = '网络错误，请检查网络连接';
+                break;
+              case MediaError.MEDIA_ERR_DECODE:
+                errorMessage = '音频解码错误，请检查音频格式';
+                break;
+              case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+                errorMessage = '不支持的音频格式';
+                break;
+            }
+          }
+          reject(new Error(errorMessage));
         };
         
         audioRef.current.addEventListener('canplay', handleCanPlay);
@@ -166,8 +308,8 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setTimeout(() => {
           audioRef.current.removeEventListener('canplay', handleCanPlay);
           audioRef.current.removeEventListener('error', handleError);
-          reject(new Error('Audio loading timeout'));
-        }, 10000);
+          reject(new Error('音频加载超时'));
+        }, 30000); // 增加到30秒
       });
       
       // 开始播放
@@ -177,10 +319,26 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     } catch (error) {
       console.error('Error playing audio:', error);
       setPlayerState(prev => ({ ...prev, isPlaying: false }));
-      addToast({
-        type: 'error',
-        message: '播放失败，请重试'
-      });
+      
+      // 根据错误类型显示不同的错误消息
+      let errorMessage = '播放失败，请重试';
+      if (error instanceof Error) {
+        if (error.message === '没有可用的音频源') {
+          errorMessage = '无法获取音频源';
+        } else if (error.message === '音频加载超时' || error.message === 'HLS加载超时') {
+          errorMessage = '音频加载超时，请检查网络连接或重试';
+        } else if (error.message.includes('网络错误')) {
+          errorMessage = '网络错误，请检查网络连接';
+        } else if (error.message.includes('解码错误')) {
+          errorMessage = '音频解码错误，请检查音频格式';
+        } else if (error.message.includes('不支持HLS播放')) {
+          errorMessage = '您的浏览器不支持HLS播放，请使用Chrome或Firefox';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      addToast(errorMessage, 'error');
     }
   };
   
@@ -687,6 +845,16 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       duration: 0,
       playMode: PlayMode.SEQUENTIAL,
       playlist: []
+    };
+  }, []);
+  
+  // 组件卸载时清理HLS实例
+  useEffect(() => {
+    return () => {
+      if (hlsInstanceRef.current) {
+        hlsInstanceRef.current.destroy();
+        hlsInstanceRef.current = null;
+      }
     };
   }, []);
   
