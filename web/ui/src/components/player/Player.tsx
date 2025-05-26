@@ -99,27 +99,27 @@ const Player: React.FC = () => {
   return (
     <>
       {/* 主播放器控件 - 底部固定 */}
-      <div className="fixed bottom-0 left-0 right-0 bg-cyber-bg-darker border-t-2 border-cyber-primary p-3 z-50">
+      <div className="fixed bottom-0 left-0 right-0 bg-cyber-bg-darker border-t-2 border-cyber-primary p-2 z-50">
         <div className="max-w-7xl mx-auto px-4">
           {/* 进度条 */}
           <div 
-            className="w-full h-3 bg-cyber-bg rounded-full mb-3 cursor-pointer relative overflow-hidden"
+            className="w-full h-2 bg-cyber-bg rounded-full mb-2 cursor-pointer relative overflow-hidden"
             onClick={handleProgressClick}
           >
             <div 
               className="h-full bg-gradient-to-r from-cyber-primary to-cyber-secondary rounded-full relative"
               style={{ width: `${playerState.duration ? (playerState.currentTime / playerState.duration) * 100 : 0}%` }}
             >
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-cyber-primary rounded-full shadow-lg shadow-cyber-primary/50"></div>
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 bg-cyber-primary rounded-full shadow-lg shadow-cyber-primary/50"></div>
             </div>
           </div>
           
-          <div className="flex items-center justify-between py-2">
+          <div className="flex items-center justify-between py-1">
             {/* 当前播放信息 */}
             <div className="flex items-center w-1/3">
               {playerState.currentTrack ? (
                 <>
-                  <div className="w-14 h-14 bg-cyber-bg rounded mr-3 flex-shrink-0 overflow-hidden">
+                  <div className="w-12 h-12 bg-cyber-bg rounded mr-3 flex-shrink-0 overflow-hidden">
                     {playerState.currentTrack.coverArtPath ? (
                       <img 
                         src={playerState.currentTrack.coverArtPath} 
@@ -128,40 +128,40 @@ const Player: React.FC = () => {
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <Music2 className="text-cyber-primary h-7 w-7" />
+                        <Music2 className="text-cyber-primary h-6 w-6" />
                       </div>
                     )}
                   </div>
                   <div className="truncate">
-                    <div className="text-cyber-primary font-medium truncate text-base">{playerState.currentTrack.title}</div>
-                    <div className="text-cyber-secondary text-sm truncate">
+                    <div className="text-cyber-primary font-medium truncate text-sm">{playerState.currentTrack.title}</div>
+                    <div className="text-cyber-secondary text-xs truncate">
                       {playerState.currentTrack.artist || 'Unknown Artist'}
                     </div>
                   </div>
                 </>
               ) : (
-                <div className="text-cyber-secondary">未选择歌曲</div>
+                <div className="text-cyber-secondary text-sm">未选择歌曲</div>
               )}
             </div>
             
             {/* 播放控制 */}
-            <div className="flex items-center justify-center space-x-6">
+            <div className="flex items-center justify-center space-x-4">
               <button 
                 onClick={handlePrevious} 
                 className="text-cyber-secondary hover:text-cyber-primary transition-colors"
                 disabled={playerState.playlist.length < 2}
               >
-                <SkipBack className="h-7 w-7" />
+                <SkipBack className="h-6 w-6" />
               </button>
               
               <button 
                 onClick={togglePlayPause}
-                className="bg-cyber-primary rounded-full p-3 text-cyber-bg-darker hover:bg-cyber-hover-primary transition-colors"
+                className="bg-cyber-primary rounded-full p-2 text-cyber-bg-darker hover:bg-cyber-hover-primary transition-colors"
               >
                 {playerState.isPlaying ? (
-                  <Pause className="h-7 w-7" />
+                  <Pause className="h-6 w-6" />
                 ) : (
-                  <Play className="h-7 w-7" />
+                  <Play className="h-6 w-6" />
                 )}
               </button>
               
@@ -170,21 +170,21 @@ const Player: React.FC = () => {
                 className="text-cyber-secondary hover:text-cyber-primary transition-colors"
                 disabled={playerState.playlist.length < 2}
               >
-                <SkipForward className="h-7 w-7" />
+                <SkipForward className="h-6 w-6" />
               </button>
             </div>
             
             {/* 额外控制：音量、播放模式、播放列表按钮 */}
-            <div className="flex items-center justify-end w-1/3 space-x-6">
+            <div className="flex items-center justify-end w-1/3 space-x-4">
               {/* 时间显示 */}
-              <div className="text-sm text-cyber-secondary hidden sm:block">
+              <div className="text-xs text-cyber-secondary hidden sm:block">
                 {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
               </div>
               
               {/* 音量控制 */}
               <div className="flex items-center space-x-2">
                 <button onClick={toggleMute} className="text-cyber-secondary hover:text-cyber-primary transition-colors">
-                  {playerState.muted ? <VolumeX className="h-6 w-6" /> : <Volume2 className="h-6 w-6" />}
+                  {playerState.muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
                 </button>
                 <input 
                   type="range" 
@@ -193,7 +193,7 @@ const Player: React.FC = () => {
                   step="0.01" 
                   value={playerState.muted ? 0 : playerState.volume}
                   onChange={(e) => setVolume(parseFloat(e.target.value))}
-                  className="w-20 [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-cyber-bg [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyber-primary [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-cyber-primary/50 [&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-cyber-bg [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-cyber-primary [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:shadow-lg [&::-moz-range-thumb]:shadow-cyber-primary/50"
+                  className="w-16 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-cyber-bg [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyber-primary [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-cyber-primary/50 [&::-moz-range-track]:h-1 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-cyber-bg [&::-moz-range-thumb]:w-2 [&::-moz-range-thumb]:h-2 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-cyber-primary [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:shadow-lg [&::-moz-range-thumb]:shadow-cyber-primary/50"
                 />
               </div>
               
@@ -211,7 +211,7 @@ const Player: React.FC = () => {
                 onClick={() => setShowPlaylist(!showPlaylist)} 
                 className={`text-cyber-secondary hover:text-cyber-primary transition-colors ${showPlaylist ? 'text-cyber-primary' : ''}`}
               >
-                <ListMusic className="h-6 w-6" />
+                <ListMusic className="h-5 w-5" />
               </button>
             </div>
           </div>
