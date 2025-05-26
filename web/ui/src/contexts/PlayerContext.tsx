@@ -252,7 +252,113 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       } else if (track.url) {
         // 直接URL（如网易云音乐的音源）
         audioUrl = track.url;
-        audioRef.current.src = audioUrl;
+        
+        // 检查音频格式
+        const audioElement = audioRef.current;
+        const canPlayMP3 = audioElement.canPlayType('audio/mpeg');
+        const canPlayMP4 = audioElement.canPlayType('audio/mp4');
+        const canPlayAAC = audioElement.canPlayType('audio/aac');
+        
+        console.log('浏览器支持的音频格式:', {
+          mp3: canPlayMP3,
+          mp4: canPlayMP4,
+          aac: canPlayAAC
+        });
+        
+        // 如果URL是直接的音频文件，尝试使用HLS.js
+        if (Hls.isSupported() && !audioUrl.endsWith('.mp3')) {
+          console.log('使用HLS.js加载直接URL:', audioUrl);
+          const hls = new Hls({
+            debug: false,
+            enableWorker: true,
+            lowLatencyMode: true,
+            backBufferLength: 90,
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
+            maxBufferSize: 60 * 1000 * 1000,
+            maxBufferHole: 0.5,
+            highBufferWatchdogPeriod: 2,
+            nudgeMaxRetry: 5,
+            nudgeOffset: 0.1,
+            startLevel: -1,
+            manifestLoadingTimeOut: 20000,
+            manifestLoadingMaxRetry: 3,
+            manifestLoadingRetryDelay: 1000,
+            levelLoadingTimeOut: 20000,
+            levelLoadingMaxRetry: 3,
+            levelLoadingRetryDelay: 1000,
+            fragLoadingTimeOut: 20000,
+            fragLoadingMaxRetry: 3,
+            fragLoadingRetryDelay: 1000
+          });
+          
+          hlsInstanceRef.current = hls;
+          
+          hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+            console.log('HLS: 媒体已附加');
+          });
+          
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            console.log('HLS: 清单已解析');
+            audioRef.current.play().catch(error => {
+              console.error('HLS播放错误:', error);
+              addToast('播放失败，请重试', 'error');
+            });
+          });
+          
+          hls.on(Hls.Events.ERROR, (event, data) => {
+            console.error('HLS错误:', data);
+            if (data.fatal) {
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  addToast('网络错误，请检查网络连接', 'error');
+                  break;
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  addToast('媒体错误，请重试', 'error');
+                  break;
+                default:
+                  addToast('播放错误，请重试', 'error');
+                  break;
+              }
+            }
+          });
+          
+          try {
+            hls.loadSource(audioUrl);
+            hls.attachMedia(audioRef.current);
+            
+            // 等待HLS加载完成
+            await new Promise((resolve, reject) => {
+              const handleManifestParsed = () => {
+                hls.off(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
+                hls.off(Hls.Events.ERROR, handleError);
+                resolve(null);
+              };
+              
+              const handleError = (event: any, data: any) => {
+                hls.off(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
+                hls.off(Hls.Events.ERROR, handleError);
+                reject(new Error(data.details || 'HLS加载失败'));
+              };
+              
+              hls.on(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
+              hls.on(Hls.Events.ERROR, handleError);
+              
+              setTimeout(() => {
+                hls.off(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
+                hls.off(Hls.Events.ERROR, handleError);
+                reject(new Error('HLS加载超时'));
+              }, 30000);
+            });
+          } catch (error) {
+            console.error('HLS加载失败，尝试直接播放:', error);
+            // 如果HLS加载失败，回退到直接播放
+            audioRef.current.src = audioUrl;
+          }
+        } else {
+          // 直接设置音频源
+          audioRef.current.src = audioUrl;
+        }
       } else if (track.filePath) {
         // 如果是MinIO的音频文件，使用filePath
         audioUrl = track.filePath;

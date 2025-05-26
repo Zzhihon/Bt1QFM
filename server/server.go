@@ -72,7 +72,7 @@ func Start() {
 
 	// 初始化处理器
 	apiHandler := NewAPIHandler(trackRepo, userRepo, albumRepo, audioProcessor, cfg)
-	neteaseHandler := netease.NewNeteaseHandler(cfg.NeteaseAPIURL)
+	neteaseHandler := netease.NewNeteaseHandler(cfg.NeteaseAPIURL, cfg)
 
 	// 使用 gorilla/mux 创建路由器
 	router := mux.NewRouter()
@@ -127,8 +127,8 @@ func Start() {
 	router.HandleFunc("/api/auth/register", apiHandler.RegisterHandler).Methods(http.MethodPost)
 
 	// 添加MinIO文件服务路由
-	router.PathPrefix("/static/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		objectPath := strings.TrimPrefix(r.URL.Path, "/static/")
+	router.PathPrefix("/streams/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		objectPath := strings.TrimPrefix(r.URL.Path, "/")
 		client := storage.GetMinioClient()
 		if client == nil {
 			http.Error(w, "MinIO client not available", http.StatusInternalServerError)
@@ -150,7 +150,41 @@ func Start() {
 			contentType = "application/vnd.apple.mpegurl"
 		} else if strings.HasSuffix(objectPath, ".ts") {
 			contentType = "video/MP2T"
-		} else if strings.HasPrefix(objectPath, "covers/") {
+		} else {
+			contentType = "application/octet-stream"
+		}
+
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Cache-Control", "public, max-age=31536000") // 缓存一年
+
+		_, err = io.Copy(w, object)
+		if err != nil {
+			log.Printf("Error serving file from MinIO: %v", err)
+		}
+	})
+
+	// 添加MinIO文件服务路由（用于其他静态文件）
+	router.PathPrefix("/static/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		objectPath := strings.TrimPrefix(r.URL.Path, "/static/")
+		client := storage.GetMinioClient()
+		if client == nil {
+			http.Error(w, "MinIO client not available", http.StatusInternalServerError)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		object, err := client.GetObject(ctx, cfg.MinioBucket, objectPath, minio.GetObjectOptions{})
+		if err != nil {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+		defer object.Close()
+
+		var contentType string
+		if strings.HasPrefix(objectPath, "covers/") {
 			contentType = "image/jpeg"
 		} else if strings.HasPrefix(objectPath, "audio/") {
 			contentType = "audio/mpeg"
@@ -160,6 +194,7 @@ func Start() {
 
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Cache-Control", "public, max-age=31536000") // 缓存一年
 
 		_, err = io.Copy(w, object)
 		if err != nil {
