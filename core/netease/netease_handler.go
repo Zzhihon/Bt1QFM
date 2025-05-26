@@ -173,6 +173,38 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 检查MinIO中是否已存在该歌曲的HLS文件
+	minioClient := storage.GetMinioClient()
+	if minioClient == nil {
+		log.Printf("MinIO客户端未初始化")
+		json.NewEncoder(w).Encode(SearchResponse{
+			Success: false,
+			Error:   "存储服务未初始化",
+		})
+		return
+	}
+
+	// 检查m3u8文件是否存在
+	m3u8Path := fmt.Sprintf("streams/netease/%s/playlist.m3u8", songIDStr)
+	_, err = minioClient.StatObject(context.Background(), h.config.MinioBucket, m3u8Path, minio.StatObjectOptions{})
+	if err == nil {
+		// m3u8文件存在，直接返回播放地址
+		log.Printf("发现已存在的HLS文件，直接返回播放地址")
+		hlsURL := fmt.Sprintf("/streams/netease/%s/playlist.m3u8", songIDStr)
+		response := SearchResponse{
+			Success: true,
+			Data: []SearchSongItem{
+				{
+					ID:  songID,
+					URL: hlsURL,
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
 	// 创建临时目录用于存储音频文件
 	tempDir := filepath.Join(h.config.StaticDir, "temp", "netease")
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
@@ -242,7 +274,6 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 上传HLS文件到MinIO
-	minioClient := storage.GetMinioClient()
 	if minioClient == nil {
 		log.Printf("MinIO客户端未初始化")
 		json.NewEncoder(w).Encode(SearchResponse{
@@ -264,7 +295,6 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 上传m3u8文件到MinIO
-	m3u8Path := fmt.Sprintf("streams/netease/%s/playlist.m3u8", songIDStr)
 	_, err = minioClient.PutObject(context.Background(), h.config.MinioBucket, m3u8Path, bytes.NewReader(m3u8Content), int64(len(m3u8Content)), minio.PutObjectOptions{
 		ContentType: "application/vnd.apple.mpegurl",
 	})
