@@ -100,7 +100,7 @@ const Player: React.FC = () => {
     <>
       {/* 主播放器控件 - 底部固定 */}
       <div className="fixed bottom-0 left-0 right-0 bg-cyber-bg-darker border-t-2 border-cyber-primary p-3 z-50">
-        <div className="container mx-auto flex flex-col">
+        <div className="max-w-7xl mx-auto px-4">
           {/* 进度条 */}
           <div 
             className="w-full h-3 bg-cyber-bg rounded-full mb-3 cursor-pointer"
@@ -114,7 +114,7 @@ const Player: React.FC = () => {
           
           <div className="flex items-center justify-between py-2">
             {/* 当前播放信息 */}
-            <div className="flex items-center w-1/4">
+            <div className="flex items-center w-1/3">
               {playerState.currentTrack ? (
                 <>
                   <div className="w-14 h-14 bg-cyber-bg rounded mr-3 flex-shrink-0 overflow-hidden">
@@ -143,7 +143,7 @@ const Player: React.FC = () => {
             </div>
             
             {/* 播放控制 */}
-            <div className="flex items-center justify-center space-x-5">
+            <div className="flex items-center justify-center space-x-6">
               <button 
                 onClick={handlePrevious} 
                 className="text-cyber-secondary hover:text-cyber-primary transition-colors"
@@ -173,7 +173,7 @@ const Player: React.FC = () => {
             </div>
             
             {/* 额外控制：音量、播放模式、播放列表按钮 */}
-            <div className="flex items-center justify-end w-1/4 space-x-4">
+            <div className="flex items-center justify-end w-1/3 space-x-6">
               {/* 时间显示 */}
               <div className="text-sm text-cyber-secondary hidden sm:block">
                 {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
@@ -218,7 +218,7 @@ const Player: React.FC = () => {
       
       {/* 播放列表抽屉 */}
       {showPlaylist && (
-        <div className="fixed bottom-24 right-0 w-full md:w-96 bg-cyber-bg-darker border-2 border-cyber-primary rounded-t-lg shadow-lg p-4 z-40">
+        <div className="fixed bottom-24 right-4 w-full md:w-96 bg-cyber-bg-darker border-2 border-cyber-primary rounded-lg shadow-lg p-4 z-40">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-cyber-primary">播放列表 ({playerState.playlist.length})</h3>
             <div className="flex space-x-2">
