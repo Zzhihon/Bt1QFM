@@ -201,7 +201,7 @@ const BotView: React.FC = () => {
         </div>
 
         {/* 用户信息 */}
-        <div className="p-3 border-t border-cyber-secondary/30">
+        {/* <div className="p-3 border-t border-cyber-secondary/30">
           <div className="flex items-center p-2 rounded-lg bg-cyber-bg/30 hover:bg-cyber-bg/50 transition-colors">
             <div className="w-9 h-9 rounded-full bg-cyber-primary flex items-center justify-center mr-2">
               <User className="w-5 h-5 text-cyber-bg" />
@@ -213,7 +213,7 @@ const BotView: React.FC = () => {
             </div>
             <Settings className="w-4 h-4 text-cyber-secondary/70 cursor-pointer hover:text-cyber-primary transition-colors" />
           </div>
-        </div>
+        </div> */}
       </div>
 
       {/* 中间聊天区域 */}
@@ -225,7 +225,7 @@ const BotView: React.FC = () => {
         </div>
 
         {/* 消息列表 */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 pb-28 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-cyber-bg/20 [&::-webkit-scrollbar-thumb]:bg-cyber-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyber-primary/50">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 pb-36 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-cyber-bg/20 [&::-webkit-scrollbar-thumb]:bg-cyber-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyber-primary/50">
           {messages.map((message) => (
             <div
               key={message.id}
