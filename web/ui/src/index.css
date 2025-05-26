@@ -11,19 +11,29 @@ body {
 
 /* Custom scrollbar for a more cyberpunk feel */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
+
 ::-webkit-scrollbar-track {
-  background: #05081E; /* cyber-bg-darker */
+  background: rgba(5, 8, 30, 0.3); /* cyber-bg-darker with transparency */
 }
+
 ::-webkit-scrollbar-thumb {
-  background: #FF00FF; /* cyber-primary */
-  border-radius: 4px;
+  background: rgba(67, 50, 115, 0.5); /* cyber-primary with transparency */
+  border-radius: 3px;
+  transition: all 0.3s ease;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: #E000E0; /* cyber-hover-primary */
-} 
+  background: rgba(67, 50, 115, 0.8); /* cyber-primary with more opacity on hover */
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(67, 50, 115, 0.5) rgba(5, 8, 30, 0.3);
+}
 
 /* 自定义颜色覆盖 */
 .border-cyber-primary {

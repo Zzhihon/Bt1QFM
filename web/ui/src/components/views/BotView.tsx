@@ -177,7 +177,7 @@ const BotView: React.FC = () => {
         </div>
 
         {/* 频道列表 */}
-        <div className="flex-1 overflow-y-auto p-3">
+        <div className="flex-1 overflow-y-auto p-3 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-cyber-bg/20 [&::-webkit-scrollbar-thumb]:bg-cyber-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyber-primary/50">
           <div className="space-y-2">
             <div className="text-xs font-semibold text-cyber-secondary/70 px-2 py-1 flex items-center justify-between">
               <span>音乐频道</span>
@@ -225,7 +225,7 @@ const BotView: React.FC = () => {
         </div>
 
         {/* 消息列表 */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 mb-32">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-cyber-bg/20 [&::-webkit-scrollbar-thumb]:bg-cyber-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyber-primary/50">
           {messages.map((message) => (
             <div
               key={message.id}
@@ -324,7 +324,7 @@ const BotView: React.FC = () => {
       </div>
 
       {/* 右侧用户列表 */}
-      <div className="w-64 bg-cyber-bg-darker/50 backdrop-blur-sm border-l border-cyber-secondary/30 p-4">
+      <div className="w-64 bg-cyber-bg-darker/50 backdrop-blur-sm border-l border-cyber-secondary/30 p-4 overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-cyber-bg/20 [&::-webkit-scrollbar-thumb]:bg-cyber-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyber-primary/50">
         <div className="text-xs font-semibold text-cyber-secondary/70 mb-3 px-2">在线用户</div>
         <div className="space-y-2">
           <div className="flex items-center p-2 rounded-lg hover:bg-cyber-bg/50 cursor-pointer transition-colors">
