@@ -37,6 +37,7 @@ type SearchSongItem struct {
 	Album    string   `json:"album"`
 	Duration int      `json:"duration"`
 	URL      string   `json:"url,omitempty"`
+	PicURL   string   `json:"picUrl,omitempty"`
 }
 
 // HandleSearch 处理搜索请求
@@ -51,15 +52,20 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("开始搜索歌曲: %s", query)
+
 	// 使用已实现的SearchSongs函数
 	result, err := h.client.SearchSongs(query, 5, 0)
 	if err != nil {
+		log.Printf("搜索失败: %v", err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "搜索失败: " + err.Error(),
 		})
 		return
 	}
+
+	log.Printf("搜索成功，找到 %d 首歌曲", len(result.Songs))
 
 	// 转换结果格式
 	response := SearchResponse{
@@ -74,12 +80,15 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 			artistNames[i] = artist.Name
 		}
 
+		log.Printf("处理歌曲: %s, 专辑封面URL: %s", song.Name, song.Album.PicURL)
+
 		item := SearchSongItem{
 			ID:       song.ID,
 			Name:     song.Name,
 			Artists:  artistNames,
 			Album:    song.Album.Name,
 			Duration: song.Duration,
+			PicURL:   song.Album.PicURL,
 		}
 		response.Data = append(response.Data, item)
 	}
@@ -87,6 +96,7 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	// 返回结果
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+	log.Printf("搜索请求处理完成")
 }
 
 // HandleCommand 处理命令请求
@@ -100,6 +110,9 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	log.Printf("收到前端请求: %s", r.URL.String())
+	log.Printf("处理命令: %s", command)
 
 	// 解析命令
 	parts := strings.Fields(command)
@@ -122,6 +135,9 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("准备转发请求到网易云API，歌曲ID: %s", songIDStr)
+	log.Printf("目标URL: %s/song/url?id=%s", h.client.BaseURL, songIDStr)
+
 	// 使用已实现的GetSongURL函数
 	url, err := h.client.GetSongURL(songIDStr)
 	if err != nil {
@@ -134,6 +150,8 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	log.Printf("成功获取歌曲URL: %s", url)
 
 	// 返回结果
 	response := SearchResponse{
@@ -148,4 +166,5 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+	log.Printf("请求处理完成，已返回结果")
 }

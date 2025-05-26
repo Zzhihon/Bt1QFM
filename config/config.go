@@ -41,7 +41,7 @@ type Config struct {
 	MinioAPI       string // S3 API 版本
 	MinioPath      string // 路径样式
 	// 网易云音乐API配置
-	NeteaseAPIURL string // 网易云音乐API地址
+	NeteaseAPIURL string `env:"NETEASE_API_URL" default:"http://localhost:3000"`
 }
 
 // getEnv gets an environment variable or returns a default value.
