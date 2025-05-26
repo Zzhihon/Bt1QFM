@@ -225,7 +225,7 @@ const BotView: React.FC = () => {
         </div>
 
         {/* 消息列表 */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-cyber-bg/20 [&::-webkit-scrollbar-thumb]:bg-cyber-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyber-primary/50">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 pb-28 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-cyber-bg/20 [&::-webkit-scrollbar-thumb]:bg-cyber-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyber-primary/50">
           {messages.map((message) => (
             <div
               key={message.id}
@@ -297,23 +297,23 @@ const BotView: React.FC = () => {
         </div>
 
         {/* 输入区域 */}
-        <div className="absolute bottom-28 left-0 right-0 px-4">
+        <div className="fixed bottom-[84px] left-0 right-0 px-4">
           <form onSubmit={handleCommand} className="max-w-4xl mx-auto">
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2">
               <input
                 type="text"
                 value={command}
                 onChange={(e) => setCommand(e.target.value)}
                 placeholder="输入 /netease [歌曲名称] 搜索音乐..."
-                className="flex-1 p-3 bg-cyber-bg/20 border-2 border-cyber-secondary/20 rounded-xl text-cyber-text focus:outline-none focus:border-cyber-primary/50 focus:bg-cyber-bg/30 transition-all duration-300"
+                className="flex-1 p-2 bg-cyber-bg/20 border-2 border-cyber-secondary/20 rounded-xl text-cyber-text text-sm focus:outline-none focus:border-cyber-primary/50 focus:bg-cyber-bg/30 transition-all duration-300"
               />
               <button
                 type="submit"
                 disabled={isLoading}
-                className="p-3 bg-cyber-primary/60 text-cyber-bg rounded-xl hover:bg-cyber-primary/80 transition-all duration-300 disabled:opacity-50"
+                className="p-2 bg-cyber-primary/60 text-cyber-bg rounded-xl hover:bg-cyber-primary/80 transition-all duration-300 disabled:opacity-50"
               >
                 {isLoading ? (
-                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-cyber-bg border-t-transparent" />
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-cyber-bg border-t-transparent" />
                 ) : (
                   <Send className="h-5 w-5" />
                 )}
