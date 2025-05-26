@@ -173,7 +173,7 @@ const AlbumsView: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto p-4 min-h-[calc(100vh-100px)] pb-32">
+    <div className="container mx-auto p-4 min-h-[calc(100vh-100px)] pb-32 max-w-7xl">
       <header className="my-8 text-center">
         <h1 className="text-5xl font-bold text-cyber-primary animate-pulse">专辑管理</h1>
         <p className="text-cyber-secondary mt-2">管理你的音乐专辑</p>
@@ -284,13 +284,13 @@ const AlbumsView: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
         {albums.map((album) => (
           <div
             key={album.id}
             className="bg-cyber-bg-darker border-2 border-cyber-secondary rounded-lg overflow-hidden shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.02]"
           >
-            <div className="aspect-square bg-cyber-bg relative overflow-hidden">
+            <div className="aspect-[4/5] bg-cyber-bg relative overflow-hidden">
               {album.coverPath ? (
                 <img
                   src={album.coverPath}

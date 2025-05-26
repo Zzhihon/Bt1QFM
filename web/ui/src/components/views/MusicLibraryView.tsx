@@ -112,7 +112,7 @@ const MusicLibraryView: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto p-4 min-h-[calc(100vh-100px)] pb-32">
+    <div className="container mx-auto p-4 min-h-[calc(100vh-100px)] pb-32 max-w-7xl">
       <header className="my-8 text-center">
         <h1 className="text-5xl font-bold text-cyber-primary animate-pulse">Music Matrix</h1>
         <p className="text-cyber-secondary mt-2">Your digital soundscape awaits.</p>
@@ -149,7 +149,7 @@ const MusicLibraryView: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
         {tracks.length === 0 && !isLoading && (
           <p className="col-span-full text-center text-cyber-muted text-lg py-12">
             Your music library is currently empty. Try uploading some tracks!
@@ -171,7 +171,7 @@ const MusicLibraryView: React.FC = () => {
               key={track.id} 
               className={`bg-cyber-bg-darker border-2 ${isSelected ? 'border-cyber-primary' : 'border-cyber-secondary'} rounded-lg overflow-hidden shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.02]`}
             >
-              <div className="aspect-square bg-cyber-bg relative overflow-hidden">
+              <div className="aspect-[4/5] bg-cyber-bg relative overflow-hidden">
                 {track.coverArtPath ? (
                   <img 
                     src={track.coverArtPath} 
