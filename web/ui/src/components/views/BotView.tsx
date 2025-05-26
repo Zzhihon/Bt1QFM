@@ -19,6 +19,7 @@ interface NeteaseSong {
   album: { name: string; picUrl: string };
   duration: number;
   url: string;
+  videoUrl?: string; // 动态封面视频URL
 }
 
 const BotView: React.FC = () => {
@@ -250,7 +251,16 @@ const BotView: React.FC = () => {
                   >
                     <div className="flex items-center space-x-3">
                       <div className="w-12 h-12 bg-cyber-bg rounded-lg overflow-hidden flex-shrink-0">
-                        {message.song.album.picUrl ? (
+                        {message.song.videoUrl ? (
+                          <video
+                            src={message.song.videoUrl}
+                            className="w-full h-full object-cover"
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                          />
+                        ) : message.song.album.picUrl ? (
                           <img
                             src={message.song.album.picUrl}
                             alt={message.song.name}

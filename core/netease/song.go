@@ -229,3 +229,48 @@ func (c *Client) SearchSongs(keyword string, limit, offset int) (*model.NeteaseS
 	log.Printf("搜索处理完成，返回 %d 首歌曲", len(searchResult.Songs))
 	return searchResult, nil
 }
+
+// GetDynamicCover 获取歌曲动态封面
+func (c *Client) GetDynamicCover(songID string) (string, error) {
+	url := fmt.Sprintf("%s/song/dynamic/cover?id=%s", c.BaseURL, songID)
+	log.Printf("准备获取动态封面: %s", url)
+
+	req, err := c.createRequest("GET", url)
+	if err != nil {
+		log.Printf("创建请求失败: %v", err)
+		return "", fmt.Errorf("创建请求失败: %w", err)
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		log.Printf("请求失败: %v", err)
+		return "", fmt.Errorf("请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
+			VideoPlayURL string `json:"videoPlayUrl"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("解析响应失败: %v", err)
+		return "", fmt.Errorf("解析响应失败: %w", err)
+	}
+
+	if result.Code != 200 {
+		log.Printf("API返回错误: %s (code: %d)", result.Message, result.Code)
+		return "", fmt.Errorf("API返回错误: %s (code: %d)", result.Message, result.Code)
+	}
+
+	if result.Data.VideoPlayURL == "" {
+		log.Printf("未找到动态封面")
+		return "", nil
+	}
+
+	log.Printf("成功获取动态封面URL: %s", result.Data.VideoPlayURL)
+	return result.Data.VideoPlayURL, nil
+}

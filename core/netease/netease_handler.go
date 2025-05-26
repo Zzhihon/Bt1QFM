@@ -2,6 +2,7 @@ package netease
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -38,6 +39,7 @@ type SearchSongItem struct {
 	Duration int      `json:"duration"`
 	URL      string   `json:"url,omitempty"`
 	PicURL   string   `json:"picUrl,omitempty"`
+	VideoURL string   `json:"videoUrl,omitempty"` // 动态封面视频URL
 }
 
 // HandleSearch 处理搜索请求
@@ -82,6 +84,13 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 
 		log.Printf("处理歌曲: %s, 专辑封面URL: %s", song.Name, song.Album.PicURL)
 
+		// 获取动态封面
+		videoURL, err := h.client.GetDynamicCover(fmt.Sprintf("%d", song.ID))
+		if err != nil {
+			log.Printf("获取动态封面失败: %v", err)
+			// 继续处理，不中断流程
+		}
+
 		item := SearchSongItem{
 			ID:       song.ID,
 			Name:     song.Name,
@@ -89,6 +98,7 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 			Album:    song.Album.Name,
 			Duration: song.Duration,
 			PicURL:   song.Album.PicURL,
+			VideoURL: videoURL,
 		}
 		response.Data = append(response.Data, item)
 	}
