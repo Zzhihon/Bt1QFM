@@ -15,7 +15,7 @@ import (
 
 // GetSongURL 获取歌曲URL
 func (c *Client) GetSongURL(songID string) (string, error) {
-	url := fmt.Sprintf("%s/song/url?id=%s", c.BaseURL, songID)
+	url := fmt.Sprintf("%s/song/url/v1?id=%s&level=lossless", c.BaseURL, songID)
 	log.Printf("准备发送请求到: %s", url)
 	log.Printf("使用的BaseURL: %s", c.BaseURL)
 
@@ -24,6 +24,12 @@ func (c *Client) GetSongURL(songID string) (string, error) {
 		log.Printf("创建请求失败: %v", err)
 		return "", fmt.Errorf("创建请求失败: %w", err)
 	}
+
+	// 设置cookie确保返回正常码率的url
+	req.AddCookie(&http.Cookie{
+		Name:  "os",
+		Value: "pc",
+	})
 
 	// 打印所有请求头
 	log.Printf("请求头信息:")
