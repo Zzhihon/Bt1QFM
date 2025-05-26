@@ -103,13 +103,15 @@ const Player: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4">
           {/* 进度条 */}
           <div 
-            className="w-full h-3 bg-cyber-bg rounded-full mb-3 cursor-pointer"
+            className="w-full h-3 bg-cyber-bg rounded-full mb-3 cursor-pointer relative overflow-hidden"
             onClick={handleProgressClick}
           >
             <div 
-              className="h-full bg-cyber-primary rounded-full"
+              className="h-full bg-gradient-to-r from-cyber-primary to-cyber-secondary rounded-full relative"
               style={{ width: `${playerState.duration ? (playerState.currentTime / playerState.duration) * 100 : 0}%` }}
-            ></div>
+            >
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-cyber-primary rounded-full shadow-lg shadow-cyber-primary/50"></div>
+            </div>
           </div>
           
           <div className="flex items-center justify-between py-2">
@@ -191,7 +193,7 @@ const Player: React.FC = () => {
                   step="0.01" 
                   value={playerState.muted ? 0 : playerState.volume}
                   onChange={(e) => setVolume(parseFloat(e.target.value))}
-                  className="w-20 accent-cyber-primary"
+                  className="w-20 [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-cyber-bg [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyber-primary [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-cyber-primary/50 [&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-cyber-bg [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-cyber-primary [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:shadow-lg [&::-moz-range-thumb]:shadow-cyber-primary/50"
                 />
               </div>
               
