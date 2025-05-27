@@ -6,6 +6,29 @@ import { AuthProvider } from './contexts/AuthContext.tsx';
 import { PlayerProvider } from './contexts/PlayerContext.tsx';
 import { ToastProvider } from './contexts/ToastContext.tsx';
 
+// 初始化主题
+const initializeTheme = () => {
+  const savedTheme = localStorage.getItem('selectedTheme');
+  if (savedTheme) {
+    const theme = JSON.parse(savedTheme);
+    const root = document.documentElement;
+    
+    // 移除所有主题类
+    root.classList.remove('theme-cyberpunk', 'theme-minimal', 'theme-dark', 'theme-retro');
+    
+    // 添加新主题类
+    root.classList.add(theme.className);
+    
+    // 设置 CSS 变量
+    Object.entries(theme.colors).forEach(([key, value]) => {
+      root.style.setProperty(`--${key}`, value);
+    });
+  }
+};
+
+// 在应用启动时初始化主题
+initializeTheme();
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <AuthProvider>

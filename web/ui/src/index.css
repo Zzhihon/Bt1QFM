@@ -2,37 +2,84 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-cyber-bg text-cyber-text;
-  font-family: 'Arial', sans-serif; /* Basic sans-serif, can be changed */
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* 默认主题（赛博朋克） */
+:root {
+  --cyber-bg: #0A0F37;
+  --cyber-bg-darker: #05081E;
+  --cyber-text: #F0F0F0;
+  --cyber-primary: #FF00D6;
+  --cyber-secondary: #372963;
+  --cyber-hover-primary: #E000E0;
+  --cyber-hover-secondary: #00E0E0;
+}
+
+/* 极简主义主题 */
+.theme-minimal {
+  --cyber-bg: #FFFFFF;
+  --cyber-bg-darker: #F5F5F5;
+  --cyber-text: #333333;
+  --cyber-primary: #2563EB;
+  --cyber-secondary: #64748B;
+  --cyber-hover-primary: #1D4ED8;
+  --cyber-hover-secondary: #475569;
+}
+
+/* 暗夜模式主题 */
+.theme-dark {
+  --cyber-bg: #1A1A1A;
+  --cyber-bg-darker: #000000;
+  --cyber-text: #E5E5E5;
+  --cyber-primary: #10B981;
+  --cyber-secondary: #4B5563;
+  --cyber-hover-primary: #059669;
+  --cyber-hover-secondary: #374151;
+}
+
+/* 复古风格主题 */
+.theme-retro {
+  --cyber-bg: #2C1810;
+  --cyber-bg-darker: #1A0F0A;
+  --cyber-text: #F5E6D3;
+  --cyber-primary: #D4AF37;
+  --cyber-secondary: #8B4513;
+  --cyber-hover-primary: #B8860B;
+  --cyber-hover-secondary: #654321;
+}
+
+@layer base {
+  body {
+    @apply bg-cyber-bg text-cyber-text;
+    font-family: 'Arial', sans-serif; /* Basic sans-serif, can be changed */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }
 
 /* Custom scrollbar for a more cyberpunk feel */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(5, 8, 30, 0.3); /* cyber-bg-darker with transparency */
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(67, 50, 115, 0.5); /* cyber-primary with transparency */
-  border-radius: 3px;
-  transition: all 0.3s ease;
+  background: var(--cyber-secondary);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(67, 50, 115, 0.8); /* cyber-primary with more opacity on hover */
+  background: var(--cyber-primary);
 }
 
 /* Firefox scrollbar */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(67, 50, 115, 0.5) rgba(5, 8, 30, 0.3);
+  scrollbar-color: var(--cyber-secondary) var(--cyber-bg-darker);
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
 /* 自定义颜色覆盖 */
@@ -64,4 +111,114 @@ body {
 
 .toast-item {
   animation: fadeIn 0.3s ease-in-out, fadeOut 3s ease-in-out forwards;
+}
+
+/* 动画效果 */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* 渐变背景 */
+.gradient-bg {
+  background: linear-gradient(135deg, var(--cyber-bg) 0%, var(--cyber-bg-darker) 100%);
+}
+
+/* 霓虹灯效果 */
+.neon-text {
+  text-shadow: 0 0 5px var(--cyber-primary),
+               0 0 10px var(--cyber-primary),
+               0 0 20px var(--cyber-primary);
+}
+
+.neon-border {
+  box-shadow: 0 0 5px var(--cyber-primary),
+              0 0 10px var(--cyber-primary),
+              inset 0 0 5px var(--cyber-primary);
+}
+
+/* 玻璃态效果 */
+.glass-effect {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* 按钮悬停效果 */
+.hover-glow:hover {
+  box-shadow: 0 0 10px var(--cyber-primary),
+              0 0 20px var(--cyber-primary);
+  transition: all 0.3s ease;
+}
+
+/* 输入框样式 */
+.cyber-input {
+  @apply bg-cyber-bg-darker border-2 border-cyber-secondary rounded-md px-4 py-2 text-cyber-text focus:border-cyber-primary focus:outline-none transition-colors duration-300;
+}
+
+/* 按钮样式 */
+.cyber-button {
+  @apply bg-cyber-primary text-cyber-bg-darker px-4 py-2 rounded-md font-medium hover:bg-cyber-hover-primary transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-cyber-primary focus:ring-opacity-50;
+}
+
+.cyber-button-secondary {
+  @apply bg-cyber-secondary text-cyber-text px-4 py-2 rounded-md font-medium hover:bg-cyber-hover-secondary transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-cyber-secondary focus:ring-opacity-50;
+}
+
+/* 卡片样式 */
+.cyber-card {
+  @apply bg-cyber-bg-darker border-2 border-cyber-primary rounded-lg p-4 shadow-lg transition-all duration-300;
+  box-shadow: 0 10px 15px -3px rgba(255, 0, 214, 0.2), 0 4px 6px -2px rgba(255, 0, 214, 0.1);
+}
+
+.cyber-card:hover {
+  box-shadow: 0 20px 25px -5px rgba(255, 0, 214, 0.3), 0 10px 10px -5px rgba(255, 0, 214, 0.2);
+}
+
+/* 标签样式 */
+.cyber-tag {
+  @apply text-cyber-primary px-2 py-1 rounded-md text-sm font-medium;
+  background-color: rgba(55, 41, 99, 0.2); /* cyber-secondary with 20% opacity */
+}
+
+/* 加载动画 */
+.loading-spinner {
+  @apply animate-spin rounded-full border-4 border-cyber-secondary border-t-cyber-primary;
+}
+
+/* 工具提示 */
+.tooltip {
+  @apply relative inline-block;
+}
+
+.tooltip .tooltip-text {
+  @apply invisible absolute z-10 px-3 py-2 text-sm text-cyber-text bg-cyber-bg-darker rounded-md border border-cyber-primary;
+  @apply opacity-0 transition-opacity duration-300;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.tooltip:hover .tooltip-text {
+  @apply visible opacity-100;
+}
+
+/* 响应式布局 */
+@media (max-width: 640px) {
+  .mobile-menu {
+    @apply fixed inset-0 bg-cyber-bg-darker z-50;
+  }
+}
+
+/* 主题切换过渡效果 */
+* {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }

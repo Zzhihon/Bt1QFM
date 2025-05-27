@@ -7,16 +7,14 @@ export default {
   theme: {
     extend: {
       colors: {
-        'cyber-bg': '#0A0F37', // Deep indigo/navy
-        'cyber-bg-darker': '#05081E', // Even darker for contrasts
-        'cyber-text': '#F0F0F0', // Off-white/light gray for general text
-        'cyber-primary': '#FF00D6', // Neon Pink/Magenta (slightly changed)
-        'cyber-secondary': '#372963', // Neon Cyan/Aqua
-        'cyber-green': '#00FF00', // Neon Lime Green
-        'cyber-red': '#FF0000', // Bright Red
-        'cyber-muted': '#4A5568', // Muted gray for less important elements
-        'cyber-hover-primary': '#E000E0',
-        'cyber-hover-secondary': '#00E0E0',
+        'cyber-bg': 'var(--cyber-bg)',
+        'cyber-bg-darker': 'var(--cyber-bg-darker)',
+        'cyber-text': 'var(--cyber-text)',
+        'cyber-primary': 'var(--cyber-primary)',
+        'cyber-secondary': 'var(--cyber-secondary)',
+        'cyber-hover-primary': 'var(--cyber-hover-primary)',
+        'cyber-hover-secondary': 'var(--cyber-hover-secondary)',
+        'cyber-accent': 'var(--cyber-primary)',
       }
     },
   },
