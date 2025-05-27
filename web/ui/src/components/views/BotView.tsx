@@ -24,7 +24,7 @@ interface NeteaseSong {
 
 const BotView: React.FC = () => {
   const { currentUser } = useAuth();
-  const { playTrack } = usePlayer();
+  const { playTrack, playerState } = usePlayer();
   const { addToast } = useToast();
   const [command, setCommand] = useState('');
   const [messages, setMessages] = useState<Message[]>([
@@ -36,6 +36,7 @@ const BotView: React.FC = () => {
     },
   ]);
   const [isLoading, setIsLoading] = useState(false);
+  const [processingSongs, setProcessingSongs] = useState<Set<number>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -120,14 +121,50 @@ const BotView: React.FC = () => {
   };
 
   const handlePlay = async (song: NeteaseSong) => {
+    // 检查是否是当前正在播放的歌曲
+    if (playerState.currentTrack && playerState.currentTrack.id === song.id) {
+      addToast({
+        type: 'info',
+        message: '播放中...',
+        duration: 2000,
+      });
+      return;
+    }
+
+    // 检查歌曲是否正在处理中
+    if (processingSongs.has(song.id)) {
+      addToast({
+        type: 'info',
+        message: '歌曲正在处理中，请稍后再试...',
+        duration: 3000,
+      });
+      return;
+    }
+
     try {
+      // 添加到处理中集合
+      setProcessingSongs(prev => new Set([...prev, song.id]));
+
       const response = await fetch(`/api/netease/command?command=/netease ${song.id}`);
       if (!response.ok) {
         throw new Error('获取播放地址失败');
       }
       
       const data = await response.json();
-      if (!data.success || !Array.isArray(data.data) || data.data.length === 0) {
+      if (!data.success) {
+        // 检查是否是处理中的状态
+        if (data.error === '歌曲正在处理中，请稍后再试') {
+          addToast({
+            type: 'info',
+            message: '正在处理中...',
+            duration: 3000,
+          });
+          return;
+        }
+        throw new Error(data.error || '获取播放地址失败');
+      }
+
+      if (!Array.isArray(data.data) || data.data.length === 0) {
         throw new Error('获取播放地址失败');
       }
 
@@ -154,13 +191,18 @@ const BotView: React.FC = () => {
       };
       setMessages(prev => [...prev, botMessage]);
     } catch (error: any) {
-      const botMessage: Message = {
-        id: Date.now().toString(),
-        type: 'bot',
-        content: error.message || '播放失败',
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, botMessage]);
+      addToast({
+        type: 'error',
+        message: error.message || '播放失败',
+        duration: 3000,
+      });
+    } finally {
+      // 从处理中集合中移除
+      setProcessingSongs(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(song.id);
+        return newSet;
+      });
     }
   };
 

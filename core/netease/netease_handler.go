@@ -205,10 +205,38 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 检查处理状态
+	status := h.mp3Processor.GetProcessingStatus(songIDStr)
+	if status != nil {
+		if status.IsProcessing {
+			// 正在处理中，返回处理中的状态
+			json.NewEncoder(w).Encode(SearchResponse{
+				Success: false,
+				Error:   "歌曲正在处理中，请稍后再试",
+			})
+			return
+		}
+		if status.Error != nil && status.RetryCount < status.MaxRetries {
+			// 处理失败但可以重试
+			log.Printf("处理失败，准备重试 (第 %d 次)", status.RetryCount+1)
+		} else if status.Error != nil {
+			// 超过最大重试次数
+			json.NewEncoder(w).Encode(SearchResponse{
+				Success: false,
+				Error:   "处理失败，请稍后重试",
+			})
+			return
+		}
+	}
+
+	// 设置处理状态
+	h.mp3Processor.SetProcessingStatus(songIDStr, true, nil)
+
 	// 创建临时目录用于存储音频文件
 	tempDir := filepath.Join(h.config.StaticDir, "temp", "netease")
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		log.Printf("创建临时目录失败: %v", err)
+		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "创建临时目录失败: " + err.Error(),
@@ -220,6 +248,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	tempFile := filepath.Join(tempDir, fmt.Sprintf("%s.mp3", songIDStr))
 	if err := downloadFile(url, tempFile); err != nil {
 		log.Printf("下载音频文件失败: %v", err)
+		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "下载音频文件失败: " + err.Error(),
@@ -232,6 +261,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	optimizedFile := filepath.Join(tempDir, fmt.Sprintf("%s_optimized.mp3", songIDStr))
 	if err := h.mp3Processor.OptimizeMP3(tempFile, optimizedFile); err != nil {
 		log.Printf("优化MP3文件失败: %v", err)
+		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "优化MP3文件失败: " + err.Error(),
@@ -244,6 +274,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	hlsDir := filepath.Join(h.config.StaticDir, "streams", "netease", songIDStr)
 	if err := os.MkdirAll(hlsDir, 0755); err != nil {
 		log.Printf("创建HLS目录失败: %v", err)
+		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "创建HLS目录失败: " + err.Error(),
@@ -266,6 +297,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		log.Printf("转换为HLS格式失败: %v", err)
+		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "转换为HLS格式失败: " + err.Error(),
@@ -276,6 +308,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	// 上传HLS文件到MinIO
 	if minioClient == nil {
 		log.Printf("MinIO客户端未初始化")
+		h.mp3Processor.UpdateProcessingStatus(songIDStr, fmt.Errorf("MinIO客户端未初始化"))
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "存储服务未初始化",
@@ -287,6 +320,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	m3u8Content, err := os.ReadFile(outputM3U8)
 	if err != nil {
 		log.Printf("读取m3u8文件失败: %v", err)
+		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "读取m3u8文件失败: " + err.Error(),
@@ -300,6 +334,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Printf("上传m3u8文件到MinIO失败: %v", err)
+		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "上传m3u8文件失败: " + err.Error(),
@@ -311,6 +346,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	segments, err := filepath.Glob(filepath.Join(hlsDir, "segment_*.ts"))
 	if err != nil {
 		log.Printf("获取分片文件列表失败: %v", err)
+		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "获取分片文件列表失败: " + err.Error(),
@@ -338,6 +374,9 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 
 	// 清理临时文件
 	os.RemoveAll(hlsDir)
+
+	// 更新处理状态为成功
+	h.mp3Processor.UpdateProcessingStatus(songIDStr, nil)
 
 	// 返回HLS播放地址
 	hlsURL := fmt.Sprintf("/streams/netease/%s/playlist.m3u8", songIDStr)

@@ -15,11 +15,54 @@ import (
 // MP3Processor 处理网易云音乐的音频文件
 type MP3Processor struct {
 	ffmpegPath string
+	// 添加处理状态缓存
+	processingStatus map[string]*ProcessingStatus
+}
+
+// ProcessingStatus 表示音频处理状态
+type ProcessingStatus struct {
+	IsProcessing bool
+	Error        error
+	RetryCount   int
+	MaxRetries   int
 }
 
 // NewMP3Processor 创建一个新的 MP3 处理器
 func NewMP3Processor(ffmpegPath string) *MP3Processor {
-	return &MP3Processor{ffmpegPath: ffmpegPath}
+	return &MP3Processor{
+		ffmpegPath:       ffmpegPath,
+		processingStatus: make(map[string]*ProcessingStatus),
+	}
+}
+
+// GetProcessingStatus 获取处理状态
+func (p *MP3Processor) GetProcessingStatus(songID string) *ProcessingStatus {
+	if status, exists := p.processingStatus[songID]; exists {
+		return status
+	}
+	return nil
+}
+
+// SetProcessingStatus 设置处理状态
+func (p *MP3Processor) SetProcessingStatus(songID string, isProcessing bool, err error) {
+	p.processingStatus[songID] = &ProcessingStatus{
+		IsProcessing: isProcessing,
+		Error:        err,
+		RetryCount:   0,
+		MaxRetries:   3,
+	}
+}
+
+// UpdateProcessingStatus 更新处理状态
+func (p *MP3Processor) UpdateProcessingStatus(songID string, err error) {
+	if status, exists := p.processingStatus[songID]; exists {
+		status.Error = err
+		if err != nil {
+			status.RetryCount++
+		} else {
+			status.IsProcessing = false
+		}
+	}
 }
 
 // ProcessToHLS 将 MP3 文件转换为 HLS 格式

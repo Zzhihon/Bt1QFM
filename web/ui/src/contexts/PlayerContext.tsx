@@ -25,6 +25,11 @@ interface PlayerContextType {
   isLoadingPlaylist: boolean;
   showPlaylist: boolean;
   setShowPlaylist: React.Dispatch<React.SetStateAction<boolean>>;
+  currentTrack: Track | null;
+  isPlaying: boolean;
+  pauseTrack: () => void;
+  resumeTrack: () => void;
+  stopTrack: () => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -986,7 +991,18 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         audioRef,
         isLoadingPlaylist,
         showPlaylist,
-        setShowPlaylist
+        setShowPlaylist,
+        currentTrack: playerState.currentTrack,
+        isPlaying: playerState.isPlaying,
+        pauseTrack: () => {
+          // Implementation needed
+        },
+        resumeTrack: () => {
+          // Implementation needed
+        },
+        stopTrack: () => {
+          // Implementation needed
+        }
       }}
     >
       {children}
