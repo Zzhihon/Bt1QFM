@@ -1,14 +1,17 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
 
 	"Bt1QFM/db"
+	"Bt1QFM/repository"
 )
 
 // PlaylistHandler 处理播放列表相关的请求
@@ -83,6 +86,19 @@ func (h *APIHandler) GetPlaylistHandler(ctx context.Context, userID int64, w htt
 	// 为每首歌添加完整信息（如果需要）
 	enhancedPlaylist := make([]map[string]interface{}, 0, len(playlist))
 	for _, item := range playlist {
+		// 如果是网易云音乐的歌曲
+		if item.NeteaseID != 0 {
+			enhancedPlaylist = append(enhancedPlaylist, map[string]interface{}{
+				"neteaseId":      item.NeteaseID,
+				"title":          item.Title,
+				"artist":         item.Artist,
+				"album":          item.Album,
+				"position":       item.Position,
+				"hlsPlaylistUrl": fmt.Sprintf("/streams/netease/%d/playlist.m3u8", item.NeteaseID),
+			})
+			continue
+		}
+
 		// 检查trackRepo是否初始化
 		if h.trackRepo == nil {
 			log.Printf("Error: trackRepo is not initialized")
@@ -133,37 +149,99 @@ func (h *APIHandler) GetPlaylistHandler(ctx context.Context, userID int64, w htt
 // AddToPlaylistHandler 将歌曲添加到播放列表
 func (h *APIHandler) AddToPlaylistHandler(ctx context.Context, userID int64, w http.ResponseWriter, r *http.Request) {
 	var requestData struct {
-		TrackID int64 `json:"trackId"`
+		TrackID   int64  `json:"trackId,omitempty"`
+		NeteaseID int64  `json:"neteaseId,omitempty"`
+		Title     string `json:"title"`
+		Artist    string `json:"artist"`
+		Album     string `json:"album"`
 	}
 
+	// 读取原始请求体
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("[AddToPlaylistHandler] 读取请求体失败: %v", err)
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	log.Printf("[AddToPlaylistHandler] 原始请求体: %s", string(bodyBytes))
+
+	// 重置请求体
+	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
 	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		log.Printf("[AddToPlaylistHandler] 解析请求数据失败: %v", err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	track, err := h.trackRepo.GetTrackByID(requestData.TrackID)
-	if err != nil {
-		http.Error(w, "Failed to get track information", http.StatusInternalServerError)
+	log.Printf("[AddToPlaylistHandler] 开始处理添加歌曲请求 (用户ID: %d)", userID)
+	log.Printf("[AddToPlaylistHandler] 请求数据: {TrackID:%d NeteaseID:%d Title:%s Artist:%s Album:%s}",
+		requestData.TrackID, requestData.NeteaseID, requestData.Title, requestData.Artist, requestData.Album)
+
+	// 检查是否提供了有效的ID
+	if requestData.TrackID == 0 && requestData.NeteaseID == 0 {
+		log.Printf("[AddToPlaylistHandler] 错误: 未提供有效的ID")
+		http.Error(w, "Either trackId or neteaseId must be provided", http.StatusBadRequest)
 		return
 	}
-	if track == nil {
-		http.Error(w, "Track not found", http.StatusNotFound)
-		return
+
+	// 如果是网易云音乐的歌曲
+	if requestData.NeteaseID != 0 {
+		log.Printf("[AddToPlaylistHandler] 验证网易云音乐歌曲信息 (ID: %d)", requestData.NeteaseID)
+		// 验证网易云音乐歌曲信息
+		neteaseRepo := repository.NewNeteaseSongRepository()
+		song, err := neteaseRepo.GetNeteaseSongByID(fmt.Sprintf("%d", requestData.NeteaseID))
+		if err != nil {
+			log.Printf("[AddToPlaylistHandler] 获取网易云音乐歌曲信息失败 (ID: %d): %v", requestData.NeteaseID, err)
+			http.Error(w, "Failed to get netease song information", http.StatusInternalServerError)
+			return
+		}
+		if song == nil {
+			log.Printf("[AddToPlaylistHandler] 网易云音乐歌曲不存在 (ID: %d)", requestData.NeteaseID)
+			http.Error(w, "Netease song not found", http.StatusNotFound)
+			return
+		}
+
+		log.Printf("[AddToPlaylistHandler] 找到网易云音乐歌曲: %s - %s", song.Title, song.Artist)
+		// 使用数据库中的信息更新请求数据
+		requestData.Title = song.Title
+		requestData.Artist = song.Artist
+		requestData.Album = song.Album
+	} else if requestData.TrackID != 0 {
+		log.Printf("[AddToPlaylistHandler] 验证普通歌曲信息 (TrackID: %d)", requestData.TrackID)
+		// 如果是普通歌曲，验证歌曲信息
+		track, err := h.trackRepo.GetTrackByID(requestData.TrackID)
+		if err != nil {
+			log.Printf("[AddToPlaylistHandler] 获取普通歌曲信息失败 (ID: %d): %v", requestData.TrackID, err)
+			http.Error(w, "Failed to get track information", http.StatusInternalServerError)
+			return
+		}
+		if track == nil {
+			log.Printf("[AddToPlaylistHandler] 普通歌曲不存在 (ID: %d)", requestData.TrackID)
+			http.Error(w, "Track not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("[AddToPlaylistHandler] 找到普通歌曲: %s - %s", track.Title, track.Artist)
 	}
 
 	item := db.PlaylistItem{
-		TrackID: track.ID,
-		Title:   track.Title,
-		Artist:  track.Artist,
-		Album:   track.Album,
+		TrackID:   requestData.TrackID,
+		NeteaseID: requestData.NeteaseID,
+		Title:     requestData.Title,
+		Artist:    requestData.Artist,
+		Album:     requestData.Album,
 	}
 
+	log.Printf("[AddToPlaylistHandler] 准备添加到播放列表: {TrackID:%d NeteaseID:%d Title:%s Artist:%s Album:%s}",
+		item.TrackID, item.NeteaseID, item.Title, item.Artist, item.Album)
+
 	if err := db.AddTrackToPlaylist(ctx, userID, item); err != nil {
-		log.Printf("Error adding track to playlist: %v", err)
+		log.Printf("[AddToPlaylistHandler] 添加到播放列表失败: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to add track to playlist: %v", err), http.StatusInternalServerError)
 		return
 	}
 
+	log.Printf("[AddToPlaylistHandler] 成功添加到播放列表")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "Track added to playlist successfully",

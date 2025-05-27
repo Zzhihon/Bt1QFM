@@ -4,6 +4,8 @@ import (
 	"Bt1QFM/db"
 	"Bt1QFM/model"
 	"database/sql"
+	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -52,11 +54,17 @@ func (repo *NeteaseSongRepository) UpdateNeteaseSongHLS(songID string, hlsPath s
 
 // GetNeteaseSongByID 根据ID获取网易云歌曲信息
 func (repo *NeteaseSongRepository) GetNeteaseSongByID(songID string) (*model.NeteaseSongDB, error) {
+	// 将字符串ID转换为int64
+	id, err := strconv.ParseInt(songID, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid song ID: %w", err)
+	}
+
 	query := `SELECT id, title, artist, album, file_path, cover_art_path, hls_playlist_path, duration, created_at, updated_at 
 		FROM netease_song WHERE id = ?`
 
 	var song model.NeteaseSongDB
-	err := repo.DB.QueryRow(query, songID).Scan(
+	err = repo.DB.QueryRow(query, id).Scan(
 		&song.ID,
 		&song.Title,
 		&song.Artist,

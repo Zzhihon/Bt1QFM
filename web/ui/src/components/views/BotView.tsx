@@ -23,8 +23,8 @@ interface NeteaseSong {
 }
 
 const BotView: React.FC = () => {
-  const { currentUser } = useAuth();
-  const { playTrack, playerState } = usePlayer();
+  const { currentUser, authToken } = useAuth();
+  const { playTrack, playerState, addToPlaylist } = usePlayer();
   const { addToast } = useToast();
   const [command, setCommand] = useState('');
   const [messages, setMessages] = useState<Message[]>([
@@ -206,6 +206,59 @@ const BotView: React.FC = () => {
     }
   };
 
+  const handleAddToPlaylist = async (song: NeteaseSong) => {
+    try {
+        const requestData = {
+            neteaseId: song.id,
+            title: song.name,
+            artist: song.artists.map(a => a.name).join(', '),
+            album: song.album.name,
+        };
+        
+        console.log('Adding to playlist:', requestData);
+
+        const response = await fetch('/api/playlist', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+            },
+            body: JSON.stringify(requestData),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+            console.error('Server response:', errorData);
+            throw new Error(errorData.error || `HTTP error ${response.status}`);
+        }
+
+        // 更新前端状态
+        const trackData = {
+            id: song.id,
+            title: song.name,
+            artist: song.artists.map(a => a.name).join(', '),
+            album: song.album.name,
+            coverArtPath: song.album.picUrl,
+            hlsPlaylistUrl: `/streams/netease/${song.id}/playlist.m3u8`,
+            position: 0,
+        };
+        addToPlaylist(trackData);
+
+        addToast({
+            type: 'success',
+            message: '已添加到播放列表',
+            duration: 2000,
+        });
+    } catch (error) {
+        console.error('Error adding to playlist:', error);
+        addToast({
+            type: 'error',
+            message: error instanceof Error ? error.message : '添加到播放列表失败',
+            duration: 3000,
+        });
+    }
+  };
+
   return (
     <div className="flex h-[calc(100vh-64px)] bg-cyber-bg">
       {/* 左侧频道栏 */}
@@ -289,7 +342,6 @@ const BotView: React.FC = () => {
                 {message.song && (
                   <div
                     className="mt-3 bg-cyber-bg/30 rounded-xl p-3 cursor-pointer hover:bg-cyber-bg/50 transition-colors"
-                    onClick={() => handlePlay(message.song!)}
                   >
                     <div className="flex items-center space-x-3">
                       <div className="w-12 h-12 bg-cyber-bg rounded-lg overflow-hidden flex-shrink-0">
@@ -320,7 +372,20 @@ const BotView: React.FC = () => {
                           {message.song.artists.map(a => a.name).join(', ')}
                         </p>
                       </div>
-                      <PlayCircle className="h-6 w-6 text-cyber-primary flex-shrink-0" />
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => handlePlay(message.song!)}
+                          className="p-2 hover:bg-cyber-bg/50 rounded-lg transition-colors"
+                        >
+                          <PlayCircle className="h-6 w-6 text-cyber-primary" />
+                        </button>
+                        <button
+                          onClick={() => handleAddToPlaylist(message.song!)}
+                          className="p-2 hover:bg-cyber-bg/50 rounded-lg transition-colors"
+                        >
+                          <Plus className="h-6 w-6 text-cyber-primary" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}

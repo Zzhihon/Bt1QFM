@@ -78,11 +78,12 @@ func TestRedis() error {
 
 // PlaylistItem 表示播放列表中的一个项目
 type PlaylistItem struct {
-	TrackID  int64  `json:"trackId"`
-	Title    string `json:"title"`
-	Artist   string `json:"artist"`
-	Album    string `json:"album"`
-	Position int    `json:"position"` // 在播放列表中的位置
+	TrackID   int64  `json:"trackId,omitempty"`   // 本地音乐ID
+	NeteaseID int64  `json:"neteaseId,omitempty"` // 网易云音乐ID
+	Title     string `json:"title"`
+	Artist    string `json:"artist"`
+	Album     string `json:"album"`
+	Position  int    `json:"position"` // 在播放列表中的位置
 }
 
 // GetPlaylistKey 根据用户ID生成播放列表的Redis键
@@ -159,7 +160,7 @@ func RemoveTrackFromPlaylist(ctx context.Context, userID int64, trackID int64) e
 
 	// 找到要删除的项目
 	for i, item := range items {
-		if item.TrackID == trackID {
+		if (item.TrackID != 0 && item.TrackID == trackID) || (item.NeteaseID != 0 && item.NeteaseID == trackID) {
 			// 将项目转换为JSON
 			itemJSON, err := json.Marshal(item)
 			if err != nil {
@@ -250,7 +251,12 @@ func UpdatePlaylistOrder(ctx context.Context, userID int64, trackIDs []int64) er
 	// 创建trackID到播放列表项的映射
 	itemMap := make(map[int64]PlaylistItem)
 	for _, item := range items {
-		itemMap[item.TrackID] = item
+		if item.TrackID != 0 {
+			itemMap[item.TrackID] = item
+		}
+		if item.NeteaseID != 0 {
+			itemMap[item.NeteaseID] = item
+		}
 	}
 
 	// 清空当前播放列表
