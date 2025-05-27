@@ -332,7 +332,9 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 				}
 
 				// 检查是否已经处理过
-				_, err := minioClient.StatObject(context.Background(), cfg.MinioBucket, fmt.Sprintf("hls/%d/index.m3u8", song.ID), minio.StatObjectOptions{})
+				var err error
+				m3u8Path := fmt.Sprintf("streams/netease/%d/playlist.m3u8", song.ID)
+				_, err = minioClient.StatObject(context.Background(), cfg.MinioBucket, m3u8Path, minio.StatObjectOptions{})
 				if err == nil {
 					log.Printf("[SearchSongs] 歌曲已预处理过，跳过 (ID: %d, 名称: %s)", song.ID, song.Name)
 					return
@@ -377,15 +379,15 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 
 				// 上传到MinIO
 				// 上传m3u8文件
-				m3u8Path := fmt.Sprintf("streams/netease/%d/playlist.m3u8", song.ID)
+				minioM3U8Path := fmt.Sprintf("streams/netease/%d/playlist.m3u8", song.ID)
 				m3u8Content, err := os.ReadFile(outputM3U8)
 				if err != nil {
 					log.Printf("[SearchSongs] 读取m3u8文件失败 (ID: %d, 名称: %s): %v", song.ID, song.Name, err)
 					return
 				}
-				log.Printf("m3u8Path: %s", m3u8Path)
+				log.Printf("m3u8Path: %s", minioM3U8Path)
 
-				_, err = minioClient.PutObject(context.Background(), cfg.MinioBucket, m3u8Path, bytes.NewReader(m3u8Content), int64(len(m3u8Content)), minio.PutObjectOptions{
+				_, err = minioClient.PutObject(context.Background(), cfg.MinioBucket, minioM3U8Path, bytes.NewReader(m3u8Content), int64(len(m3u8Content)), minio.PutObjectOptions{
 					ContentType: "application/vnd.apple.mpegurl",
 				})
 				if err != nil {
