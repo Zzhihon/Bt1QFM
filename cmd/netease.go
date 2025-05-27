@@ -31,7 +31,7 @@ var neteaseCmd = &cobra.Command{
 
 		// 搜索歌曲
 		fmt.Printf("正在搜索: %s\n", searchKeyword)
-		result, err := client.SearchSongs(searchKeyword, limit, offset)
+		result, err := client.SearchSongs(searchKeyword, 5, 0, nil, "")
 		if err != nil {
 			log.Fatalf("搜索失败: %v", err)
 		}

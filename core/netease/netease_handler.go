@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
+	"Bt1QFM/core/utils"
 	"Bt1QFM/storage"
 
 	"github.com/minio/minio-go/v7"
@@ -72,7 +72,7 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	log.Printf("开始搜索歌曲: %s", query)
 
 	// 使用已实现的SearchSongs函数
-	result, err := h.client.SearchSongs(query, 5, 0)
+	result, err := h.client.SearchSongs(query, 5, 0, h.mp3Processor, h.config.StaticDir)
 	if err != nil {
 		log.Printf("搜索失败: %v", err)
 		json.NewEncoder(w).Encode(SearchResponse{
@@ -89,6 +89,8 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Data:    make([]SearchSongItem, 0, len(result.Songs)),
 	}
+
+	
 
 	for _, song := range result.Songs {
 		// 获取艺术家名称
@@ -160,6 +162,30 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+		// 检查处理状态
+	status := h.mp3Processor.GetProcessingStatus(songIDStr)
+	if status != nil {
+		if status.IsProcessing {
+			// 正在处理中，返回处理中的状态
+			json.NewEncoder(w).Encode(SearchResponse{
+				Success: false,
+				Error:   "歌曲正在处理中，请稍后再试",
+			})
+			return
+		}
+		if status.Error != nil && status.RetryCount < status.MaxRetries {
+			// 处理失败但可以重试
+			log.Printf("处理失败，准备重试 (第 %d 次)", status.RetryCount+1)
+		} else if status.Error != nil {
+			// 超过最大重试次数
+			json.NewEncoder(w).Encode(SearchResponse{
+				Success: false,
+				Error:   "处理失败，请稍后重试",
+			})
+			return
+		}
+	}
+
 	log.Printf("准备转发请求到网易云API，歌曲ID: %s", songIDStr)
 
 	// 获取歌曲URL
@@ -205,29 +231,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 检查处理状态
-	status := h.mp3Processor.GetProcessingStatus(songIDStr)
-	if status != nil {
-		if status.IsProcessing {
-			// 正在处理中，返回处理中的状态
-			json.NewEncoder(w).Encode(SearchResponse{
-				Success: false,
-				Error:   "歌曲正在处理中，请稍后再试",
-			})
-			return
-		}
-		if status.Error != nil && status.RetryCount < status.MaxRetries {
-			// 处理失败但可以重试
-			log.Printf("处理失败，准备重试 (第 %d 次)", status.RetryCount+1)
-		} else if status.Error != nil {
-			// 超过最大重试次数
-			json.NewEncoder(w).Encode(SearchResponse{
-				Success: false,
-				Error:   "处理失败，请稍后重试",
-			})
-			return
-		}
-	}
+
 
 	// 设置处理状态
 	h.mp3Processor.SetProcessingStatus(songIDStr, true, nil)
@@ -246,7 +250,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 
 	// 下载音频文件
 	tempFile := filepath.Join(tempDir, fmt.Sprintf("%s.mp3", songIDStr))
-	if err := downloadFile(url, tempFile); err != nil {
+	if err := utils.DownloadFile(url, tempFile); err != nil {
 		log.Printf("下载音频文件失败: %v", err)
 		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
@@ -394,30 +398,4 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 	log.Printf("请求处理完成，已返回HLS播放地址: %s", hlsURL)
-}
-
-// downloadFile 下载文件到指定路径
-func downloadFile(url, filepath string) error {
-	resp, err := http.Get(url)
-	if err != nil {
-		return fmt.Errorf("下载文件失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("下载文件失败，状态码: %d", resp.StatusCode)
-	}
-
-	out, err := os.Create(filepath)
-	if err != nil {
-		return fmt.Errorf("创建文件失败: %w", err)
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
-		return fmt.Errorf("保存文件失败: %w", err)
-	}
-
-	return nil
 }

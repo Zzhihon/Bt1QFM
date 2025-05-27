@@ -10,13 +10,33 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+
+	"Bt1QFM/core/utils"
 )
+
+// PreprocessTask 表示预处理任务
+type PreprocessTask struct {
+	SongID     string
+	URL        string
+	OutputDir  string
+	ResultChan chan<- *PreprocessResult
+}
+
+// PreprocessResult 表示预处理结果
+type PreprocessResult struct {
+	Success bool
+	Error   error
+}
 
 // MP3Processor 处理网易云音乐的音频文件
 type MP3Processor struct {
-	ffmpegPath string
-	// 添加处理状态缓存
+	ffmpegPath       string
 	processingStatus map[string]*ProcessingStatus
+	preprocessChan   chan *PreprocessTask
+	workerCount      int
+	wg               sync.WaitGroup
+	stopChan         chan struct{}
 }
 
 // ProcessingStatus 表示音频处理状态
@@ -29,10 +49,147 @@ type ProcessingStatus struct {
 
 // NewMP3Processor 创建一个新的 MP3 处理器
 func NewMP3Processor(ffmpegPath string) *MP3Processor {
-	return &MP3Processor{
+	processor := &MP3Processor{
 		ffmpegPath:       ffmpegPath,
 		processingStatus: make(map[string]*ProcessingStatus),
+		preprocessChan:   make(chan *PreprocessTask, 10), // 缓冲通道，最多存储10个预处理任务
+		workerCount:      2,                              // 默认2个工作协程
+		stopChan:         make(chan struct{}),
 	}
+
+	// 启动工作池
+	processor.startWorkers()
+
+	return processor
+}
+
+// startWorkers 启动工作协程池
+func (p *MP3Processor) startWorkers() {
+	for i := 0; i < p.workerCount; i++ {
+		p.wg.Add(1)
+		go p.worker()
+	}
+}
+
+// worker 工作协程
+func (p *MP3Processor) worker() {
+	defer p.wg.Done()
+
+	for {
+		select {
+		case task := <-p.preprocessChan:
+			// 检查是否已经在处理中
+			if status := p.GetProcessingStatus(task.SongID); status != nil && status.IsProcessing {
+				task.ResultChan <- &PreprocessResult{
+					Success: false,
+					Error:   fmt.Errorf("song is already being processed"),
+				}
+				continue
+			}
+
+			// 设置处理状态
+			p.SetProcessingStatus(task.SongID, true, nil)
+
+			// 创建临时目录
+			tempDir := filepath.Join(task.OutputDir, "temp", task.SongID)
+			if err := os.MkdirAll(tempDir, 0755); err != nil {
+				p.UpdateProcessingStatus(task.SongID, err)
+				task.ResultChan <- &PreprocessResult{
+					Success: false,
+					Error:   fmt.Errorf("failed to create temp directory: %w", err),
+				}
+				continue
+			}
+
+			// 下载音频文件
+			tempFile := filepath.Join(tempDir, fmt.Sprintf("%s.mp3", task.SongID))
+			if err := utils.DownloadFile(task.URL, tempFile); err != nil {
+				log.Printf("下载音频文件失败: %v", err)
+				p.UpdateProcessingStatus(task.SongID, err)
+				task.ResultChan <- &PreprocessResult{
+					Success: false,
+					Error:   fmt.Errorf("failed to download file: %w", err),
+				}
+				continue
+			}
+
+			// 优化MP3文件
+			optimizedFile := filepath.Join(tempDir, fmt.Sprintf("%s_optimized.mp3", task.SongID))
+			if err := p.OptimizeMP3(tempFile, optimizedFile); err != nil {
+				p.UpdateProcessingStatus(task.SongID, err)
+				task.ResultChan <- &PreprocessResult{
+					Success: false,
+					Error:   fmt.Errorf("failed to optimize MP3: %w", err),
+				}
+				continue
+			}
+
+			// 转换为HLS格式
+			hlsDir := filepath.Join(task.OutputDir, "streams", "netease", task.SongID)
+			if err := os.MkdirAll(hlsDir, 0755); err != nil {
+				p.UpdateProcessingStatus(task.SongID, err)
+				task.ResultChan <- &PreprocessResult{
+					Success: false,
+					Error:   fmt.Errorf("failed to create HLS directory: %w", err),
+				}
+				continue
+			}
+
+			outputM3U8 := filepath.Join(hlsDir, "playlist.m3u8")
+			segmentPattern := filepath.Join(hlsDir, "segment_%03d.ts")
+			hlsBaseURL := fmt.Sprintf("/streams/netease/%s/", task.SongID)
+
+			_, err := p.ProcessToHLS(optimizedFile, outputM3U8, segmentPattern, hlsBaseURL, "192k", "4")
+			if err != nil {
+				p.UpdateProcessingStatus(task.SongID, err)
+				task.ResultChan <- &PreprocessResult{
+					Success: false,
+					Error:   fmt.Errorf("failed to process to HLS: %w", err),
+				}
+				continue
+			}
+
+			// 清理临时文件
+			os.RemoveAll(tempDir)
+
+			// 更新处理状态
+			p.UpdateProcessingStatus(task.SongID, nil)
+
+			task.ResultChan <- &PreprocessResult{
+				Success: true,
+			}
+
+		case <-p.stopChan:
+			return
+		}
+	}
+}
+
+// Stop 停止所有工作协程
+func (p *MP3Processor) Stop() {
+	close(p.stopChan)
+	p.wg.Wait()
+}
+
+// PreprocessSong 异步预处理歌曲
+func (p *MP3Processor) PreprocessSong(songID, url, outputDir string) error {
+	resultChan := make(chan *PreprocessResult, 1)
+
+	task := &PreprocessTask{
+		SongID:     songID,
+		URL:        url,
+		OutputDir:  outputDir,
+		ResultChan: resultChan,
+	}
+
+	p.preprocessChan <- task
+	result := <-resultChan
+
+	if !result.Success {
+		return result.Error
+	}
+
+	return nil
 }
 
 // GetProcessingStatus 获取处理状态

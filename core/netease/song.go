@@ -2,15 +2,24 @@ package netease
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"time"
 
+	"Bt1QFM/config"
+	"Bt1QFM/core/audio"
+	"Bt1QFM/core/utils"
 	"Bt1QFM/model"
+	"Bt1QFM/storage"
+
+	"github.com/minio/minio-go/v7"
 )
 
 // GetSongURL 获取歌曲URL
@@ -139,7 +148,7 @@ func (c *Client) GetSongDetail(songID string) (*model.NeteaseSong, error) {
 }
 
 // SearchSongs 搜索歌曲
-func (c *Client) SearchSongs(keyword string, limit, offset int) (*model.NeteaseSearchResult, error) {
+func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *audio.MP3Processor, staticDir string) (*model.NeteaseSearchResult, error) {
 	params := url.Values{}
 	params.Set("keywords", keyword)
 	params.Set("limit", fmt.Sprintf("%d", limit))
@@ -229,6 +238,110 @@ func (c *Client) SearchSongs(keyword string, limit, offset int) (*model.NeteaseS
 				PicURL: picURL,
 			},
 			Duration: song.Duration,
+		}
+
+		// 获取第一首歌的URL并预处理
+		if i == 0 && mp3Processor != nil && staticDir != "" {
+			// 异步预处理第一首歌
+			go func() {
+				cfg := config.Load()
+				minioClient := storage.GetMinioClient()
+				if minioClient == nil {
+					log.Printf("MinIO客户端为空，无法上传到MinIO")
+					return
+				}
+
+				// 检查是否已经处理过
+				_, err := minioClient.StatObject(context.Background(), cfg.MinioBucket, fmt.Sprintf("hls/%d/index.m3u8", song.ID), minio.StatObjectOptions{})
+				if err == nil {
+					log.Printf("歌曲 %s 已经预处理过，跳过", song.Name)
+					return
+				}
+
+				// 获取歌曲URL
+				songURL, err := c.GetSongURL(fmt.Sprintf("%d", song.ID))
+				if err != nil {
+					log.Printf("获取歌曲URL失败: %v", err)
+					return
+				}
+
+				// 下载音频文件
+				tempDir := filepath.Join(staticDir, "temp", fmt.Sprintf("%d", song.ID))
+				os.MkdirAll(tempDir, 0755)
+				defer os.RemoveAll(tempDir)
+
+				mp3Path := filepath.Join(tempDir, "original.mp3")
+				if err := utils.DownloadFile(songURL, mp3Path); err != nil {
+					log.Printf("下载音频文件失败: %v", err)
+					return
+				}
+
+				// 优化音频文件
+				optimizedPath := filepath.Join(tempDir, "optimized.mp3")
+				if err := mp3Processor.OptimizeMP3(mp3Path, optimizedPath); err != nil {
+					log.Printf("优化音频文件失败: %v", err)
+					return
+				}
+
+				// 转换为HLS格式
+				hlsDir := filepath.Join(tempDir, "streams/netease")
+				outputM3U8 := filepath.Join(hlsDir, "playlist.m3u8")
+				segmentPattern := filepath.Join(hlsDir, "segment_%03d.ts")
+				hlsBaseURL := fmt.Sprintf("/streams/netease/%d/", song.ID)
+
+				_, err = mp3Processor.ProcessToHLS(optimizedPath, outputM3U8, segmentPattern, hlsBaseURL, "192k", "4")
+				if err != nil {
+					log.Printf("转换为HLS格式失败: %v", err)
+					return
+				}
+
+				// 上传到MinIO
+				// 上传m3u8文件
+				m3u8Path := fmt.Sprintf("streams/netease/%d/playlist.m3u8", song.ID)
+				m3u8Content, err := os.ReadFile(outputM3U8)
+				if err != nil {
+					log.Printf("读取m3u8文件失败: %v", err)
+					return
+				}
+
+				_, err = minioClient.PutObject(context.Background(), cfg.MinioBucket, m3u8Path, bytes.NewReader(m3u8Content), int64(len(m3u8Content)), minio.PutObjectOptions{
+					ContentType: "application/vnd.apple.mpegurl",
+				})
+				if err != nil {
+					log.Printf("上传m3u8文件失败: %v", err)
+					return
+				}
+
+				log.Printf("上传m3u8文件成功")
+
+				// 上传ts文件
+				tsFiles, err := filepath.Glob(filepath.Join(hlsDir, "*.ts"))
+				if err != nil {
+					log.Printf("查找ts文件失败: %v", err)
+					return
+				}
+
+				for _, tsFile := range tsFiles {
+					segmentName := filepath.Base(tsFile)
+					segmentPath := fmt.Sprintf("streams/netease/%d/%s", song.ID, segmentName)
+					segmentContent, err := os.ReadFile(tsFile)
+					if err != nil {
+						log.Printf("读取ts文件失败: %v", err)
+						continue
+					}
+
+					_, err = minioClient.PutObject(context.Background(), cfg.MinioBucket, segmentPath, bytes.NewReader(segmentContent), int64(len(segmentContent)), minio.PutObjectOptions{
+						ContentType: "video/MP2T",
+					})
+					if err != nil {
+						log.Printf("上传ts文件失败: %v", err)
+						continue
+					}
+				}
+				log.Printf("上传ts文件成功***************************")
+
+				log.Printf("✅ 歌曲 %s 预处理完成", song.Name)
+			}()
 		}
 	}
 
