@@ -250,21 +250,27 @@ func (h *APIHandler) AddToPlaylistHandler(ctx context.Context, userID int64, w h
 
 // RemoveFromPlaylistHandler 从播放列表中删除歌曲
 func (h *APIHandler) RemoveFromPlaylistHandler(ctx context.Context, userID int64, w http.ResponseWriter, r *http.Request) {
+	// 获取 trackId 或 neteaseId
 	trackIDStr := r.URL.Query().Get("trackId")
-	if trackIDStr == "" {
-		var requestData struct {
-			TrackID int64 `json:"trackId"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
-			http.Error(w, "Track ID is required", http.StatusBadRequest)
+	neteaseIDStr := r.URL.Query().Get("neteaseId")
+
+	var trackID int64
+	var err error
+
+	if trackIDStr != "" {
+		trackID, err = strconv.ParseInt(trackIDStr, 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid track ID format", http.StatusBadRequest)
 			return
 		}
-		trackIDStr = strconv.FormatInt(requestData.TrackID, 10)
-	}
-
-	trackID, err := strconv.ParseInt(trackIDStr, 10, 64)
-	if err != nil {
-		http.Error(w, "Invalid track ID format", http.StatusBadRequest)
+	} else if neteaseIDStr != "" {
+		trackID, err = strconv.ParseInt(neteaseIDStr, 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid netease ID format", http.StatusBadRequest)
+			return
+		}
+	} else {
+		http.Error(w, "Either trackId or neteaseId is required", http.StatusBadRequest)
 		return
 	}
 

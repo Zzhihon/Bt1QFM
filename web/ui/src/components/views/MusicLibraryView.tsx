@@ -36,6 +36,28 @@ const MusicLibraryView: React.FC = () => {
   const [showUploadForm, setShowUploadForm] = useState(false);
   const { addToast } = useToast();
 
+  // 添加 Toast 容器样式
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      .toast-container {
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
   useEffect(() => {
     if (!currentUser) {
       setIsLoading(false);
@@ -138,14 +160,16 @@ const MusicLibraryView: React.FC = () => {
       </div>
 
       {showUploadForm && currentUser && (
-        <div className="mb-8">
-          <UploadForm 
-            onUploadSuccess={() => {
-              setShowUploadForm(false);
-              fetchTracks();
-            }}
-            onCancel={() => setShowUploadForm(false)}
-          />
+        <div className="fixed inset-0 bg-cyber-bg/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-cyber-bg-darker rounded-xl p-6 max-w-2xl w-full mx-4 shadow-2xl border border-cyber-secondary/30">
+            <UploadForm 
+              onUploadSuccess={() => {
+                setShowUploadForm(false);
+                fetchTracks();
+              }}
+              onCancel={() => setShowUploadForm(false)}
+            />
+          </div>
         </div>
       )}
 

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePlayer } from '../../contexts/PlayerContext';
 import { useToast } from '../../contexts/ToastContext';
-import { Music2, Search, PlayCircle, Send, Bot, User, Hash, Plus, Settings, Headphones } from 'lucide-react';
+import { Music2, Search, PlayCircle, Send, Bot, User, Hash, Plus, Settings, Headphones, Minus } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -20,11 +20,19 @@ interface NeteaseSong {
   duration: number;
   url: string;
   videoUrl?: string; // 动态封面视频URL
+  addedToPlaylist: boolean;
 }
 
 const BotView: React.FC = () => {
   const { currentUser, authToken } = useAuth();
-  const { playTrack, playerState, addToPlaylist } = usePlayer();
+  const { 
+    playTrack, 
+    playerState, 
+    addToPlaylist,
+    updatePlaylist,
+    showPlaylist,
+    setShowPlaylist 
+  } = usePlayer();
   const { addToast } = useToast();
   const [command, setCommand] = useState('');
   const [messages, setMessages] = useState<Message[]>([
@@ -208,6 +216,22 @@ const BotView: React.FC = () => {
 
   const handleAddToPlaylist = async (song: NeteaseSong) => {
     try {
+        // 检查歌曲是否已经在播放列表中
+        const isInPlaylist = playerState.playlist.some(track => track.id === song.id);
+        
+        if (isInPlaylist) {
+            // 如果歌曲已在播放列表中，则移除它
+            const updatedPlaylist = playerState.playlist.filter(track => track.id !== song.id);
+            updatePlaylist(updatedPlaylist);
+            
+            addToast({
+                type: 'success',
+                message: '已从播放列表移除',
+                duration: 2000,
+            });
+            return;
+        }
+
         const requestData = {
             neteaseId: song.id,
             title: song.name,
@@ -240,9 +264,17 @@ const BotView: React.FC = () => {
             album: song.album.name,
             coverArtPath: song.album.picUrl,
             hlsPlaylistUrl: `/streams/netease/${song.id}/playlist.m3u8`,
-            position: 0,
+            position: playerState.playlist.length,
         };
-        addToPlaylist(trackData);
+        
+        // 添加到播放列表并立即更新状态
+        const newPlaylist = [...playerState.playlist, trackData];
+        updatePlaylist(newPlaylist);
+        
+        // 如果播放列表是隐藏的，显示它
+        if (!showPlaylist) {
+            setShowPlaylist(true);
+        }
 
         addToast({
             type: 'success',
@@ -254,6 +286,50 @@ const BotView: React.FC = () => {
         addToast({
             type: 'error',
             message: error instanceof Error ? error.message : '添加到播放列表失败',
+            duration: 3000,
+        });
+    }
+  };
+
+  const handleRemoveFromPlaylist = async (song: NeteaseSong) => {
+    try {
+        // 检查歌曲是否在播放列表中
+        const isInPlaylist = playerState.playlist.some(track => track.id === song.id);
+        if (!isInPlaylist) {
+            addToast({
+                type: 'info',
+                message: '歌曲不在播放列表中',
+                duration: 2000,
+            });
+            return;
+        }
+
+        // 从播放列表中移除
+        const updatedPlaylist = playerState.playlist.filter(track => track.id !== song.id);
+        updatePlaylist(updatedPlaylist);
+
+        // 调用后端 API 移除歌曲，使用 neteaseId
+        const response = await fetch(`/api/playlist?neteaseId=${song.id}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+            },
+        });
+
+        if (!response.ok) {
+            throw new Error('从播放列表移除失败');
+        }
+
+        addToast({
+            type: 'success',
+            message: '已从播放列表移除',
+            duration: 2000,
+        });
+    } catch (error) {
+        console.error('Error removing from playlist:', error);
+        addToast({
+            type: 'error',
+            message: error instanceof Error ? error.message : '从播放列表移除失败',
             duration: 3000,
         });
     }
@@ -321,86 +397,99 @@ const BotView: React.FC = () => {
 
         {/* 消息列表 */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4 pb-36 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-cyber-bg/20 [&::-webkit-scrollbar-thumb]:bg-cyber-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyber-primary/50">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'} items-end space-x-3`}
-            >
-              {message.type === 'bot' && (
-                <div className="w-10 h-10 rounded-full bg-cyber-primary/20 flex items-center justify-center flex-shrink-0">
-                  <Bot className="w-6 h-6 text-cyber-primary" />
-                </div>
-              )}
+          <div className="min-h-[calc(100vh-300px)] flex flex-col justify-end">
+            {messages.map((message) => (
               <div
-                className={`max-w-[70%] rounded-2xl p-4 ${
-                  message.type === 'user'
-                    ? 'bg-cyber-primary text-cyber-bg'
-                    : 'bg-cyber-bg-darker/50 backdrop-blur-sm text-cyber-text'
-                }`}
+                key={message.id}
+                className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'} items-end space-x-3 mb-4`}
               >
-                <p className="text-sm">{message.content}</p>
-                {message.song && (
-                  <div
-                    className="mt-3 bg-cyber-bg/30 rounded-xl p-3 cursor-pointer hover:bg-cyber-bg/50 transition-colors"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 bg-cyber-bg rounded-lg overflow-hidden flex-shrink-0">
-                        {message.song.videoUrl ? (
-                          <video
-                            src={message.song.videoUrl}
-                            className="w-full h-full object-cover"
-                            autoPlay
-                            loop
-                            muted
-                            playsInline
-                          />
-                        ) : message.song.album.picUrl ? (
-                          <img
-                            src={message.song.album.picUrl}
-                            alt={message.song.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Music2 className="h-6 w-6 text-cyber-primary" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-medium truncate">{message.song.name}</h4>
-                        <p className="text-xs text-cyber-secondary/70 truncate">
-                          {message.song.artists.map(a => a.name).join(', ')}
-                        </p>
-                      </div>
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => handlePlay(message.song!)}
-                          className="p-2 hover:bg-cyber-bg/50 rounded-lg transition-colors"
-                        >
-                          <PlayCircle className="h-6 w-6 text-cyber-primary" />
-                        </button>
-                        <button
-                          onClick={() => handleAddToPlaylist(message.song!)}
-                          className="p-2 hover:bg-cyber-bg/50 rounded-lg transition-colors"
-                        >
-                          <Plus className="h-6 w-6 text-cyber-primary" />
-                        </button>
-                      </div>
-                    </div>
+                {message.type === 'bot' && (
+                  <div className="w-10 h-10 rounded-full bg-cyber-primary/20 flex items-center justify-center flex-shrink-0">
+                    <Bot className="w-6 h-6 text-cyber-primary" />
                   </div>
                 )}
-                <span className="text-xs opacity-50 mt-2 block">
-                  {message.timestamp.toLocaleTimeString()}
-                </span>
-              </div>
-              {message.type === 'user' && (
-                <div className="w-10 h-10 rounded-full bg-cyber-secondary/20 flex items-center justify-center flex-shrink-0">
-                  <User className="w-6 h-6 text-cyber-secondary" />
+                <div
+                  className={`max-w-[70%] rounded-2xl p-4 ${
+                    message.type === 'user'
+                      ? 'bg-cyber-primary text-cyber-bg'
+                      : 'bg-cyber-bg-darker/50 backdrop-blur-sm text-cyber-text'
+                  }`}
+                >
+                  <p className="text-sm">{message.content}</p>
+                  {message.song && (
+                    <div
+                      className="mt-3 bg-cyber-bg/30 rounded-xl p-3 cursor-pointer hover:bg-cyber-bg/50 transition-colors"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className="w-12 h-12 bg-cyber-bg rounded-lg overflow-hidden flex-shrink-0">
+                          {message.song.videoUrl ? (
+                            <video
+                              src={message.song.videoUrl}
+                              className="w-full h-full object-cover"
+                              autoPlay
+                              loop
+                              muted
+                              playsInline
+                            />
+                          ) : message.song.album.picUrl ? (
+                            <img
+                              src={message.song.album.picUrl}
+                              alt={message.song.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Music2 className="h-6 w-6 text-cyber-primary" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm font-medium truncate">{message.song.name}</h4>
+                          <p className="text-xs text-cyber-secondary/70 truncate">
+                            {message.song.artists.map(a => a.name).join(', ')}
+                          </p>
+                        </div>
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => handlePlay(message.song!)}
+                            className="p-2 hover:bg-cyber-bg/50 rounded-lg transition-colors"
+                          >
+                            <PlayCircle className="h-6 w-6 text-cyber-primary" />
+                          </button>
+                          {message.song.addedToPlaylist ? (
+                            <button
+                              onClick={() => handleRemoveFromPlaylist(message.song!)}
+                              className="p-2 hover:bg-cyber-bg/50 rounded-lg transition-colors"
+                              title="从播放列表移除"
+                            >
+                              <Minus className="h-6 w-6 text-cyber-red" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleAddToPlaylist(message.song!)}
+                              className="p-2 hover:bg-cyber-bg/50 rounded-lg transition-colors"
+                              title="添加到播放列表"
+                            >
+                              <Plus className="h-6 w-6 text-cyber-primary" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <span className="text-xs opacity-50 mt-2 block">
+                    {message.timestamp.toLocaleTimeString()}
+                  </span>
                 </div>
-              )}
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
+                {message.type === 'user' && (
+                  <div className="w-10 h-10 rounded-full bg-cyber-secondary/20 flex items-center justify-center flex-shrink-0">
+                    <User className="w-6 h-6 text-cyber-secondary" />
+                  </div>
+                )}
+              </div>
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
         {/* 输入区域 */}

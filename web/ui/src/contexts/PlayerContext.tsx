@@ -21,6 +21,7 @@ interface PlayerContextType {
   shufflePlaylist: () => Promise<void>;
   fetchPlaylist: () => Promise<void>;
   addAllTracksToPlaylist: () => Promise<void>;
+  updatePlaylist: (newPlaylist: Track[]) => void;
   audioRef: React.RefObject<HTMLAudioElement>;
   isLoadingPlaylist: boolean;
   showPlaylist: boolean;
@@ -693,7 +694,29 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (!currentUser) return;
     
     try {
-      const response = await fetch(`/api/playlist?trackId=${trackId}`, {
+      // 获取要删除的歌曲信息
+      const trackToRemove = playerState.playlist.find(track => 
+        track.id === trackId || track.trackId === trackId || track.neteaseId === trackId
+      );
+      
+      if (!trackToRemove) {
+        console.error('Track not found in playlist:', trackId);
+        addToast('未找到要删除的歌曲', 'error');
+        return;
+      }
+
+      // 根据歌曲类型选择正确的参数
+      const isNeteaseTrack = 'neteaseId' in trackToRemove;
+      const queryParam = isNeteaseTrack ? 'neteaseId' : 'trackId';
+      const idToRemove = isNeteaseTrack ? trackToRemove.neteaseId : trackToRemove.trackId || trackToRemove.id;
+
+      if (!idToRemove) {
+        console.error('Invalid track ID:', trackId);
+        addToast('无效的歌曲ID', 'error');
+        return;
+      }
+      
+      const response = await fetch(`/api/playlist?${queryParam}=${idToRemove}`, {
         method: 'DELETE',
         headers: {
           ...(authToken && { 'Authorization': `Bearer ${authToken}` })
@@ -705,13 +728,19 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
       
       await fetchPlaylist();
+      addToast('已从播放列表移除', 'success');
       
       // 如果删除的是当前播放的歌曲，切换到下一首
-      if (playerState.currentTrack?.id === trackId) {
+      if (playerState.currentTrack && (
+          playerState.currentTrack.id === trackId || 
+          playerState.currentTrack.trackId === trackId ||
+          playerState.currentTrack.neteaseId === trackId
+      )) {
         handleNext();
       }
     } catch (error) {
       console.error('Failed to remove track from playlist:', error);
+      addToast('移除歌曲失败，请重试', 'error');
     }
   };
   
@@ -969,6 +998,17 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     };
   }, []);
   
+  // 更新播放列表
+  const updatePlaylist = (newPlaylist: Track[]) => {
+    setPlayerState(prev => ({
+      ...prev,
+      playlist: newPlaylist.map((track, index) => ({
+        ...track,
+        position: index
+      }))
+    }));
+  };
+  
   return (
     <PlayerContext.Provider 
       value={{
@@ -988,6 +1028,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         shufflePlaylist: handleShuffleNext,
         fetchPlaylist,
         addAllTracksToPlaylist,
+        updatePlaylist,
         audioRef,
         isLoadingPlaylist,
         showPlaylist,
@@ -995,13 +1036,23 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         currentTrack: playerState.currentTrack,
         isPlaying: playerState.isPlaying,
         pauseTrack: () => {
-          // Implementation needed
+          if (audioRef.current) {
+            audioRef.current.pause();
+            setPlayerState(prev => ({ ...prev, isPlaying: false }));
+          }
         },
         resumeTrack: () => {
-          // Implementation needed
+          if (audioRef.current) {
+            audioRef.current.play();
+            setPlayerState(prev => ({ ...prev, isPlaying: true }));
+          }
         },
         stopTrack: () => {
-          // Implementation needed
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+            setPlayerState(prev => ({ ...prev, isPlaying: false, currentTime: 0 }));
+          }
         }
       }}
     >
