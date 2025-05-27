@@ -256,22 +256,6 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 异步检查并更新HLS路径
-	h.checkAndUpdateHLS(songIDStr)
-
-	log.Printf("[HandleCommand] 开始获取歌曲URL (ID: %s)", songIDStr)
-
-	// 获取歌曲URL
-	url, err := h.client.GetSongURL(songIDStr)
-	if err != nil {
-		log.Printf("[HandleCommand] 获取歌曲URL失败 (ID: %s): %v", songIDStr, err)
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "获取播放地址失败: " + err.Error(),
-		})
-		return
-	}
-
 	// 检查MinIO中是否已存在该歌曲的HLS文件
 	minioClient := storage.GetMinioClient()
 	if minioClient == nil {
@@ -302,6 +286,23 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(response)
 		return
 	}
+
+	// 如果HLS文件不存在，继续处理请求
+	log.Printf("[HandleCommand] 开始获取歌曲URL (ID: %s)", songIDStr)
+
+	// 获取歌曲URL
+	url, err := h.client.GetSongURL(songIDStr)
+	if err != nil {
+		log.Printf("[HandleCommand] 获取歌曲URL失败 (ID: %s): %v", songIDStr, err)
+		json.NewEncoder(w).Encode(SearchResponse{
+			Success: false,
+			Error:   "获取播放地址失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 异步检查并更新HLS路径
+	h.checkAndUpdateHLS(songIDStr)
 
 	// 设置处理状态
 	h.mp3Processor.SetProcessingStatus(songIDStr, true, nil)
