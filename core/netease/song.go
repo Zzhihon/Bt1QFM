@@ -11,12 +11,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
 	"Bt1QFM/core/utils"
 	"Bt1QFM/model"
+	"Bt1QFM/repository"
 	"Bt1QFM/storage"
 
 	"github.com/minio/minio-go/v7"
@@ -98,6 +100,91 @@ func (c *Client) GetSongURL(songID string) (string, error) {
 	}
 
 	log.Printf("[GetSongURL] 成功获取歌曲URL (ID: %s)", songID)
+
+	// 新增：将歌曲信息存入netease_song表
+	detail, err := c.GetSongDetail(songID)
+	if err == nil && detail != nil {
+		repo := repository.NewNeteaseSongRepository()
+		artistNames := ""
+		if len(detail.Artists) > 0 {
+			for i, a := range detail.Artists {
+				if i > 0 {
+					artistNames += ","
+				}
+				artistNames += a.Name
+			}
+		}
+
+		// 直接设置固定的HLS路径
+		hlsPath := fmt.Sprintf("/streams/netease/%s/playlist.m3u8", songID)
+
+		// 将字符串ID转换为int64
+		id, err := strconv.ParseInt(songID, 10, 64)
+		if err != nil {
+			log.Printf("[GetSongURL] 转换歌曲ID失败 (ID: %s): %v", songID, err)
+		} else {
+			// 处理所有可能超长的字段
+			filePath := result.Data[0].URL
+			title := detail.Name
+			artist := artistNames
+			album := detail.Album.Name
+			coverArtPath := detail.Album.PicURL
+
+			// 打印原始长度
+			log.Printf("[GetSongURL] 字段长度: file_path=%d, title=%d, artist=%d, album=%d, cover_art_path=%d",
+				len(filePath), len(title), len(artist), len(album), len(coverArtPath))
+
+			// 处理过长的字段
+			if len(filePath) > 255 {
+				log.Printf("[GetSongURL] file_path过长，使用标记替代 (ID: %s)", songID)
+				filePath = fmt.Sprintf("netease://%s", songID)
+			}
+			if len(title) > 255 {
+				log.Printf("[GetSongURL] title过长，进行截断 (ID: %s)", songID)
+				title = title[:252] + "..."
+			}
+			if len(artist) > 255 {
+				log.Printf("[GetSongURL] artist过长，进行截断 (ID: %s)", songID)
+				artist = artist[:252] + "..."
+			}
+			if len(album) > 255 {
+				log.Printf("[GetSongURL] album过长，进行截断 (ID: %s)", songID)
+				album = album[:252] + "..."
+			}
+			if len(coverArtPath) > 255 {
+				log.Printf("[GetSongURL] cover_art_path过长，使用标记替代 (ID: %s)", songID)
+				coverArtPath = fmt.Sprintf("netease://cover/%s", songID)
+			}
+
+			dbSong := &model.NeteaseSongDB{
+				ID:              id,
+				Title:           title,
+				Artist:          artist,
+				Album:           album,
+				FilePath:        filePath,
+				CoverArtPath:    coverArtPath,
+				HLSPlaylistPath: hlsPath,
+				Duration:        float64(detail.Duration) / 1000.0,
+			}
+
+			// 先尝试更新，如果不存在则插入
+			updated, err := repo.UpdateNeteaseSong(dbSong)
+			if err != nil {
+				log.Printf("[GetSongURL] 更新歌曲信息失败 (ID: %s): %v", songID, err)
+			} else if !updated {
+				// 如果更新失败（记录不存在），则插入新记录
+				_, err = repo.InsertNeteaseSong(dbSong)
+				if err != nil {
+					log.Printf("[GetSongURL] 插入歌曲信息失败 (ID: %s): %v", songID, err)
+				} else {
+					log.Printf("[GetSongURL] 成功插入歌曲信息 (ID: %s)", songID)
+				}
+			} else {
+				log.Printf("[GetSongURL] 成功更新歌曲信息 (ID: %s)", songID)
+			}
+		}
+	}
+
 	return result.Data[0].URL, nil
 }
 

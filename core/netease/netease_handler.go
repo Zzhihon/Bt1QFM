@@ -15,6 +15,7 @@ import (
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
 	"Bt1QFM/core/utils"
+	"Bt1QFM/repository"
 	"Bt1QFM/storage"
 
 	"github.com/minio/minio-go/v7"
@@ -125,6 +126,73 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HandleSearch] 搜索请求处理完成")
 }
 
+// checkAndUpdateHLS 异步检查并更新HLS路径
+func (h *NeteaseHandler) checkAndUpdateHLS(songID string) {
+	log.Printf("[checkAndUpdateHLS] 开始检查歌曲HLS路径 (ID: %s)", songID)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[checkAndUpdateHLS] 发生panic (ID: %s): %v", songID, r)
+			}
+		}()
+
+		if songID == "" {
+			log.Printf("[checkAndUpdateHLS] 歌曲ID为空")
+			return
+		}
+
+		log.Printf("[checkAndUpdateHLS] 创建仓库实例 (ID: %s)", songID)
+		repo := repository.NewNeteaseSongRepository()
+		if repo == nil {
+			log.Printf("[checkAndUpdateHLS] 创建仓库失败 (ID: %s)", songID)
+			return
+		}
+
+		// 检查数据库中是否存在该歌曲
+		log.Printf("[checkAndUpdateHLS] 查询数据库中的歌曲信息 (ID: %s)", songID)
+		song, err := repo.GetNeteaseSongByID(songID)
+		if err != nil {
+			log.Printf("[checkAndUpdateHLS] 获取歌曲信息失败 (ID: %s): %v", songID, err)
+			return
+		}
+
+		if song == nil {
+			log.Printf("[checkAndUpdateHLS] 数据库中不存在该歌曲，需要创建新记录 (ID: %s)", songID)
+		} else {
+			log.Printf("[checkAndUpdateHLS] 数据库中的歌曲信息: ID=%d, Title=%s, HLS路径=%s",
+				song.ID, song.Title, song.HLSPlaylistPath)
+		}
+
+		// 如果歌曲不存在或HLS路径为空，则调用GetSongURL更新
+		if song == nil || song.HLSPlaylistPath == "" {
+			log.Printf("[checkAndUpdateHLS] 开始调用GetSongURL更新歌曲信息 (ID: %s)", songID)
+			url, err := h.client.GetSongURL(songID)
+			if err != nil {
+				log.Printf("[checkAndUpdateHLS] 更新歌曲信息失败 (ID: %s): %v", songID, err)
+				return
+			}
+			log.Printf("[checkAndUpdateHLS] GetSongURL返回URL: %s (ID: %s)", url, songID)
+
+			// 再次检查数据库更新情况
+			updatedSong, err := repo.GetNeteaseSongByID(songID)
+			if err != nil {
+				log.Printf("[checkAndUpdateHLS] 更新后查询歌曲信息失败 (ID: %s): %v", songID, err)
+				return
+			}
+			if updatedSong != nil {
+				log.Printf("[checkAndUpdateHLS] 更新后的歌曲信息: ID=%d, Title=%s, HLS路径=%s",
+					updatedSong.ID, updatedSong.Title, updatedSong.HLSPlaylistPath)
+			} else {
+				log.Printf("[checkAndUpdateHLS] 更新后未找到歌曲信息 (ID: %s)", songID)
+			}
+		} else {
+			log.Printf("[checkAndUpdateHLS] 歌曲HLS路径已存在，无需更新 (ID: %s, HLS路径: %s)",
+				songID, song.HLSPlaylistPath)
+		}
+	}()
+}
+
 // HandleCommand 处理命令请求
 func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	// 获取命令文本
@@ -187,6 +255,9 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// 异步检查并更新HLS路径
+	h.checkAndUpdateHLS(songIDStr)
 
 	log.Printf("[HandleCommand] 开始获取歌曲URL (ID: %s)", songIDStr)
 

@@ -51,3 +51,19 @@ type NeteasePlaylist struct {
 	PlayCount   int       `json:"playCount"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
+
+// NeteaseSongDB 用于数据库存储网易云音乐歌曲
+// 字段与netease_song表对应
+// 注意：与NeteaseSong区分，NeteaseSong用于API返回，NeteaseSongDB用于数据库
+type NeteaseSongDB struct {
+	ID              int64     `json:"id" db:"id"`
+	Title           string    `json:"title" db:"title"`
+	Artist          string    `json:"artist" db:"artist"`
+	Album           string    `json:"album" db:"album"`
+	FilePath        string    `json:"filePath" db:"file_path"`
+	CoverArtPath    string    `json:"coverArtPath" db:"cover_art_path"`
+	HLSPlaylistPath string    `json:"hlsPlaylistPath" db:"hls_playlist_path"`
+	Duration        float64   `json:"duration" db:"duration"`
+	CreatedAt       time.Time `json:"createdAt" db:"created_at"`
+	UpdatedAt       time.Time `json:"updatedAt" db:"updated_at"`
+}

@@ -50,6 +50,9 @@ func InitDB() error {
 	if err := createAlbumTracksTable(); err != nil {
 		return err
 	}
+	if err := createNeteaseSongTable(); err != nil {
+		return err
+	}
 
 	// 检查是否需要迁移初始用户数据
 	if err := migrateInitialUserAndTracks(); err != nil {
@@ -226,5 +229,28 @@ func createAlbumTracksTable() error {
 		return fmt.Errorf("failed to create album_tracks table: %w", err)
 	}
 	log.Println("Album tracks table initialized successfully.")
+	return nil
+}
+
+func createNeteaseSongTable() error {
+	query := `
+	CREATE TABLE IF NOT EXISTS netease_song (
+		id BIGINT AUTO_INCREMENT PRIMARY KEY,
+		title VARCHAR(255) NOT NULL,
+		artist VARCHAR(255),
+		album VARCHAR(255),
+		file_path VARCHAR(255),
+		cover_art_path VARCHAR(255),
+		hls_playlist_path VARCHAR(255),
+		duration FLOAT,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+	`
+	_, err := DB.Exec(query)
+	if err != nil {
+		return fmt.Errorf("failed to create netease_song table: %w", err)
+	}
+	log.Println("netease_song table initialized successfully.")
 	return nil
 }
