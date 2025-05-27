@@ -25,12 +25,11 @@ import (
 // GetSongURL 获取歌曲URL
 func (c *Client) GetSongURL(songID string) (string, error) {
 	url := fmt.Sprintf("%s/song/url/v1?id=%s&level=lossless", c.BaseURL, songID)
-	log.Printf("准备发送请求到: %s", url)
-	log.Printf("使用的BaseURL: %s", c.BaseURL)
+	log.Printf("[GetSongURL] 开始获取歌曲URL (ID: %s)", songID)
 
 	req, err := c.createRequest("GET", url)
 	if err != nil {
-		log.Printf("创建请求失败: %v", err)
+		log.Printf("[GetSongURL] 创建请求失败 (ID: %s): %v", songID, err)
 		return "", fmt.Errorf("创建请求失败: %w", err)
 	}
 
@@ -40,45 +39,30 @@ func (c *Client) GetSongURL(songID string) (string, error) {
 		Value: "pc",
 	})
 
-	// 打印所有请求头
-	log.Printf("请求头信息:")
-	for key, values := range req.Header {
-		log.Printf("%s: %v", key, values)
-	}
-
 	// 设置超时时间
 	c.HTTPClient.Timeout = 30 * time.Second
 
 	// 发送请求
-	log.Printf("开始发送请求到网易云API...")
-	log.Printf("完整请求URL: %s", req.URL.String())
-
+	log.Printf("[GetSongURL] 发送请求到网易云API (ID: %s)", songID)
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		log.Printf("请求失败: %v", err)
+		log.Printf("[GetSongURL] 请求失败 (ID: %s): %v", songID, err)
 		return "", fmt.Errorf("请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// 检查响应状态码
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("服务器返回错误状态码: %d", resp.StatusCode)
+		log.Printf("[GetSongURL] 服务器返回错误状态码 (ID: %s): %d", songID, resp.StatusCode)
 		return "", fmt.Errorf("API返回错误状态码: %d", resp.StatusCode)
-	}
-
-	// 打印响应头
-	log.Printf("响应头信息:")
-	for key, values := range resp.Header {
-		log.Printf("%s: %v", key, values)
 	}
 
 	// 读取原始响应数据
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("读取响应失败: %v", err)
+		log.Printf("[GetSongURL] 读取响应失败 (ID: %s): %v", songID, err)
 		return "", fmt.Errorf("读取响应失败: %w", err)
 	}
-	log.Printf("API原始响应: %s", string(body))
 
 	// 重新创建响应体
 	resp.Body = io.NopCloser(bytes.NewBuffer(body))
@@ -93,40 +77,44 @@ func (c *Client) GetSongURL(songID string) (string, error) {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Printf("解析响应失败: %v", err)
+		log.Printf("[GetSongURL] 解析响应失败 (ID: %s): %v", songID, err)
 		return "", fmt.Errorf("解析响应失败: %w", err)
 	}
 
 	// 检查API返回码
 	if result.Code != 200 {
-		log.Printf("API返回错误: %s (code: %d)", result.Msg, result.Code)
+		log.Printf("[GetSongURL] API返回错误 (ID: %s): %s (code: %d)", songID, result.Msg, result.Code)
 		return "", fmt.Errorf("API返回错误: %s (code: %d)", result.Msg, result.Code)
 	}
 
 	if len(result.Data) == 0 {
-		log.Printf("未找到歌曲数据")
+		log.Printf("[GetSongURL] 未找到歌曲数据 (ID: %s)", songID)
 		return "", fmt.Errorf("未找到歌曲数据")
 	}
 
 	if result.Data[0].URL == "" {
-		log.Printf("歌曲URL为空，可能是版权限制")
+		log.Printf("[GetSongURL] 歌曲URL为空，可能是版权限制 (ID: %s)", songID)
 		return "", fmt.Errorf("歌曲URL为空，可能是版权限制")
 	}
 
-	log.Printf("成功获取歌曲URL: %s", result.Data[0].URL)
+	log.Printf("[GetSongURL] 成功获取歌曲URL (ID: %s)", songID)
 	return result.Data[0].URL, nil
 }
 
 // GetSongDetail 获取歌曲详情
 func (c *Client) GetSongDetail(songID string) (*model.NeteaseSong, error) {
 	url := fmt.Sprintf("%s/song/detail?ids=%s", c.BaseURL, songID)
+	log.Printf("[GetSongDetail] 开始获取歌曲详情 (ID: %s)", songID)
+
 	req, err := c.createRequest("GET", url)
 	if err != nil {
+		log.Printf("[GetSongDetail] 创建请求失败 (ID: %s): %v", songID, err)
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
+		log.Printf("[GetSongDetail] 请求失败 (ID: %s): %v", songID, err)
 		return nil, fmt.Errorf("请求失败: %w", err)
 	}
 	defer resp.Body.Close()
@@ -137,13 +125,16 @@ func (c *Client) GetSongDetail(songID string) (*model.NeteaseSong, error) {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("[GetSongDetail] 解析响应失败 (ID: %s): %v", songID, err)
 		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
 
 	if len(result.Songs) > 0 {
+		log.Printf("[GetSongDetail] 成功获取歌曲详情 (ID: %s)", songID)
 		return &result.Songs[0], nil
 	}
 
+	log.Printf("[GetSongDetail] 未找到歌曲 (ID: %s)", songID)
 	return nil, fmt.Errorf("未找到歌曲")
 }
 
@@ -155,15 +146,17 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 	params.Set("offset", fmt.Sprintf("%d", offset))
 
 	url := fmt.Sprintf("%s/search?%s", c.BaseURL, params.Encode())
-	log.Printf("发送搜索请求到: %s", url)
+	log.Printf("[SearchSongs] 开始搜索歌曲 (关键词: %s, 限制: %d, 偏移: %d)", keyword, limit, offset)
 
 	req, err := c.createRequest("GET", url)
 	if err != nil {
+		log.Printf("[SearchSongs] 创建请求失败: %v", err)
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
+		log.Printf("[SearchSongs] 请求失败: %v", err)
 		return nil, fmt.Errorf("请求失败: %w", err)
 	}
 	defer resp.Body.Close()
@@ -171,9 +164,9 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 	// 读取原始响应数据
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.Printf("[SearchSongs] 读取响应失败: %v", err)
 		return nil, fmt.Errorf("读取响应失败: %w", err)
 	}
-	log.Printf("API原始响应: %s", string(body))
 
 	// 重新创建响应体
 	resp.Body = io.NopCloser(bytes.NewBuffer(body))
@@ -201,10 +194,11 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("[SearchSongs] 解析响应失败: %v", err)
 		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
 
-	log.Printf("API返回码: %d, 找到歌曲数: %d", result.Code, len(result.Result.Songs))
+	log.Printf("[SearchSongs] 搜索完成，找到 %d 首歌曲", len(result.Result.Songs))
 
 	// 转换结果
 	searchResult := &model.NeteaseSearchResult{
@@ -218,7 +212,6 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 		if len(song.Artists) > 0 && song.Artists[0].Img1v1Url != "" {
 			picURL = song.Artists[0].Img1v1Url
 		}
-		log.Printf("处理歌曲 %d: %s, 专辑封面URL: %s", i+1, song.Name, picURL)
 
 		artists := make([]model.NeteaseArtist, len(song.Artists))
 		for j, artist := range song.Artists {
@@ -247,21 +240,21 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 				cfg := config.Load()
 				minioClient := storage.GetMinioClient()
 				if minioClient == nil {
-					log.Printf("MinIO客户端为空，无法上传到MinIO")
+					log.Printf("[SearchSongs] MinIO客户端为空，无法上传到MinIO (歌曲: %s)", song.Name)
 					return
 				}
 
 				// 检查是否已经处理过
 				_, err := minioClient.StatObject(context.Background(), cfg.MinioBucket, fmt.Sprintf("hls/%d/index.m3u8", song.ID), minio.StatObjectOptions{})
 				if err == nil {
-					log.Printf("歌曲 %s 已经预处理过，跳过", song.Name)
+					log.Printf("[SearchSongs] 歌曲已预处理过，跳过 (ID: %d, 名称: %s)", song.ID, song.Name)
 					return
 				}
 
 				// 获取歌曲URL
 				songURL, err := c.GetSongURL(fmt.Sprintf("%d", song.ID))
 				if err != nil {
-					log.Printf("获取歌曲URL失败: %v", err)
+					log.Printf("[SearchSongs] 获取歌曲URL失败 (ID: %d, 名称: %s): %v", song.ID, song.Name, err)
 					return
 				}
 
@@ -272,14 +265,14 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 
 				mp3Path := filepath.Join(tempDir, "original.mp3")
 				if err := utils.DownloadFile(songURL, mp3Path); err != nil {
-					log.Printf("下载音频文件失败: %v", err)
+					log.Printf("[SearchSongs] 下载音频文件失败 (ID: %d, 名称: %s): %v", song.ID, song.Name, err)
 					return
 				}
 
 				// 优化音频文件
 				optimizedPath := filepath.Join(tempDir, "optimized.mp3")
 				if err := mp3Processor.OptimizeMP3(mp3Path, optimizedPath); err != nil {
-					log.Printf("优化音频文件失败: %v", err)
+					log.Printf("[SearchSongs] 优化音频文件失败 (ID: %d, 名称: %s): %v", song.ID, song.Name, err)
 					return
 				}
 
@@ -291,7 +284,7 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 
 				_, err = mp3Processor.ProcessToHLS(optimizedPath, outputM3U8, segmentPattern, hlsBaseURL, "192k", "4")
 				if err != nil {
-					log.Printf("转换为HLS格式失败: %v", err)
+					log.Printf("[SearchSongs] 转换为HLS格式失败 (ID: %d, 名称: %s): %v", song.ID, song.Name, err)
 					return
 				}
 
@@ -300,33 +293,35 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 				m3u8Path := fmt.Sprintf("streams/netease/%d/playlist.m3u8", song.ID)
 				m3u8Content, err := os.ReadFile(outputM3U8)
 				if err != nil {
-					log.Printf("读取m3u8文件失败: %v", err)
+					log.Printf("[SearchSongs] 读取m3u8文件失败 (ID: %d, 名称: %s): %v", song.ID, song.Name, err)
 					return
 				}
+				log.Printf("m3u8Path: %s", m3u8Path)
 
 				_, err = minioClient.PutObject(context.Background(), cfg.MinioBucket, m3u8Path, bytes.NewReader(m3u8Content), int64(len(m3u8Content)), minio.PutObjectOptions{
 					ContentType: "application/vnd.apple.mpegurl",
 				})
 				if err != nil {
-					log.Printf("上传m3u8文件失败: %v", err)
+					log.Printf("[SearchSongs] 上传m3u8文件失败 (ID: %d, 名称: %s): %v", song.ID, song.Name, err)
 					return
 				}
-
-				log.Printf("上传m3u8文件成功")
 
 				// 上传ts文件
 				tsFiles, err := filepath.Glob(filepath.Join(hlsDir, "*.ts"))
 				if err != nil {
-					log.Printf("查找ts文件失败: %v", err)
+					log.Printf("[SearchSongs] 查找ts文件失败 (ID: %d, 名称: %s): %v", song.ID, song.Name, err)
 					return
 				}
+				log.Printf("tsFiles: %v", tsFiles)
 
+				log.Printf("[SearchSongs] 开始上传分片文件 (ID: %d, 名称: %s, 分片数量: %d)", song.ID, song.Name, len(tsFiles))
 				for _, tsFile := range tsFiles {
 					segmentName := filepath.Base(tsFile)
 					segmentPath := fmt.Sprintf("streams/netease/%d/%s", song.ID, segmentName)
 					segmentContent, err := os.ReadFile(tsFile)
 					if err != nil {
-						log.Printf("读取ts文件失败: %v", err)
+						log.Printf("[SearchSongs] 读取ts文件失败 (ID: %d, 名称: %s, 文件: %s): %v",
+							song.ID, song.Name, segmentName, err)
 						continue
 					}
 
@@ -334,35 +329,34 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 						ContentType: "video/MP2T",
 					})
 					if err != nil {
-						log.Printf("上传ts文件失败: %v", err)
+						log.Printf("[SearchSongs] 上传ts文件失败 (ID: %d, 名称: %s, 文件: %s): %v",
+							song.ID, song.Name, segmentName, err)
 						continue
 					}
 				}
-				log.Printf("上传ts文件成功***************************")
 
-				log.Printf("✅ 歌曲 %s 预处理完成", song.Name)
+				log.Printf("[SearchSongs] 歌曲预处理完成 (ID: %d, 名称: %s)", song.ID, song.Name)
 			}()
 		}
 	}
 
-	log.Printf("搜索处理完成，返回 %d 首歌曲", len(searchResult.Songs))
 	return searchResult, nil
 }
 
 // GetDynamicCover 获取歌曲动态封面
 func (c *Client) GetDynamicCover(songID string) (string, error) {
 	url := fmt.Sprintf("%s/song/dynamic/cover?id=%s", c.BaseURL, songID)
-	log.Printf("准备获取动态封面: %s", url)
+	log.Printf("[GetDynamicCover] 开始获取动态封面 (ID: %s)", songID)
 
 	req, err := c.createRequest("GET", url)
 	if err != nil {
-		log.Printf("创建请求失败: %v", err)
+		log.Printf("[GetDynamicCover] 创建请求失败 (ID: %s): %v", songID, err)
 		return "", fmt.Errorf("创建请求失败: %w", err)
 	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		log.Printf("请求失败: %v", err)
+		log.Printf("[GetDynamicCover] 请求失败 (ID: %s): %v", songID, err)
 		return "", fmt.Errorf("请求失败: %w", err)
 	}
 	defer resp.Body.Close()
@@ -376,20 +370,20 @@ func (c *Client) GetDynamicCover(songID string) (string, error) {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Printf("解析响应失败: %v", err)
+		log.Printf("[GetDynamicCover] 解析响应失败 (ID: %s): %v", songID, err)
 		return "", fmt.Errorf("解析响应失败: %w", err)
 	}
 
 	if result.Code != 200 {
-		log.Printf("API返回错误: %s (code: %d)", result.Message, result.Code)
+		log.Printf("[GetDynamicCover] API返回错误 (ID: %s): %s (code: %d)", songID, result.Message, result.Code)
 		return "", fmt.Errorf("API返回错误: %s (code: %d)", result.Message, result.Code)
 	}
 
 	if result.Data.VideoPlayURL == "" {
-		log.Printf("未找到动态封面")
+		log.Printf("[GetDynamicCover] 未找到动态封面 (ID: %s)", songID)
 		return "", nil
 	}
 
-	log.Printf("成功获取动态封面URL: %s", result.Data.VideoPlayURL)
+	log.Printf("[GetDynamicCover] 成功获取动态封面 (ID: %s)", songID)
 	return result.Data.VideoPlayURL, nil
 }

@@ -32,16 +32,17 @@ func NewClient() *Client {
 // SetBaseURL 设置API基础URL
 func (c *Client) SetBaseURL(url string) {
 	c.BaseURL = url
+	log.Printf("[client/SetBaseURL] 设置BaseURL为: %s", url)
 }
 
 // SetTimeout 设置请求超时时间
 func (c *Client) SetTimeout(timeout time.Duration) {
 	c.HTTPClient.Timeout = timeout
+	log.Printf("[client/SetTimeout] 设置超时时间为: %v", timeout)
 }
 
 // SetCookie 设置Cookie
 func (c *Client) SetCookie(cookie string) {
-	// 解析cookie字符串
 	cookies := strings.Split(cookie, ";")
 	for _, cookie := range cookies {
 		cookie = strings.TrimSpace(cookie)
@@ -53,12 +54,14 @@ func (c *Client) SetCookie(cookie string) {
 			c.Cookies.CSRF = strings.TrimPrefix(cookie, "__csrf=")
 		}
 	}
+	log.Printf("[client/SetCookie] 设置Cookie: MUSIC_U=%s, NMTID=%s, CSRF=%s", c.Cookies.MUSIC_U, c.Cookies.NMTID, c.Cookies.CSRF)
 }
 
 // createRequest 创建带有Cookie的请求
 func (c *Client) createRequest(method, url string) (*http.Request, error) {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
+		log.Printf("[client/createRequest] 创建请求失败: %v", err)
 		return nil, err
 	}
 
@@ -75,10 +78,10 @@ func (c *Client) createRequest(method, url string) (*http.Request, error) {
 	// 从环境变量获取cookie
 	if cookie := os.Getenv("NETEASE_COOKIE"); cookie != "" {
 		req.Header.Set("Cookie", cookie)
-		log.Printf("从环境变量获取Cookie: %s", cookie)
+		log.Printf("[client/createRequest] 从环境变量获取Cookie")
 	} else {
-		log.Printf("警告: 未设置NETEASE_COOKIE环境变量")
+		log.Printf("[client/createRequest] 警告: 未设置NETEASE_COOKIE环境变量")
 	}
-
+	log.Printf("[client/createRequest] 创建请求 %s %s", method, url)
 	return req, nil
 }
