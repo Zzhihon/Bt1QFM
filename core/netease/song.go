@@ -269,9 +269,10 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 					Img1v1Url string `json:"img1v1Url"`
 				} `json:"artists"`
 				Album struct {
-					ID    int64  `json:"id"`
-					Name  string `json:"name"`
-					PicID int64  `json:"picId"`
+					ID     int64  `json:"id"`
+					Name   string `json:"name"`
+					PicID  int64  `json:"picId"`
+					PicUrl string `json:"picUrl"` // 添加专辑封面URL
 				} `json:"album"`
 				Duration int `json:"duration"`
 			} `json:"songs"`
@@ -294,9 +295,9 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 	}
 
 	for i, song := range result.Result.Songs {
-		// 使用第一个艺术家的图片作为封面
-		picURL := ""
-		if len(song.Artists) > 0 && song.Artists[0].Img1v1Url != "" {
+		// 使用专辑封面URL，如果没有则使用第一个艺术家的图片
+		picURL := song.Album.PicUrl
+		if picURL == "" && len(song.Artists) > 0 && song.Artists[0].Img1v1Url != "" {
 			picURL = song.Artists[0].Img1v1Url
 		}
 

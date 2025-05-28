@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePlayer } from '../../contexts/PlayerContext';
 import { useToast } from '../../contexts/ToastContext';
-import { Music2, Search, PlayCircle, Send, Bot, User, Hash, Plus, Settings, Headphones, Minus } from 'lucide-react';
+import { Music2, Search, PlayCircle, Send, Bot, User, Hash, Plus, Settings, Headphones, Minus, Clock } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -15,10 +15,10 @@ interface Message {
 interface NeteaseSong {
   id: number;
   name: string;
-  artists: Array<{ name: string }>;
-  album: { name: string; picUrl: string };
+  artists: string[]; // 修正：artists是字符串数组，包含艺术家名称
+  album: string; // 修正：album是字符串，包含专辑名称
   duration: number;
-  url: string;
+  picUrl: string; // 专辑封面图片URL
   videoUrl?: string; // 动态封面视频URL
   addedToPlaylist: boolean;
 }
@@ -102,7 +102,18 @@ const BotView: React.FC = () => {
       }
       const data = await response.json();
       if (data.success && data.data) {
-        const songs = data.data.slice(0, 3);
+        // 转换后端返回的数据格式到前端格式
+        const songs = data.data.slice(0, 3).map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          artists: item.artists, // 后端返回的已经是字符串数组
+          album: item.album, // 后端返回的已经是字符串
+          duration: item.duration,
+          picUrl: item.picUrl,
+          videoUrl: item.videoUrl,
+          addedToPlaylist: false
+        }));
+        
         const botMessage: Message = {
           id: (Date.now() + 1).toString(),
           type: 'bot',
@@ -184,9 +195,9 @@ const BotView: React.FC = () => {
       playTrack({
         id: song.id,
         title: song.name,
-        artist: song.artists.map(a => a.name).join(', '),
-        album: song.album.name,
-        coverArtPath: song.album.picUrl,
+        artist: song.artists.join(', '), // 将艺术家数组连接为字符串
+        album: song.album,
+        coverArtPath: song.picUrl,
         url: songData.url,
         position: 0
       });
@@ -235,8 +246,8 @@ const BotView: React.FC = () => {
         const requestData = {
             neteaseId: song.id,
             title: song.name,
-            artist: song.artists.map(a => a.name).join(', '),
-            album: song.album.name,
+            artist: song.artists.join(', '), // 将艺术家数组连接为字符串
+            album: song.album,
         };
         
         console.log('Adding to playlist:', requestData);
@@ -260,9 +271,9 @@ const BotView: React.FC = () => {
         const trackData = {
             id: song.id,
             title: song.name,
-            artist: song.artists.map(a => a.name).join(', '),
-            album: song.album.name,
-            coverArtPath: song.album.picUrl,
+            artist: song.artists.join(', '), // 将艺术家数组连接为字符串
+            album: song.album,
+            coverArtPath: song.picUrl,
             hlsPlaylistUrl: `/streams/netease/${song.id}/playlist.m3u8`,
             position: playerState.playlist.length,
         };
@@ -333,6 +344,14 @@ const BotView: React.FC = () => {
             duration: 3000,
         });
     }
+  };
+
+  // 格式化时长（毫秒转分:秒）
+  const formatDuration = (milliseconds: number): string => {
+    const seconds = Math.floor(milliseconds / 1000);
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -417,11 +436,9 @@ const BotView: React.FC = () => {
                 >
                   <p className="text-sm">{message.content}</p>
                   {message.song && (
-                    <div
-                      className="mt-3 bg-cyber-bg/30 rounded-xl p-3 cursor-pointer hover:bg-cyber-bg/50 transition-colors"
-                    >
-                      <div className="flex items-center space-x-3">
-                        <div className="w-12 h-12 bg-cyber-bg rounded-lg overflow-hidden flex-shrink-0">
+                    <div className="mt-3 bg-cyber-bg/30 rounded-xl p-4 cursor-pointer hover:bg-cyber-bg/50 transition-colors">
+                      <div className="flex items-start space-x-4">
+                        <div className="w-16 h-16 bg-cyber-bg rounded-lg overflow-hidden flex-shrink-0">
                           {message.song.videoUrl ? (
                             <video
                               src={message.song.videoUrl}
@@ -431,32 +448,40 @@ const BotView: React.FC = () => {
                               muted
                               playsInline
                             />
-                          ) : message.song.album.picUrl ? (
+                          ) : message.song.picUrl ? (
                             <img
-                              src={message.song.album.picUrl}
+                              src={message.song.picUrl}
                               alt={message.song.name}
                               className="w-full h-full object-cover"
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center">
-                              <Music2 className="h-6 w-6 text-cyber-primary" />
+                              <Music2 className="h-8 w-8 text-cyber-primary" />
                             </div>
                           )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-sm font-medium truncate">{message.song.name}</h4>
-                          <p className="text-xs text-cyber-secondary/70 truncate">
-                            {message.song.artists.map(a => a.name).join(', ')}
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <h4 className="text-base font-semibold truncate text-cyber-text">{message.song.name}</h4>
+                          <p className="text-sm text-cyber-primary truncate">
+                            {message.song.artists.join(', ')}
                           </p>
+                          <p className="text-xs text-cyber-secondary/70 truncate">
+                            {message.song.album}
+                          </p>
+                          <div className="flex items-center text-xs text-cyber-secondary/60">
+                            <Clock className="w-3 h-3 mr-1" />
+                            <span>{formatDuration(message.song.duration)}</span>
+                          </div>
                         </div>
-                        <div className="flex space-x-2">
+                        <div className="flex flex-col space-y-2">
                           <button
                             onClick={() => handlePlay(message.song!)}
                             className="p-2 hover:bg-cyber-bg/50 rounded-lg transition-colors"
+                            title="播放"
                           >
                             <PlayCircle className="h-6 w-6 text-cyber-primary" />
                           </button>
-                          {message.song.addedToPlaylist ? (
+                          {playerState.playlist.some(track => track.id === message.song!.id) ? (
                             <button
                               onClick={() => handleRemoveFromPlaylist(message.song!)}
                               className="p-2 hover:bg-cyber-bg/50 rounded-lg transition-colors"
@@ -552,4 +577,4 @@ const BotView: React.FC = () => {
   );
 };
 
-export default BotView; 
+export default BotView;
