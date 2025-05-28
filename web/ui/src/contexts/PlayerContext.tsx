@@ -153,103 +153,20 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       
       // 设置音频源
       let audioUrl = '';
+      
+      // 统一处理不同来源的歌曲
       if (track.hlsPlaylistUrl) {
-        // 确保URL指向后端服务器
-        const backendUrl = 'http://localhost:8080'; // 后端服务器地址
+        // 本地存储的歌曲（track来源）
+        const backendUrl = 'http://localhost:8080';
         audioUrl = track.hlsPlaylistUrl.startsWith('http') 
           ? track.hlsPlaylistUrl 
           : `${backendUrl}${track.hlsPlaylistUrl}`;
           
         // 使用HLS.js加载流
         if (Hls.isSupported()) {
-          console.log('使用HLS.js加载流:', audioUrl);
-          const hls = new Hls({
-            debug: false,
-            enableWorker: true,
-            lowLatencyMode: true,
-            backBufferLength: 90,
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60,
-            maxBufferSize: 60 * 1000 * 1000, // 60MB
-            maxBufferHole: 0.5,
-            highBufferWatchdogPeriod: 2,
-            nudgeMaxRetry: 5,
-            nudgeOffset: 0.1,
-            startLevel: -1,
-            manifestLoadingTimeOut: 20000,
-            manifestLoadingMaxRetry: 3,
-            manifestLoadingRetryDelay: 1000,
-            levelLoadingTimeOut: 20000,
-            levelLoadingMaxRetry: 3,
-            levelLoadingRetryDelay: 1000,
-            fragLoadingTimeOut: 20000,
-            fragLoadingMaxRetry: 3,
-            fragLoadingRetryDelay: 1000
-          });
-          
-          hlsInstanceRef.current = hls;
-          
-          // 绑定HLS事件
-          hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-            console.log('HLS: 媒体已附加');
-          });
-          
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            console.log('HLS: 清单已解析');
-            audioRef.current.play().catch(error => {
-              console.error('HLS播放错误:', error);
-              addToast('播放失败，请重试', 'error');
-            });
-          });
-          
-          hls.on(Hls.Events.ERROR, (event, data) => {
-            console.error('HLS错误:', data);
-            if (data.fatal) {
-              switch (data.type) {
-                case Hls.ErrorTypes.NETWORK_ERROR:
-                  addToast('网络错误，请检查网络连接', 'error');
-                  break;
-                case Hls.ErrorTypes.MEDIA_ERROR:
-                  addToast('媒体错误，请重试', 'error');
-                  break;
-                default:
-                  addToast('播放错误，请重试', 'error');
-                  break;
-              }
-            }
-          });
-          
-          // 加载HLS流
-          hls.loadSource(audioUrl);
-          hls.attachMedia(audioRef.current);
-          
-          // 等待HLS加载完成
-          await new Promise((resolve, reject) => {
-            const handleManifestParsed = () => {
-              hls.off(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
-              hls.off(Hls.Events.ERROR, handleError);
-              resolve(null);
-            };
-            
-            const handleError = (event: any, data: any) => {
-              hls.off(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
-              hls.off(Hls.Events.ERROR, handleError);
-              reject(new Error(data.details || 'HLS加载失败'));
-            };
-            
-            hls.on(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
-            hls.on(Hls.Events.ERROR, handleError);
-            
-            // 设置超时
-            setTimeout(() => {
-              hls.off(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
-              hls.off(Hls.Events.ERROR, handleError);
-              reject(new Error('HLS加载超时'));
-            }, 30000); // 30秒超时
-          });
-          
+          console.log('使用HLS.js加载本地流:', audioUrl);
+          await loadHLSStream(audioUrl);
         } else if (audioRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-          // 对于原生支持HLS的浏览器（如Safari）
           console.log('使用原生HLS支持');
           audioRef.current.src = audioUrl;
         } else {
@@ -258,112 +175,35 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       } else if (track.url) {
         // 直接URL（如网易云音乐的音源）
         audioUrl = track.url;
+        console.log('使用直接URL播放:', audioUrl);
+        audioRef.current.src = audioUrl;
+      } else if ((track as any).neteaseId || (track as any).source === 'netease') {
+        // netease歌曲，需要先获取播放URL
+        console.log('处理netease歌曲:', track);
+        const neteaseId = (track as any).neteaseId || track.id;
         
-        // 检查音频格式
-        const audioElement = audioRef.current;
-        const canPlayMP3 = audioElement.canPlayType('audio/mpeg');
-        const canPlayMP4 = audioElement.canPlayType('audio/mp4');
-        const canPlayAAC = audioElement.canPlayType('audio/aac');
-        
-        console.log('浏览器支持的音频格式:', {
-          mp3: canPlayMP3,
-          mp4: canPlayMP4,
-          aac: canPlayAAC
-        });
-        
-        // 如果URL是直接的音频文件，尝试使用HLS.js
-        if (Hls.isSupported() && !audioUrl.endsWith('.mp3')) {
-          console.log('使用HLS.js加载直接URL:', audioUrl);
-          const hls = new Hls({
-            debug: false,
-            enableWorker: true,
-            lowLatencyMode: true,
-            backBufferLength: 90,
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60,
-            maxBufferSize: 60 * 1000 * 1000,
-            maxBufferHole: 0.5,
-            highBufferWatchdogPeriod: 2,
-            nudgeMaxRetry: 5,
-            nudgeOffset: 0.1,
-            startLevel: -1,
-            manifestLoadingTimeOut: 20000,
-            manifestLoadingMaxRetry: 3,
-            manifestLoadingRetryDelay: 1000,
-            levelLoadingTimeOut: 20000,
-            levelLoadingMaxRetry: 3,
-            levelLoadingRetryDelay: 1000,
-            fragLoadingTimeOut: 20000,
-            fragLoadingMaxRetry: 3,
-            fragLoadingRetryDelay: 1000
-          });
-          
-          hlsInstanceRef.current = hls;
-          
-          hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-            console.log('HLS: 媒体已附加');
-          });
-          
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            console.log('HLS: 清单已解析');
-            audioRef.current.play().catch(error => {
-              console.error('HLS播放错误:', error);
-              addToast('播放失败，请重试', 'error');
-            });
-          });
-          
-          hls.on(Hls.Events.ERROR, (event, data) => {
-            console.error('HLS错误:', data);
-            if (data.fatal) {
-              switch (data.type) {
-                case Hls.ErrorTypes.NETWORK_ERROR:
-                  addToast('网络错误，请检查网络连接', 'error');
-                  break;
-                case Hls.ErrorTypes.MEDIA_ERROR:
-                  addToast('媒体错误，请重试', 'error');
-                  break;
-                default:
-                  addToast('播放错误，请重试', 'error');
-                  break;
-              }
-            }
-          });
-          
-          try {
-            hls.loadSource(audioUrl);
-            hls.attachMedia(audioRef.current);
-            
-            // 等待HLS加载完成
-            await new Promise((resolve, reject) => {
-              const handleManifestParsed = () => {
-                hls.off(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
-                hls.off(Hls.Events.ERROR, handleError);
-                resolve(null);
-              };
-              
-              const handleError = (event: any, data: any) => {
-                hls.off(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
-                hls.off(Hls.Events.ERROR, handleError);
-                reject(new Error(data.details || 'HLS加载失败'));
-              };
-              
-              hls.on(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
-              hls.on(Hls.Events.ERROR, handleError);
-              
-              setTimeout(() => {
-                hls.off(Hls.Events.MANIFEST_PARSED, handleManifestParsed);
-                hls.off(Hls.Events.ERROR, handleError);
-                reject(new Error('HLS加载超时'));
-              }, 30000);
-            });
-          } catch (error) {
-            console.error('HLS加载失败，尝试直接播放:', error);
-            // 如果HLS加载失败，回退到直接播放
-            audioRef.current.src = audioUrl;
+        try {
+          const response = await fetch(`/api/netease/command?command=/netease ${neteaseId}`);
+          if (!response.ok) {
+            throw new Error('获取播放地址失败');
           }
-        } else {
-          // 直接设置音频源
+          
+          const data = await response.json();
+          if (!data.success || !data.data || data.data.length === 0) {
+            throw new Error('获取播放地址失败');
+          }
+          
+          const songData = data.data[0];
+          if (!songData.url) {
+            throw new Error('获取播放地址失败');
+          }
+          
+          audioUrl = songData.url;
+          console.log('获取到netease播放URL:', audioUrl);
           audioRef.current.src = audioUrl;
+        } catch (error) {
+          console.error('获取netease播放URL失败:', error);
+          throw error;
         }
       } else if (track.filePath) {
         // 如果是MinIO的音频文件，使用filePath
@@ -391,7 +231,6 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           audioRef.current.removeEventListener('canplay', handleCanPlay);
           audioRef.current.removeEventListener('error', handleError);
           
-          // 获取更详细的错误信息
           const audioElement = error.target as HTMLAudioElement;
           let errorMessage = '未知错误';
           if (audioElement.error) {
@@ -416,12 +255,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         audioRef.current.addEventListener('canplay', handleCanPlay);
         audioRef.current.addEventListener('error', handleError);
         
-        // 设置超时
         setTimeout(() => {
           audioRef.current.removeEventListener('canplay', handleCanPlay);
           audioRef.current.removeEventListener('error', handleError);
           reject(new Error('音频加载超时'));
-        }, 30000); // 增加到30秒
+        }, 30000);
       });
       
       // 开始播放
@@ -432,7 +270,6 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       console.error('Error playing audio:', error);
       setPlayerState(prev => ({ ...prev, isPlaying: false }));
       
-      // 根据错误类型显示不同的错误消息
       let errorMessage = '播放失败，请重试';
       if (error instanceof Error) {
         if (error.message === '没有可用的音频源') {
@@ -452,6 +289,65 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       
       addToast(errorMessage, 'error');
     }
+  };
+
+  // 辅助函数：加载HLS流
+  const loadHLSStream = async (audioUrl: string) => {
+    return new Promise((resolve, reject) => {
+      const hls = new Hls({
+        debug: false,
+        enableWorker: true,
+        lowLatencyMode: true,
+        backBufferLength: 90,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        maxBufferSize: 60 * 1000 * 1000,
+        maxBufferHole: 0.5,
+        highBufferWatchdogPeriod: 2,
+        nudgeMaxRetry: 5,
+        nudgeOffset: 0.1,
+        startLevel: -1,
+        manifestLoadingTimeOut: 20000,
+        manifestLoadingMaxRetry: 3,
+        manifestLoadingRetryDelay: 1000,
+        levelLoadingTimeOut: 20000,
+        levelLoadingMaxRetry: 3,
+        levelLoadingRetryDelay: 1000,
+        fragLoadingTimeOut: 20000,
+        fragLoadingMaxRetry: 3,
+        fragLoadingRetryDelay: 1000
+      });
+      
+      hlsInstanceRef.current = hls;
+      
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+        console.log('HLS: 媒体已附加');
+      });
+      
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        console.log('HLS: 清单已解析');
+        audioRef.current.play().then(() => {
+          resolve(null);
+        }).catch(error => {
+          console.error('HLS播放错误:', error);
+          reject(error);
+        });
+      });
+      
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        console.error('HLS错误:', data);
+        if (data.fatal) {
+          reject(new Error(data.details || 'HLS加载失败'));
+        }
+      });
+      
+      hls.loadSource(audioUrl);
+      hls.attachMedia(audioRef.current);
+      
+      setTimeout(() => {
+        reject(new Error('HLS加载超时'));
+      }, 30000);
+    });
   };
   
   // 播放/暂停切换
@@ -653,39 +549,65 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const addToPlaylist = async (track: Track) => {
     if (!currentUser) return;
     
-    // 检查播放列表中是否已经存在相同的歌曲
-    // 注意：后端返回的是trackId字段，我们需要正确检查
+    // 统一检查播放列表中是否已存在歌曲
     const trackExists = playerState.playlist.some(item => {
-      // @ts-ignore - trackId可能不在类型定义中，但实际存在于API返回数据
-      const itemTrackId = item.trackId !== undefined ? item.trackId : item.id;
-      return itemTrackId === track.id;
+      // 检查不同来源的ID
+      const itemId = (item as any).neteaseId || (item as any).trackId || item.id;
+      const trackId = (track as any).neteaseId || (track as any).trackId || track.id;
+      return itemId === trackId;
     });
     
     if (trackExists) {
       console.log('Track already exists in playlist:', track.title);
       addToast(`《${track.title}》已在播放列表中`, 'info');
-      return; // 如果歌曲已存在，直接返回，不再添加
+      return;
     }
     
     try {
+      // 根据歌曲来源构建请求数据
+      let requestData: any;
+      
+      if ((track as any).neteaseId || (track as any).source === 'netease') {
+        // netease歌曲
+        const neteaseId = (track as any).neteaseId || track.id;
+        requestData = {
+          neteaseId: neteaseId,
+          title: track.title,
+          artist: track.artist,
+          album: track.album || '未知专辑',
+        };
+      } else {
+        // 本地track歌曲
+        requestData = {
+          trackId: (track as any).trackId || track.id
+        };
+      }
+      
+      console.log('Adding to playlist:', requestData);
+
       const response = await fetch('/api/playlist', {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
-          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ trackId: track.id })
+        body: JSON.stringify(requestData),
       });
-      
+
       if (!response.ok) {
-        throw new Error(`HTTP error ${response.status}`);
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Server response:', errorData);
+        throw new Error(errorData.error || `HTTP error ${response.status}`);
       }
-      
+
       await fetchPlaylist();
       addToast(`《${track.title}》已添加到播放列表`, 'success');
     } catch (error) {
-      console.error('Failed to add track to playlist:', error);
-      addToast('添加歌曲失败，请重试', 'error');
+      console.error('Error adding to playlist:', error);
+      addToast(
+        error instanceof Error ? error.message : '添加到播放列表失败',
+        'error'
+      );
     }
   };
   
@@ -695,9 +617,10 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     
     try {
       // 获取要删除的歌曲信息
-      const trackToRemove = playerState.playlist.find(track => 
-        track.id === trackId || track.trackId === trackId || track.neteaseId === trackId
-      );
+      const trackToRemove = playerState.playlist.find(track => {
+        const itemId = (track as any).neteaseId || (track as any).trackId || track.id;
+        return itemId === trackId;
+      });
       
       if (!trackToRemove) {
         console.error('Track not found in playlist:', trackId);
@@ -706,9 +629,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
 
       // 根据歌曲类型选择正确的参数
-      const isNeteaseTrack = 'neteaseId' in trackToRemove;
+      const isNeteaseTrack = (trackToRemove as any).neteaseId !== undefined;
       const queryParam = isNeteaseTrack ? 'neteaseId' : 'trackId';
-      const idToRemove = isNeteaseTrack ? trackToRemove.neteaseId : trackToRemove.trackId || trackToRemove.id;
+      const idToRemove = isNeteaseTrack ? 
+        (trackToRemove as any).neteaseId : 
+        ((trackToRemove as any).trackId || trackToRemove.id);
 
       if (!idToRemove) {
         console.error('Invalid track ID:', trackId);
@@ -731,12 +656,13 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       addToast('已从播放列表移除', 'success');
       
       // 如果删除的是当前播放的歌曲，切换到下一首
-      if (playerState.currentTrack && (
-          playerState.currentTrack.id === trackId || 
-          playerState.currentTrack.trackId === trackId ||
-          playerState.currentTrack.neteaseId === trackId
-      )) {
-        handleNext();
+      if (playerState.currentTrack) {
+        const currentId = (playerState.currentTrack as any).neteaseId || 
+                         (playerState.currentTrack as any).trackId || 
+                         playerState.currentTrack.id;
+        if (currentId === trackId) {
+          handleNext();
+        }
       }
     } catch (error) {
       console.error('Failed to remove track from playlist:', error);
@@ -1068,4 +994,4 @@ export const usePlayer = (): PlayerContextType => {
     throw new Error('usePlayer must be used within a PlayerProvider');
   }
   return context;
-}; 
+};

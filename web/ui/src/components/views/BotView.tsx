@@ -111,17 +111,22 @@ const BotView: React.FC = () => {
           duration: item.duration || 0,
           picUrl: item.picUrl || '', // 注意字段名是picUrl不是picURL
           videoUrl: item.videoUrl || '',
-          addedToPlaylist: false
+          addedToPlaylist: false,
+          // 添加标识字段，表明这是netease歌曲
+          source: 'netease'
         }));
         
-        const botMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          type: 'bot',
-          content: `找到以下歌曲：`,
-          timestamp: new Date(),
-          song: songs[0],
-        };
-        setMessages(prev => [...prev, botMessage]);
+        // 为每首歌创建单独的消息
+        for (let i = 0; i < songs.length; i++) {
+          const botMessage: Message = {
+            id: (Date.now() + i + 1).toString(),
+            type: 'bot',
+            content: i === 0 ? `找到以下歌曲：` : '',
+            timestamp: new Date(),
+            song: songs[i],
+          };
+          setMessages(prev => [...prev, botMessage]);
+        }
       } else {
         throw new Error(data.error || '搜索失败');
       }

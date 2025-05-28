@@ -48,6 +48,19 @@ const Player: React.FC = () => {
       };
     }
   }, [playerState.currentTrack]);
+
+  // 统一获取歌曲ID的辅助函数
+  const getTrackId = (track: any) => {
+    return track.neteaseId || track.trackId || track.id;
+  };
+
+  // 检查是否为当前播放的歌曲
+  const isCurrentTrack = (track: any) => {
+    if (!playerState.currentTrack) return false;
+    const currentId = getTrackId(playerState.currentTrack);
+    const trackId = getTrackId(track);
+    return currentId === trackId;
+  };
   
   // 处理时间轨道点击
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -264,45 +277,50 @@ const Player: React.FC = () => {
             </div>
           ) : (
             <div className="max-h-96 overflow-y-auto pr-2">
-              {playerState.playlist.map((item, index) => (
-                <div 
-                  key={`${item.id || item.trackId}-${index}`}
-                  className={`flex items-center justify-between p-2 mb-1 rounded hover:bg-cyber-bg transition-colors ${(playerState.currentTrack?.id === item.id || playerState.currentTrack?.id === item.trackId) ? 'bg-cyber-bg border border-cyber-primary' : ''}`}
-                >
+              {playerState.playlist.map((item, index) => {
+                const trackId = getTrackId(item);
+                const isCurrent = isCurrentTrack(item);
+                
+                return (
                   <div 
-                    className="flex items-center flex-grow overflow-hidden cursor-pointer"
-                    onClick={() => playTrack(item)}
+                    key={`${trackId}-${index}`}
+                    className={`flex items-center justify-between p-2 mb-1 rounded hover:bg-cyber-bg transition-colors ${isCurrent ? 'bg-cyber-bg border border-cyber-primary' : ''}`}
                   >
-                    <div className="w-8 h-8 bg-cyber-bg flex-shrink-0 rounded overflow-hidden mr-2">
-                      {item.coverArtPath ? (
-                        <img 
-                          src={item.coverArtPath} 
-                          alt="Cover" 
-                          className="w-full h-full object-cover" 
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <Music2 className="text-cyber-primary h-4 w-4" />
+                    <div 
+                      className="flex items-center flex-grow overflow-hidden cursor-pointer"
+                      onClick={() => playTrack(item)}
+                    >
+                      <div className="w-8 h-8 bg-cyber-bg flex-shrink-0 rounded overflow-hidden mr-2">
+                        {item.coverArtPath ? (
+                          <img 
+                            src={item.coverArtPath} 
+                            alt="Cover" 
+                            className="w-full h-full object-cover" 
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Music2 className="text-cyber-primary h-4 w-4" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="truncate">
+                        <div className={`truncate text-sm ${isCurrent ? 'text-cyber-primary font-medium' : 'text-cyber-text'}`}>
+                          {item.title}
                         </div>
-                      )}
-                    </div>
-                    <div className="truncate">
-                      <div className={`truncate text-sm ${(playerState.currentTrack?.id === item.id || playerState.currentTrack?.id === item.trackId) ? 'text-cyber-primary font-medium' : 'text-cyber-text'}`}>
-                        {item.title}
-                      </div>
-                      <div className="text-xs text-cyber-secondary truncate">
-                        {item.artist || 'Unknown Artist'}
+                        <div className="text-xs text-cyber-secondary truncate">
+                          {item.artist || 'Unknown Artist'}
+                        </div>
                       </div>
                     </div>
+                    <button 
+                      onClick={() => removeFromPlaylist(trackId)}
+                      className="text-cyber-secondary hover:text-cyber-red transition-colors ml-2"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
-                  <button 
-                    onClick={() => removeFromPlaylist(item.trackId || item.id)}
-                    className="text-cyber-secondary hover:text-cyber-red transition-colors ml-2"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
