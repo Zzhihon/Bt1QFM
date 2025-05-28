@@ -102,15 +102,15 @@ const BotView: React.FC = () => {
       }
       const data = await response.json();
       if (data.success && data.data) {
-        // 转换后端返回的数据格式到前端格式
+        // 正确转换后端返回的数据格式
         const songs = data.data.slice(0, 3).map((item: any) => ({
           id: item.id,
           name: item.name,
-          artists: item.artists, // 后端返回的已经是字符串数组
-          album: item.album, // 后端返回的已经是字符串
-          duration: item.duration,
-          picUrl: item.picUrl,
-          videoUrl: item.videoUrl,
+          artists: item.artists || [], // 确保是数组
+          album: item.album || '', // 确保是字符串
+          duration: item.duration || 0,
+          picUrl: item.picUrl || '', // 注意字段名是picUrl不是picURL
+          videoUrl: item.videoUrl || '',
           addedToPlaylist: false
         }));
         
@@ -192,12 +192,15 @@ const BotView: React.FC = () => {
         throw new Error('获取播放地址失败');
       }
 
+      // 确保艺术家是数组格式，正确处理
+      const artistStr = Array.isArray(song.artists) ? song.artists.join(', ') : (song.artists || '未知艺术家');
+
       playTrack({
         id: song.id,
         title: song.name,
-        artist: song.artists.join(', '), // 将艺术家数组连接为字符串
-        album: song.album,
-        coverArtPath: song.picUrl,
+        artist: artistStr,
+        album: song.album || '未知专辑',
+        coverArtPath: song.picUrl || '',
         url: songData.url,
         position: 0
       });
@@ -243,11 +246,14 @@ const BotView: React.FC = () => {
             return;
         }
 
+        // 确保艺术家是数组格式，正确处理
+        const artistStr = Array.isArray(song.artists) ? song.artists.join(', ') : (song.artists || '未知艺术家');
+
         const requestData = {
             neteaseId: song.id,
             title: song.name,
-            artist: song.artists.join(', '), // 将艺术家数组连接为字符串
-            album: song.album,
+            artist: artistStr,
+            album: song.album || '未知专辑',
         };
         
         console.log('Adding to playlist:', requestData);
@@ -271,9 +277,9 @@ const BotView: React.FC = () => {
         const trackData = {
             id: song.id,
             title: song.name,
-            artist: song.artists.join(', '), // 将艺术家数组连接为字符串
-            album: song.album,
-            coverArtPath: song.picUrl,
+            artist: artistStr,
+            album: song.album || '未知专辑',
+            coverArtPath: song.picUrl || '',
             hlsPlaylistUrl: `/streams/netease/${song.id}/playlist.m3u8`,
             position: playerState.playlist.length,
         };
@@ -463,10 +469,10 @@ const BotView: React.FC = () => {
                         <div className="flex-1 min-w-0 space-y-1">
                           <h4 className="text-base font-semibold truncate text-cyber-text">{message.song.name}</h4>
                           <p className="text-sm text-cyber-primary truncate">
-                            {message.song.artists.join(', ')}
+                            {Array.isArray(message.song.artists) ? message.song.artists.join(', ') : (message.song.artists || '未知艺术家')}
                           </p>
                           <p className="text-xs text-cyber-secondary/70 truncate">
-                            {message.song.album}
+                            {message.song.album || '未知专辑'}
                           </p>
                           <div className="flex items-center text-xs text-cyber-secondary/60">
                             <Clock className="w-3 h-3 mr-1" />
