@@ -18,6 +18,7 @@ export interface Track {
   hlsPlaylistUrl?: string; // To construct `/stream/{id}/playlist.m3u8`
   url?: string; // Direct URL for external audio sources (e.g., Netease Music)
   userId?: number; // If tracks are user-specific
+  neteaseId?: number; // Netease Music song ID
   duration?: number; // Track duration in seconds
 }
 

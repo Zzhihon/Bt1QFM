@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
 	"Bt1QFM/core/utils"
+	"Bt1QFM/model"
 	"Bt1QFM/repository"
 	"Bt1QFM/storage"
 
@@ -466,4 +468,169 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 	log.Printf("[HandleCommand] 处理完成 (ID: %s, 播放地址: %s)", songIDStr, hlsURL)
+}
+
+// HandleSongDetail handles requests for Netease song details.
+func (h *NeteaseHandler) HandleSongDetail(w http.ResponseWriter, r *http.Request) {
+	// log.Println("[NeteaseHandler] Handling song detail request") // 移除日志
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		// log.Println("[NeteaseHandler] Method not allowed for song detail") // 移除日志
+		return
+	}
+
+	// 获取歌曲ID
+	ids := r.URL.Query().Get("ids")
+	if ids == "" {
+		http.Error(w, "Missing required parameter: ids", http.StatusBadRequest)
+		// log.Println("[NeteaseHandler] Missing 'ids' parameter for song detail") // 移除日志
+		return
+	}
+
+	// log.Printf("[NeteaseHandler] Fetching song detail from proxy for IDs: %s", ids) // 移除日志
+
+	// 直接调用网易云API（通过本地代理3000端口）获取原始响应
+	url := fmt.Sprintf("%s/song/detail?ids=%s", h.client.BaseURL, ids)
+	req, err := h.client.createRequest("GET", url)
+	if err != nil {
+		log.Printf("[NeteaseHandler] Failed to create request for song detail (IDs: %s): %v", ids, err)
+		http.Error(w, fmt.Sprintf("Failed to create request: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	resp, err := h.client.HTTPClient.Do(req)
+	if err != nil {
+		log.Printf("[NeteaseHandler] Request to proxy failed for song detail (IDs: %s): %v", ids, err)
+		http.Error(w, fmt.Sprintf("Request to proxy failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	// 读取原始响应数据
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[NeteaseHandler] Failed to read response body from proxy (IDs: %s): %v", ids, err)
+		http.Error(w, fmt.Sprintf("Failed to read response body: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// **移除打印原始响应数据**
+	// log.Printf("[NeteaseHandler] Raw response body from proxy (IDs: %s):\n%s", ids, string(bodyBytes)) // 移除日志
+
+	// 定义一个临时 struct 来匹配网易云 API 的原始结构
+	var tempResult struct {
+		Songs []struct {
+			ID       int64                 `json:"id"`
+			Name     string                `json:"name"`
+			Artists  []model.NeteaseArtist `json:"ar"` // 使用 model.NeteaseArtist，但 tag 是 ar
+			Album    model.NeteaseAlbum    `json:"al"` // 使用 model.NeteaseAlbum，但 tag 是 al
+			Duration int                   `json:"dt"` // 使用 dt
+			URL      string                `json:"url"`
+			CoverURL string                `json:"coverUrl"`
+		} `json:"songs"`
+		Code int `json:"code"`
+	}
+
+	// 将读取的body重新放入响应体，以便NewDecoder读取
+	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	// 解析到临时 struct
+	if err := json.NewDecoder(resp.Body).Decode(&tempResult); err != nil {
+		log.Printf("[NeteaseHandler] Failed to decode JSON response from proxy (IDs: %s): %v", ids, err)
+		http.Error(w, fmt.Sprintf("Failed to decode JSON: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// log.Printf("[NeteaseHandler] Decoded response from proxy (IDs: %s), Code: %d, Songs count: %d", ids, tempResult.Code, len(tempResult.Songs)) // 移除日志
+
+	// 构建符合前端期望的响应结构
+	response := struct {
+		Success bool               `json:"success"`
+		Data    *model.NeteaseSong `json:"data"`
+	}{
+		Success: false, // 默认失败
+		Data:    nil,
+	}
+
+	// 如果解析成功且有歌曲数据，手动映射到 model.NeteaseSong 结构
+	if tempResult.Code == 200 && len(tempResult.Songs) > 0 {
+		originalSong := tempResult.Songs[0]
+		// 手动创建并填充 model.NeteaseSong 结构
+		response.Data = &model.NeteaseSong{
+			ID:       originalSong.ID,
+			Name:     originalSong.Name,
+			Artists:  originalSong.Artists,
+			Album:    originalSong.Album,
+			Duration: originalSong.Duration,
+			URL:      originalSong.URL,
+			CoverURL: originalSong.Album.PicURL, // 使用 Album 中的 picUrl 作为 CoverURL
+			// CreatedAt 可以根据需要设置或忽略
+		}
+		response.Success = true
+		// log.Printf("[NeteaseHandler] Assigned song detail to response.Data (ID: %d, Title: %s)", response.Data.ID, response.Data.Name) // 移除日志
+		// log.Printf("[NeteaseHandler] Assigned song detail - CoverArtPath: %s, Artists count: %d", response.Data.Album.PicURL, len(response.Data.Artists)) // 移除日志
+	} else {
+		log.Printf("[NeteaseHandler] Proxy returned non-200 code or empty songs list for IDs: %s", ids)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+	// log.Printf("[NeteaseHandler] Song detail request handled for IDs: %s", ids) // 移除日志
+}
+
+// HandleDynamicCover handles requests for Netease dynamic song cover.
+func (h *NeteaseHandler) HandleDynamicCover(w http.ResponseWriter, r *http.Request) {
+	log.Println("[NeteaseHandler] Handling dynamic cover request")
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+		log.Println("[NeteaseHandler] Method not allowed for dynamic cover")
+		return
+	}
+
+	ids := r.URL.Query().Get("id")
+	if ids == "" {
+		http.Error(w, "Missing 'id' parameter", http.StatusBadRequest)
+		log.Println("[NeteaseHandler] Missing 'id' parameter for dynamic cover")
+		return
+	}
+
+	// 假设 GetDynamicCover 只需要一个 ID
+	coverURL, err := h.client.GetDynamicCover(ids)
+
+	// 构建符合前端期望的 JSON 响应结构
+	response := struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
+			VideoPlayURL string `json:"videoPlayUrl"`
+		} `json:"data"`
+	}{
+		Code:    200, // 默认成功
+		Message: "",
+		Data: struct {
+			VideoPlayURL string `json:"videoPlayUrl"`
+		}{
+			VideoPlayURL: coverURL,
+		},
+	}
+
+	if err != nil {
+		log.Printf("[NeteaseHandler] Error getting dynamic cover for ID %s: %v", ids, err)
+		response.Code = 500 // 或者根据错误类型设置其他状态码
+		response.Message = fmt.Sprintf("Failed to get dynamic cover: %v", err)
+		response.Data.VideoPlayURL = "" // 错误时清空URL
+		http.Error(w, response.Message, http.StatusInternalServerError)
+		return // 发生错误时提前返回
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("[NeteaseHandler] Error encoding JSON response for dynamic cover: %v", err)
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[NeteaseHandler] Successfully returned dynamic cover for ID %s", ids)
 }

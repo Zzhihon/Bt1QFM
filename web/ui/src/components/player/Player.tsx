@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Shuffle,
   Loader2, ListMusic, X, Trash2, Music2, ArrowRight
@@ -6,6 +6,30 @@ import {
 import { PlayMode } from '../../types';
 import { usePlayer } from '../../contexts/PlayerContext';
 import Hls from 'hls.js';
+
+// 添加netease歌曲详情接口
+interface NeteaseSongDetail {
+  id: number;
+  name: string;
+  ar: Array<{
+    id: number;
+    name: string;
+  }>;
+  al: {
+    id: number;
+    name: string;
+    picUrl: string;
+  };
+}
+
+// 添加动态封面接口
+interface DynamicCoverResponse {
+  code: number;
+  data: {
+    videoPlayUrl: string;
+  };
+  message: string;
+}
 
 const Player: React.FC = () => {
   const {
@@ -25,7 +49,8 @@ const Player: React.FC = () => {
     playTrack,
     isLoadingPlaylist,
     showPlaylist,
-    setShowPlaylist
+    setShowPlaylist,
+    setPlayerState
   } = usePlayer();
   
   // 初始化HLS实例
@@ -33,11 +58,87 @@ const Player: React.FC = () => {
   const retryCountRef = useRef(0);
   const MAX_RETRIES = 3;
 
+  // 获取netease歌曲详情
+  const fetchNeteaseSongDetail = async (neteaseId: number) => {
+    try {
+      console.log('Fetching netease song detail for ID:', neteaseId);
+      const response = await fetch(`/api/netease/song/detail?ids=${neteaseId}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch song detail');
+      }
+      const data = await response.json();
+      console.log('Received song detail data:', data);
+      if (data.success && data.data) {
+        // 更新当前播放歌曲的信息
+        if (playerState.currentTrack && playerState.currentTrack.neteaseId === neteaseId) {
+          const detail = data.data;
+          playerState.currentTrack.album = detail.al.name;
+          playerState.currentTrack.artist = detail.ar.map((a: any) => a.name).join(', ');
+          playerState.currentTrack.coverArtPath = `/song/dynamic/cover?id=${neteaseId}`;
+          // 强制更新UI
+          setShowPlaylist(showPlaylist);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching netease song detail:', error);
+    }
+  };
+
   // 当currentTrack改变时更新HLS源
   useEffect(() => {
     if (playerState.currentTrack && audioRef.current) {
       console.log('当前播放曲目:', playerState.currentTrack);
-      
+
+      // 如果是网易云歌曲，获取歌曲详情并更新封面和艺术家信息
+      const currentTrack = playerState.currentTrack;
+      if (currentTrack.neteaseId) {
+        console.log(`Fetching song detail for Netease ID: ${currentTrack.neteaseId}`);
+        fetch(`/api/netease/song/detail?ids=${currentTrack.neteaseId}`)
+          .then(res => res.json())
+          .then(data => {
+            console.log('Song detail API返回数据:', data);
+            // 根据后端 /api/netease/song/detail 的返回结构，歌曲详情在 data.data 中
+            if (data.success && data.data) {
+              const detail = data.data;
+              if (detail.al && detail.al.picUrl) {
+                // 更新封面图片路径
+                const newCoverArtPath = detail.al.picUrl;
+                // 更新艺术家信息
+                const newArtist = detail.ar ? detail.ar.map((a: any) => a.name).join(', ') : 'Unknown Artist';
+
+                setPlayerState(prevState => ({
+                  ...prevState,
+                  currentTrack: {
+                    ...prevState.currentTrack!,
+                    coverArtPath: newCoverArtPath,
+                    artist: newArtist,
+                    album: detail.al.name, // 也更新专辑信息
+                  },
+                }));
+                console.log('更新后的 coverArtPath:', newCoverArtPath);
+                console.log('更新后的 artist:', newArtist);
+                console.log('更新后的 album:', detail.al.name);
+              } else {
+                 console.log('从 song detail API 获取到数据，但缺少封面信息或艺术家信息。');
+              }
+            } else {
+                console.log('未从 song detail API 获取到有效数据。');
+                // 如果没有获取到详情，可以考虑使用默认封面或其他逻辑
+            }
+          })
+          .catch(err => console.error('获取歌曲详情失败:', err));
+      } else {
+        // 非网易云歌曲，确保 artist 和 album 使用 track 中原有的信息
+         setPlayerState(prevState => ({
+          ...prevState,
+          currentTrack: {
+            ...prevState.currentTrack!,
+            artist: currentTrack.artist, // 使用 track 中原有的 artist
+            album: currentTrack.album,   // 使用 track 中原有的 album
+          },
+        }));
+      }
+
       // 添加音频加载事件监听
       audioRef.current.onloadeddata = () => {
         console.log('音频数据已加载');
@@ -133,10 +234,11 @@ const Player: React.FC = () => {
               {playerState.currentTrack ? (
                 <>
                   <div className="w-10 h-10 bg-cyber-bg rounded mr-2 flex-shrink-0 overflow-hidden">
+                    {/* 直接使用 coverArtPath */}
                     {playerState.currentTrack.coverArtPath ? (
                       <img 
-                        src={playerState.currentTrack.coverArtPath} 
-                        alt="Cover" 
+                        src={playerState.currentTrack.coverArtPath}
+                        alt="Cover"
                         className="w-full h-full object-cover"
                       />
                     ) : (
@@ -281,6 +383,12 @@ const Player: React.FC = () => {
                 const trackId = getTrackId(item);
                 const isCurrent = isCurrentTrack(item);
                 
+                // 对于网易云歌曲，确保使用从 song detail 获取的封面
+                if (item.neteaseId) {
+                    // 这里不需要再次获取详情，详情应该在播放或添加到播放列表时获取
+                    // 确保使用 item 中已经更新的 coverArtPath
+                }
+
                 return (
                   <div 
                     key={`${trackId}-${index}`}
@@ -291,9 +399,10 @@ const Player: React.FC = () => {
                       onClick={() => playTrack(item)}
                     >
                       <div className="w-8 h-8 bg-cyber-bg flex-shrink-0 rounded overflow-hidden mr-2">
+                        {/* 直接使用 item.coverArtPath */}
                         {item.coverArtPath ? (
                           <img 
-                            src={item.coverArtPath} 
+                            src={item.coverArtPath}
                             alt="Cover" 
                             className="w-full h-full object-cover" 
                           />

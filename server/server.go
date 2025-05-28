@@ -97,7 +97,9 @@ func Start() {
 
 	// 网易云音乐相关的API端点
 	router.HandleFunc("/api/netease/search", neteaseHandler.HandleSearch).Methods(http.MethodGet)
-	router.HandleFunc("/api/netease/command", neteaseHandler.HandleCommand).Methods(http.MethodGet)
+	router.HandleFunc("/api/netease/command", neteaseHandler.HandleCommand).Methods(http.MethodPost)
+	router.HandleFunc("/api/netease/song/detail", neteaseHandler.HandleSongDetail).Methods(http.MethodGet)
+	router.HandleFunc("/api/netease/song/dynamic/cover", neteaseHandler.HandleDynamicCover).Methods(http.MethodGet)
 
 	// API Endpoints
 	router.HandleFunc("/api/tracks", apiHandler.AuthMiddleware(apiHandler.GetTracksHandler)).Methods(http.MethodGet)

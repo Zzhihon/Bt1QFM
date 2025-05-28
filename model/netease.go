@@ -19,11 +19,11 @@ type NeteaseArtist struct {
 type NeteaseSong struct {
 	ID        int64           `json:"id"`
 	Name      string          `json:"name"`
-	Artists   []NeteaseArtist `json:"artists"`
-	Album     NeteaseAlbum    `json:"album"`
-	Duration  int             `json:"duration"` // 时长（毫秒）
-	URL       string          `json:"url"`      // 播放地址
-	CoverURL  string          `json:"coverUrl"` // 封面图片地址
+	Artists   []NeteaseArtist `json:"ar"`
+	Album     NeteaseAlbum    `json:"al"`
+	Duration  int             `json:"dt"`
+	URL       string          `json:"url"`
+	CoverURL  string          `json:"coverUrl"`
 	CreatedAt time.Time       `json:"createdAt"`
 }
 
