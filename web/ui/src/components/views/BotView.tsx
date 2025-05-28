@@ -103,7 +103,7 @@ const BotView: React.FC = () => {
       const data = await response.json();
       if (data.success && data.data) {
         // 正确转换后端返回的数据格式
-        const songs = data.data.slice(0, 3).map((item: any) => ({
+        const songs = data.data.slice(0, 1).map((item: any) => ({
           id: item.id,
           name: item.name,
           artists: item.artists || [], // 确保是数组
@@ -447,8 +447,8 @@ const BotView: React.FC = () => {
                 >
                   <p className="text-sm">{message.content}</p>
                   {message.song && (
-                    <div className="mt-3 bg-cyber-bg/30 rounded-xl p-4 cursor-pointer hover:bg-cyber-bg/50 transition-colors">
-                      <div className="flex items-start space-x-4">
+                    <div className="mt-3 bg-cyber-bg/30 rounded-xl p-4 cursor-pointer hover:bg-cyber-bg/50 transition-colors h-[150px]">
+                      <div className="flex items-start space-x-4 h-full">
                         <div className="w-16 h-16 bg-cyber-bg rounded-lg overflow-hidden flex-shrink-0">
                           {message.song.videoUrl ? (
                             <video
@@ -471,7 +471,7 @@ const BotView: React.FC = () => {
                             </div>
                           )}
                         </div>
-                        <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex-1 min-w-0 space-y-1 max-w-[200px] min-h-[90px]">
                           <h4 className="text-base font-semibold truncate text-cyber-text">{message.song.name}</h4>
                           <p className="text-sm text-cyber-primary truncate">
                             {Array.isArray(message.song.artists) ? message.song.artists.join(', ') : (message.song.artists || '未知艺术家')}
@@ -479,12 +479,8 @@ const BotView: React.FC = () => {
                           <p className="text-xs text-cyber-secondary/70 truncate">
                             {message.song.album || '未知专辑'}
                           </p>
-                          <div className="flex items-center text-xs text-cyber-secondary/60">
-                            <Clock className="w-3 h-3 mr-1" />
-                            <span>{formatDuration(message.song.duration)}</span>
-                          </div>
                         </div>
-                        <div className="flex flex-col space-y-2">
+                        <div className="flex flex-col space-y-2 flex-shrink-0 justify-center h-full">
                           <button
                             onClick={() => handlePlay(message.song!)}
                             className="p-2 hover:bg-cyber-bg/50 rounded-lg transition-colors"
