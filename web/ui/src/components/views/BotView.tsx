@@ -128,10 +128,10 @@ const BotView: React.FC = () => {
             name: item.name,
             artists: item.artists || [],
             album: item.album || '',
-            duration: item.duration || 0,
+            duration: detail?.dt || item.duration || 0,
             picUrl: item.picUrl || '',
             videoUrl: item.videoUrl || '',
-            coverUrl: detail?.al?.picUrl || '', // 添加静态封面URL
+            coverUrl: detail?.al?.picUrl || '',
             addedToPlaylist: false,
             source: 'netease'
           };
@@ -468,92 +468,46 @@ const BotView: React.FC = () => {
                 >
                   <p className="text-sm">{message.content}</p>
                   {message.song && (
-                    <div className="mt-3 bg-cyber-bg/30 rounded-xl p-4 cursor-pointer hover:bg-cyber-bg/50 transition-colors h-[150px]">
-                      <div className="flex items-start space-x-4 h-full">
-                        <div className="w-16 h-16 bg-cyber-bg rounded-lg overflow-hidden flex-shrink-0">
-                          {message.song.videoUrl ? (
-                            <video
-                              src={message.song.videoUrl}
-                              className="w-full h-full object-cover"
-                              autoPlay
-                              loop
-                              muted
-                              playsInline
-                              onError={(e) => {
-                                // 当视频加载失败时，尝试使用静态封面
-                                const videoElement = e.target as HTMLVideoElement;
-                                videoElement.style.display = 'none';
-                                const imgElement = document.createElement('img');
-                                const song = message.song!; // 使用非空断言，因为我们在外层已经检查了 message.song 存在
-                                imgElement.src = song.coverUrl || song.picUrl || '';
-                                imgElement.className = 'w-full h-full object-cover';
-                                imgElement.onerror = () => {
-                                  // 如果静态封面也加载失败，显示默认图标
-                                  imgElement.style.display = 'none';
-                                  const defaultIcon = document.createElement('div');
-                                  defaultIcon.className = 'w-full h-full flex items-center justify-center';
-                                  defaultIcon.innerHTML = '<svg class="h-8 w-8 text-cyber-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
-                                  videoElement.parentElement?.appendChild(defaultIcon);
-                                };
-                                videoElement.parentElement?.appendChild(imgElement);
-                              }}
-                            />
-                          ) : message.song.coverUrl || message.song.picUrl ? (
-                            <img
-                              src={message.song.coverUrl || message.song.picUrl}
-                              alt={message.song.name}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                // 当图片加载失败时，显示默认图标
-                                const imgElement = e.target as HTMLImageElement;
-                                imgElement.style.display = 'none';
-                                const defaultIcon = document.createElement('div');
-                                defaultIcon.className = 'w-full h-full flex items-center justify-center';
-                                defaultIcon.innerHTML = '<svg class="h-8 w-8 text-cyber-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
-                                imgElement.parentElement?.appendChild(defaultIcon);
-                              }}
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <Music2 className="h-8 w-8 text-cyber-primary" />
-                            </div>
-                          )}
+                    <div className="flex items-center w-[340px] h-[72px] bg-cyber-bg rounded-lg shadow-sm overflow-hidden hover:bg-cyber-bg-darker/80 transition-all">
+                      {/* 封面 */}
+                      <div className="w-[56px] h-[56px] flex-shrink-0 m-3 rounded-md overflow-hidden bg-cyber-bg">
+                        {message.song.coverUrl || message.song.picUrl ? (
+                          <img
+                            src={message.song.coverUrl || message.song.picUrl}
+                            alt={message.song.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Music2 className="h-8 w-8 text-cyber-primary" />
+                          </div>
+                        )}
+                      </div>
+                      {/* 信息区 */}
+                      <div className="flex-1 flex flex-col justify-center min-w-0 px-2">
+                        <div className="flex items-center">
+                          <span className="font-bold text-base text-cyber-text truncate">{message.song.name}</span>
+                          <span className="ml-2 text-xs text-cyber-secondary/70">{formatDuration(message.song.duration)}</span>
                         </div>
-                        <div className="flex-1 min-w-0 space-y-1 max-w-[200px] min-h-[90px]">
-                          <h4 className="text-base font-semibold truncate text-cyber-text">{message.song.name}</h4>
-                          <p className="text-sm text-cyber-primary truncate">
-                            {Array.isArray(message.song.artists) ? message.song.artists.join(', ') : (message.song.artists || '未知艺术家')}
-                          </p>
-                          <p className="text-xs text-cyber-secondary/70 truncate">
-                            {message.song.album || '未知专辑'}
-                          </p>
-                        </div>
-                        <div className="flex flex-col space-y-2 flex-shrink-0 justify-center h-full">
-                          <button
-                            onClick={() => handlePlay(message.song!)}
-                            className="p-2 hover:bg-cyber-bg/50 rounded-lg transition-colors"
-                            title="播放"
-                          >
-                            <PlayCircle className="h-6 w-6 text-cyber-primary" />
-                          </button>
-                          {playerState.playlist.some(track => track.id === message.song!.id) ? (
-                            <button
-                              onClick={() => handleRemoveFromPlaylist(message.song!)}
-                              className="p-2 hover:bg-cyber-bg/50 rounded-lg transition-colors"
-                              title="从播放列表移除"
-                            >
-                              <Minus className="h-6 w-6 text-cyber-red" />
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleAddToPlaylist(message.song!)}
-                              className="p-2 hover:bg-cyber-bg/50 rounded-lg transition-colors"
-                              title="添加到播放列表"
-                            >
-                              <Plus className="h-6 w-6 text-cyber-primary" />
-                            </button>
-                          )}
-                        </div>
+                        <div className="text-sm text-cyber-primary truncate">{Array.isArray(message.song.artists) ? message.song.artists.join(', ') : message.song.artists}</div>
+                        <div className="text-xs text-cyber-secondary/70 truncate">{message.song.album}</div>
+                      </div>
+                      {/* 操作按钮区 */}
+                      <div className="flex flex-col items-center justify-center h-full pr-3 space-y-2">
+                        <button
+                          onClick={() => handlePlay(message.song!)}
+                          className="p-1 rounded-full bg-cyber-primary hover:bg-cyber-hover-primary transition"
+                          title="播放"
+                        >
+                          <PlayCircle className="h-5 w-5 text-cyber-bg" />
+                        </button>
+                        <button
+                          onClick={() => handleAddToPlaylist(message.song!)}
+                          className="p-1 rounded-full bg-cyber-primary/10 hover:bg-cyber-primary/30 transition"
+                          title="添加到播放列表"
+                        >
+                          <Plus className="h-5 w-5 text-cyber-primary" />
+                        </button>
                       </div>
                     </div>
                   )}
