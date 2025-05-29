@@ -18,6 +18,11 @@ type TrackRepository interface {
 	UpdateTrackHLSPath(trackID int64, hlsPath string, duration float32) error
 	UpdateTrackCoverArtPath(trackID int64, coverPath string) error
 	GetTrackByUserIDAndFilePath(userID int64, filePath string) (*model.Track, error)
+	BeginTx() (*sql.Tx, error)
+	RollbackTx(tx *sql.Tx)
+	CommitTx(tx *sql.Tx) error
+	CreateTrackWithTx(tx *sql.Tx, track *model.Track) (int64, error)
+	DeleteTrackWithTx(tx *sql.Tx, trackID int64) error
 }
 
 // mysqlTrackRepository implements TrackRepository for MySQL.
@@ -147,4 +152,61 @@ func (r *mysqlTrackRepository) GetTrackByUserIDAndFilePath(userID int64, filePat
 		return nil, fmt.Errorf("failed to scan track by user ID %d and file_path %s: %w", userID, filePath, err)
 	}
 	return track, nil
+}
+
+// BeginTx 开始一个新的事务
+func (r *mysqlTrackRepository) BeginTx() (*sql.Tx, error) {
+	return r.DB.Begin()
+}
+
+// RollbackTx 回滚事务
+func (r *mysqlTrackRepository) RollbackTx(tx *sql.Tx) {
+	if tx != nil {
+		tx.Rollback()
+	}
+}
+
+// CommitTx 提交事务
+func (r *mysqlTrackRepository) CommitTx(tx *sql.Tx) error {
+	return tx.Commit()
+}
+
+// CreateTrackWithTx 在事务中创建新曲目
+func (r *mysqlTrackRepository) CreateTrackWithTx(tx *sql.Tx, track *model.Track) (int64, error) {
+	query := `INSERT INTO tracks (title, artist, album, file_path, cover_art_path, hls_playlist_path, duration, user_id, created_at, updated_at)
+	           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	stmt, err := tx.Prepare(query)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare statement for CreateTrackWithTx: %w", err)
+	}
+	defer stmt.Close()
+
+	now := time.Now()
+	res, err := stmt.Exec(track.Title, track.Artist, track.Album, track.FilePath, track.CoverArtPath, track.HLSPlaylistPath, track.Duration, track.UserID, now, now)
+	if err != nil {
+		return 0, fmt.Errorf("failed to execute CreateTrackWithTx: %w", err)
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get last insert ID for CreateTrackWithTx: %w", err)
+	}
+	log.Printf("Track created with ID: %d, Title: %s", id, track.Title)
+	return id, nil
+}
+
+// DeleteTrackWithTx 在事务中删除曲目
+func (r *mysqlTrackRepository) DeleteTrackWithTx(tx *sql.Tx, trackID int64) error {
+	query := `DELETE FROM tracks WHERE id = ?`
+	stmt, err := tx.Prepare(query)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement for DeleteTrackWithTx: %w", err)
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(trackID)
+	if err != nil {
+		return fmt.Errorf("failed to execute DeleteTrackWithTx: %w", err)
+	}
+	return nil
 }

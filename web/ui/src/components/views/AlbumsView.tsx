@@ -311,14 +311,14 @@ const AlbumsView: React.FC = () => {
               <div className="mt-4 flex justify-between items-center">
                 <button
                   onClick={() => window.location.href = `/album/${album.id}`}
-                  className="flex items-center px-3 py-1 rounded-full text-sm font-medium bg-cyber-primary text-cyber-bg-darker hover:bg-cyber-hover-primary transition-colors"
+                  className="flex items-center px-3 py-1 rounded-full text-sm font-medium bg-[#2563eb] text-white hover:bg-[#1d4ed8] transition-colors"
                 >
                   <Music2 className="mr-1 h-4 w-4" /> 查看详情
                 </button>
                 <div className="flex space-x-2">
                   <button
                     onClick={() => window.location.href = `/album/${album.id}/edit`}
-                    className="p-1 rounded-full text-cyber-secondary hover:text-cyber-primary transition-colors"
+                    className="p-1 rounded-full text-[#2563eb] hover:text-[#1d4ed8] transition-colors"
                   >
                     <Edit2 className="h-5 w-5" />
                   </button>

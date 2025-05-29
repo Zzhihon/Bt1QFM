@@ -164,8 +164,7 @@ const AlbumDetailView: React.FC = () => {
               <div className="flex justify-between items-center">
                 <button
                   onClick={() => navigate(`/album/${album.id}/edit`)}
-                  className="px-4 py-2 text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
-                  style={{ backgroundColor: 'rgb(55, 41, 99)' }}
+                  className="px-4 py-2 rounded text-white bg-[#2563eb] hover:bg-[#1d4ed8] transition-colors"
                 >
                   编辑专辑
                 </button>
@@ -183,8 +182,7 @@ const AlbumDetailView: React.FC = () => {
                   setUploadMode('single');
                   setShowUploadModal(true);
                 }}
-                className="flex items-center px-4 py-2 text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
-                style={{ backgroundColor: 'rgb(55, 41, 99)' }}
+                className="flex items-center px-4 py-2 rounded text-white bg-[#2563eb] hover:bg-[#1d4ed8] transition-colors"
               >
                 <Plus className="mr-2 h-5 w-5" /> 添加单曲
               </button>
@@ -193,8 +191,7 @@ const AlbumDetailView: React.FC = () => {
                   setUploadMode('batch');
                   setShowUploadModal(true);
                 }}
-                className="flex items-center px-4 py-2 text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
-                style={{ backgroundColor: 'rgb(55, 41, 99)' }}
+                className="flex items-center px-4 py-2 rounded text-white bg-[#2563eb] hover:bg-[#1d4ed8] transition-colors"
               >
                 <Upload className="mr-2 h-5 w-5" /> 批量上传
               </button>

@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -56,6 +58,12 @@ func NewAPIHandler(
 var nonAlphaNumeric = regexp.MustCompile(`[^a-zA-Z0-9_\-\.]`)
 var multipleSpaces = regexp.MustCompile(`\s+`)
 
+func generateUniqueSuffix() string {
+	b := make([]byte, 4)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 func generateSafeFilenamePrefix(title, artist, album string) string {
 	// Fallback for empty title
 	if strings.TrimSpace(title) == "" {
@@ -78,8 +86,8 @@ func generateSafeFilenamePrefix(title, artist, album string) string {
 	// Replace known problematic characters or any non-alphanumeric (excluding _, -, .)
 	base = nonAlphaNumeric.ReplaceAllString(base, "")
 
-	// Prevent overly long filenames (e.g., 150 chars max for the prefix)
-	maxLength := 150
+	// Prevent overly long filenames (e.g., 100 chars max for the prefix)
+	maxLength := 100
 	if len(base) > maxLength {
 		base = base[:maxLength]
 	}
@@ -87,7 +95,11 @@ func generateSafeFilenamePrefix(title, artist, album string) string {
 	if base == "" {
 		base = "fallback_filename"
 	}
-	return base
+
+	// 添加时间戳和随机字符串以确保唯一性
+	timestamp := time.Now().Format("20060102_150405")
+	uniqueSuffix := generateUniqueSuffix()
+	return fmt.Sprintf("%s_%s_%s", base, timestamp, uniqueSuffix)
 }
 
 // UploadTrackHandler handles audio file uploads and metadata.
@@ -98,6 +110,11 @@ func generateSafeFilenamePrefix(title, artist, album string) string {
 // - album: track album (optional)
 // - coverFile: cover art image (JPEG, PNG, optional)
 func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) {
+	logger.Info("Starting track upload process",
+		logger.String("method", r.Method),
+		logger.String("path", r.URL.Path),
+	)
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
 		return
@@ -106,29 +123,54 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 	// Get user ID from context (set by AuthMiddleware)
 	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
+		logger.Error("Failed to get user ID from context",
+			logger.ErrorField(err),
+		)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
+	logger.Info("Processing upload for user",
+		logger.Int64("userId", userID),
+	)
+
 	if err := r.ParseMultipartForm(32 << 20); err != nil { // 32MB max memory
+		logger.Error("Failed to parse multipart form",
+			logger.ErrorField(err),
+		)
 		http.Error(w, fmt.Sprintf("Failed to parse multipart form: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	trackFile, trackHeader, err := r.FormFile("trackFile")
 	if err != nil {
+		logger.Error("Failed to get track file from form",
+			logger.ErrorField(err),
+		)
 		http.Error(w, "Missing 'trackFile' in form", http.StatusBadRequest)
 		return
 	}
 	defer trackFile.Close()
 
+	logger.Info("Received track file",
+		logger.String("filename", trackHeader.Filename),
+		logger.Int64("size", trackHeader.Size),
+	)
+
 	title := r.FormValue("title")
 	if title == "" {
+		logger.Error("Missing title in form")
 		http.Error(w, "Missing 'title' in form", http.StatusBadRequest)
 		return
 	}
 	artist := r.FormValue("artist")
 	album := r.FormValue("album")
+
+	logger.Info("Track metadata",
+		logger.String("title", title),
+		logger.String("artist", artist),
+		logger.String("album", album),
+	)
 
 	// Generate safe base filename from metadata
 	safeBaseFilename := generateSafeFilenamePrefix(title, artist, album)
@@ -138,10 +180,20 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	trackStoreFileName := safeBaseFilename + trackFileExt
 
+	logger.Info("Generated unique filename",
+		logger.String("originalName", trackHeader.Filename),
+		logger.String("safeName", trackStoreFileName),
+	)
+
 	// MinIO路径：audio/文件名
 	minioTrackPath := "audio/" + trackStoreFileName
 	// 数据库存储路径（保持原格式，前端通过这个路径访问）
 	trackFilePath := "/static/audio/" + trackStoreFileName
+
+	logger.Info("Generated file paths",
+		logger.String("minioPath", minioTrackPath),
+		logger.String("filePath", trackFilePath),
+	)
 
 	// Handle cover art (optional)
 	var coverArtServePath string
@@ -160,15 +212,40 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		minioCoverPath := "covers/" + coverStoreFileName
 		coverArtServePath = "/static/covers/" + coverStoreFileName
 
+		logger.Info("Processing cover art",
+			logger.String("minioPath", minioCoverPath),
+			logger.String("servePath", coverArtServePath),
+		)
+
 		// Upload cover to MinIO
 		if err := h.uploadFileToMinio(coverFile, minioCoverPath, "image/jpeg"); err != nil {
+			logger.Error("Failed to upload cover to MinIO",
+				logger.ErrorField(err),
+				logger.String("path", minioCoverPath),
+			)
 			http.Error(w, fmt.Sprintf("Failed to upload cover to MinIO: %v", err), http.StatusInternalServerError)
 			return
 		}
+		logger.Info("Successfully uploaded cover art")
 	} else if err != http.ErrMissingFile {
+		logger.Error("Error processing cover file",
+			logger.ErrorField(err),
+		)
 		http.Error(w, fmt.Sprintf("Error processing cover file: %v", err), http.StatusBadRequest)
 		return
 	}
+
+	// 开始事务
+	logger.Info("Starting database transaction")
+	tx, err := h.trackRepo.BeginTx()
+	if err != nil {
+		logger.Error("Failed to begin transaction",
+			logger.ErrorField(err),
+		)
+		http.Error(w, fmt.Sprintf("Failed to begin transaction: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer h.trackRepo.RollbackTx(tx) // 如果提交成功，这个回滚会被忽略
 
 	// Create track entry with determined paths
 	newTrack := &model.Track{
@@ -180,8 +257,14 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		CoverArtPath: coverArtServePath,
 	}
 
-	trackID, err := h.trackRepo.CreateTrack(newTrack)
+	// 在事务中创建曲目
+	logger.Info("Creating track record in database")
+	trackID, err := h.trackRepo.CreateTrackWithTx(tx, newTrack)
 	if err != nil {
+		logger.Error("Failed to create track record",
+			logger.ErrorField(err),
+			logger.Int64("userId", userID),
+		)
 		if strings.Contains(strings.ToLower(err.Error()), "unique constraint") || strings.Contains(strings.ToLower(err.Error()), "duplicate entry") {
 			http.Error(w, fmt.Sprintf("Failed to create track: A track with a similar name or file path already exists for your account. Original error: %v", err), http.StatusConflict)
 		} else {
@@ -190,26 +273,108 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	newTrack.ID = trackID
+	logger.Info("Successfully created track record",
+		logger.Int64("trackId", trackID),
+	)
 
-	// Upload track file to MinIO
-	if err := h.uploadFileToMinio(trackFile, minioTrackPath, "audio/mpeg"); err != nil {
-		log.Printf("Error uploading track file %s to MinIO after DB entry: %v. DB entry ID: %d needs cleanup.", minioTrackPath, err, trackID)
-		http.Error(w, fmt.Sprintf("Failed to upload track file: %v. Database entry created but file upload failed.", err), http.StatusInternalServerError)
+	// Upload track file to MinIO with increased timeout
+	logger.Info("Starting track file upload to MinIO")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute) // 增加超时时间到5分钟
+	defer cancel()
+
+	// 重置文件指针到开始位置
+	if seeker, ok := trackFile.(io.Seeker); ok {
+		seeker.Seek(0, io.SeekStart)
+	}
+
+	// 读取文件内容到缓冲区
+	buffer := &bytes.Buffer{}
+	size, err := io.Copy(buffer, trackFile)
+	if err != nil {
+		logger.Error("Failed to read track file",
+			logger.ErrorField(err),
+		)
+		http.Error(w, fmt.Sprintf("Failed to read track file: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	logger.Info("File read into buffer",
+		logger.Int64("size", size),
+	)
+
+	client := storage.GetMinioClient()
+	if client == nil {
+		logger.Error("MinIO client not initialized")
+		http.Error(w, "MinIO client not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	opts := minio.PutObjectOptions{
+		ContentType:      "audio/mpeg",
+		DisableMultipart: true,
+	}
+
+	logger.Info("Uploading to MinIO",
+		logger.String("path", minioTrackPath),
+		logger.Int64("size", size),
+	)
+
+	_, err = client.PutObject(ctx, h.cfg.MinioBucket, minioTrackPath, bytes.NewReader(buffer.Bytes()), size, opts)
+	if err != nil {
+		logger.Error("Failed to upload track to MinIO",
+			logger.ErrorField(err),
+			logger.String("path", minioTrackPath),
+		)
+		// 如果上传失败，删除数据库记录
+		if delErr := h.trackRepo.DeleteTrackWithTx(tx, trackID); delErr != nil {
+			logger.Error("Failed to delete track record after failed upload",
+				logger.ErrorField(delErr),
+				logger.Int64("trackId", trackID),
+			)
+		}
+		http.Error(w, fmt.Sprintf("Failed to upload track file: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	logger.Info("Successfully uploaded track to MinIO")
 
 	// 生成 HLS 播放列表路径
 	safeStreamDirName := generateSafeFilenamePrefix(title, artist, album)
 	hlsStreamDir := filepath.Join("streams", safeStreamDirName)
 	m3u8ServePath := "/static/" + strings.ReplaceAll(filepath.ToSlash(hlsStreamDir), "\\", "/") + "/playlist.m3u8"
 
+	logger.Info("Updating HLS path in database",
+		logger.String("path", m3u8ServePath),
+	)
+
 	// 更新数据库中的 HLS 播放列表路径
 	if err := h.trackRepo.UpdateTrackHLSPath(trackID, m3u8ServePath, 0); err != nil {
-		log.Printf("Warning: Failed to update HLS path in database: %v", err)
+		logger.Error("Failed to update HLS path in database",
+			logger.ErrorField(err),
+			logger.Int64("trackId", trackID),
+			logger.String("path", m3u8ServePath),
+		)
+		// 这里不返回错误，因为HLS路径更新失败不影响主要功能
 	}
 
-	log.Printf("Successfully uploaded and saved track: ID %d, UserID: %d, Title '%s', MinIO Path '%s', Cover '%s', HLS '%s'",
-		trackID, newTrack.UserID, newTrack.Title, minioTrackPath, newTrack.CoverArtPath, m3u8ServePath)
+	// 提交事务
+	logger.Info("Committing transaction")
+	if err := h.trackRepo.CommitTx(tx); err != nil {
+		logger.Error("Failed to commit transaction",
+			logger.ErrorField(err),
+		)
+		http.Error(w, fmt.Sprintf("Failed to commit transaction: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	logger.Info("Successfully completed track upload",
+		logger.Int64("trackId", trackID),
+		logger.Int64("userId", userID),
+		logger.String("title", newTrack.Title),
+		logger.String("minioPath", minioTrackPath),
+		logger.String("coverPath", newTrack.CoverArtPath),
+		logger.String("hlsPath", m3u8ServePath),
+	)
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{"message": "Track uploaded successfully", "trackId": trackID, "track": newTrack})
@@ -315,7 +480,7 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 	// MinIO中的HLS流目录 - 确保使用正斜杠
 	minioHLSDir := "streams/" + safeStreamDirName
 	minioM3U8Path := minioHLSDir + "/playlist.m3u8"
-	
+
 	// 本地临时处理目录（仅用于HLS转码输出）
 	localHLSDir := filepath.Join(h.cfg.StaticDir, "streams", safeStreamDirName)
 	m3u8LocalPath := filepath.Join(localHLSDir, "playlist.m3u8")
@@ -465,8 +630,8 @@ func (h *APIHandler) uploadHLSToMinioFixed(localDir, minioDir string) error {
 func (h *APIHandler) cleanupDuplicateHLSFiles(ctx context.Context, client *minio.Client, bucket, safeStreamDirName string) {
 	// 检查可能的重复路径格式
 	duplicatePaths := []string{
-		"streams\\" + safeStreamDirName + "\\",  // Windows风格路径
-		"streams/" + safeStreamDirName + "/",     // 正确的路径格式
+		"streams\\" + safeStreamDirName + "\\", // Windows风格路径
+		"streams/" + safeStreamDirName + "/",   // 正确的路径格式
 	}
 
 	correctPath := "streams/" + safeStreamDirName + "/"
