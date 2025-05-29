@@ -2,19 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 默认主题（赛博朋克） */
+/* 默认主题（极简主义） */
 :root {
-  --cyber-bg: #0A0F37;
-  --cyber-bg-darker: #05081E;
-  --cyber-text: #F0F0F0;
-  --cyber-primary: #FF00D6;
-  --cyber-secondary: #372963;
-  --cyber-hover-primary: #E000E0;
-  --cyber-hover-secondary: #00E0E0;
-}
-
-/* 极简主义主题 */
-.theme-minimal {
   --cyber-bg: #FFFFFF;
   --cyber-bg-darker: #F5F5F5;
   --cyber-text: #333333;
@@ -24,15 +13,26 @@
   --cyber-hover-secondary: #475569;
 }
 
+/* 赛博朋克主题 */
+.theme-cyber {
+  --cyber-bg: #0A0F37;
+  --cyber-bg-darker: #05081E;
+  --cyber-text: #F0F0F0;
+  --cyber-primary: #FF00D6;
+  --cyber-secondary: #372963;
+  --cyber-hover-primary: #E000E0;
+  --cyber-hover-secondary: #00E0E0;
+}
+
 /* 暗夜模式主题 */
 .theme-dark {
-  --cyber-bg: #1A1A1A;
-  --cyber-bg-darker: #000000;
-  --cyber-text: #E5E5E5;
-  --cyber-primary: #10B981;
-  --cyber-secondary: #4B5563;
-  --cyber-hover-primary: #059669;
-  --cyber-hover-secondary: #374151;
+  --cyber-bg: #0D1117;
+  --cyber-bg-darker: #010409;
+  --cyber-text: #E6EDF3;
+  --cyber-primary: #2EA043;
+  --cyber-secondary: #238636;
+  --cyber-hover-primary: #3FB950;
+  --cyber-hover-secondary: #2EA043;
 }
 
 /* 复古风格主题 */
