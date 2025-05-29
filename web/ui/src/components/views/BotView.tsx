@@ -21,6 +21,7 @@ interface NeteaseSong {
   picUrl: string; // 专辑封面图片URL
   videoUrl?: string; // 动态封面视频URL
   addedToPlaylist: boolean;
+  coverUrl?: string; // 添加静态封面URL字段
 }
 
 const BotView: React.FC = () => {
@@ -102,19 +103,39 @@ const BotView: React.FC = () => {
       }
       const data = await response.json();
       if (data.success && data.data) {
-        // 正确转换后端返回的数据格式
-        const songs = data.data.slice(0, 1).map((item: any) => ({
-          id: item.id,
-          name: item.name,
-          artists: item.artists || [], // 确保是数组
-          album: item.album || '', // 确保是字符串
-          duration: item.duration || 0,
-          picUrl: item.picUrl || '', // 注意字段名是picUrl不是picURL
-          videoUrl: item.videoUrl || '',
-          addedToPlaylist: false,
-          // 添加标识字段，表明这是netease歌曲
-          source: 'netease'
-        }));
+        // 获取搜索结果
+        const searchResults = data.data.slice(0, 1);
+        
+        // 获取歌曲详情
+        const songIds = searchResults.map((item: any) => item.id).join(',');
+        const detailResponse = await fetch(`/api/netease/song/detail?ids=${songIds}`);
+        const detailData = await detailResponse.json();
+        
+        // 创建ID到详情的映射
+        const detailsMap = new Map();
+        if (detailData.success && detailData.data) {
+          const detail = detailData.data;
+          if (detail && detail.id) {
+            detailsMap.set(detail.id, detail);
+          }
+        }
+
+        // 转换数据格式
+        const songs = searchResults.map((item: any) => {
+          const detail = detailsMap.get(item.id);
+          return {
+            id: item.id,
+            name: item.name,
+            artists: item.artists || [],
+            album: item.album || '',
+            duration: item.duration || 0,
+            picUrl: item.picUrl || '',
+            videoUrl: item.videoUrl || '',
+            coverUrl: detail?.al?.picUrl || '', // 添加静态封面URL
+            addedToPlaylist: false,
+            source: 'netease'
+          };
+        });
         
         // 为每首歌创建单独的消息
         for (let i = 0; i < songs.length; i++) {
@@ -458,12 +479,39 @@ const BotView: React.FC = () => {
                               loop
                               muted
                               playsInline
+                              onError={(e) => {
+                                // 当视频加载失败时，尝试使用静态封面
+                                const videoElement = e.target as HTMLVideoElement;
+                                videoElement.style.display = 'none';
+                                const imgElement = document.createElement('img');
+                                const song = message.song!; // 使用非空断言，因为我们在外层已经检查了 message.song 存在
+                                imgElement.src = song.coverUrl || song.picUrl || '';
+                                imgElement.className = 'w-full h-full object-cover';
+                                imgElement.onerror = () => {
+                                  // 如果静态封面也加载失败，显示默认图标
+                                  imgElement.style.display = 'none';
+                                  const defaultIcon = document.createElement('div');
+                                  defaultIcon.className = 'w-full h-full flex items-center justify-center';
+                                  defaultIcon.innerHTML = '<svg class="h-8 w-8 text-cyber-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+                                  videoElement.parentElement?.appendChild(defaultIcon);
+                                };
+                                videoElement.parentElement?.appendChild(imgElement);
+                              }}
                             />
-                          ) : message.song.picUrl ? (
+                          ) : message.song.coverUrl || message.song.picUrl ? (
                             <img
-                              src={message.song.picUrl}
+                              src={message.song.coverUrl || message.song.picUrl}
                               alt={message.song.name}
                               className="w-full h-full object-cover"
+                              onError={(e) => {
+                                // 当图片加载失败时，显示默认图标
+                                const imgElement = e.target as HTMLImageElement;
+                                imgElement.style.display = 'none';
+                                const defaultIcon = document.createElement('div');
+                                defaultIcon.className = 'w-full h-full flex items-center justify-center';
+                                defaultIcon.innerHTML = '<svg class="h-8 w-8 text-cyber-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+                                imgElement.parentElement?.appendChild(defaultIcon);
+                              }}
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center">
