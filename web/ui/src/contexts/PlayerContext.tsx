@@ -4,6 +4,23 @@ import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import Hls from 'hls.js';
 
+// 添加网易云音乐详情的接口定义
+interface NeteaseArtist {
+  name: string;
+}
+
+interface NeteaseAlbum {
+  name: string;
+  picUrl: string;
+}
+
+interface NeteaseSongDetail {
+  id: number;
+  name: string;
+  ar: NeteaseArtist[];
+  al: NeteaseAlbum;
+}
+
 interface PlayerContextType {
   playerState: PlayerState;
   setPlayerState: React.Dispatch<React.SetStateAction<PlayerState>>;
@@ -103,6 +120,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     
     setIsLoadingPlaylist(true);
     try {
+      console.log('开始获取播放列表...');
       const response = await fetch('/api/playlist', {
         headers: {
           ...(authToken && { 'Authorization': `Bearer ${authToken}` })
@@ -114,9 +132,69 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
       
       const data = await response.json();
-      setPlayerState(prev => ({ ...prev, playlist: data.playlist || [] }));
+      let playlist = data.playlist || [];
+      console.log('获取到原始播放列表:', playlist);
+
+      // 处理网易云音乐的歌曲
+      const neteaseTracks = playlist.filter((track: any) => track.neteaseId);
+      console.log('找到网易云音乐歌曲:', neteaseTracks);
+      
+      if (neteaseTracks.length > 0) {
+        // 创建ID到详情的映射
+        const detailsMap = new Map();
+        
+        // 逐个获取每首歌曲的详情
+        for (const track of neteaseTracks) {
+          try {
+            console.log(`获取歌曲 ${track.neteaseId} 的详情...`);
+            const detailResponse = await fetch(`/api/netease/song/detail?ids=${track.neteaseId}`);
+            const detailData = await detailResponse.json();
+            
+            if (detailData.success && detailData.data) {
+              const detail = detailData.data;
+              if (detail && detail.id) {
+                detailsMap.set(detail.id, detail);
+                console.log(`成功获取歌曲 ${track.neteaseId} 的详情:`, detail);
+              }
+            } else {
+              console.warn(`获取歌曲 ${track.neteaseId} 的详情失败:`, detailData);
+            }
+          } catch (error) {
+            console.error(`获取歌曲 ${track.neteaseId} 的详情时出错:`, error);
+          }
+        }
+        
+        console.log('创建详情映射:', Object.fromEntries(detailsMap));
+
+        // 更新播放列表中的网易云音乐歌曲信息
+        playlist = playlist.map((track: any) => {
+          if (track.neteaseId) {
+            const detail = detailsMap.get(track.neteaseId);
+            console.log(`处理歌曲 ${track.neteaseId}:`, { original: track, detail });
+            
+            if (detail) {
+              const updatedTrack = {
+                ...track,
+                title: detail.name || track.title,
+                artist: detail.ar ? detail.ar.map((a: { name: string }) => a.name).join(', ') : '',
+                album: detail.al ? detail.al.name : '',
+                coverArtPath: detail.al?.picUrl || detail.coverUrl || '',
+                source: 'netease'
+              };
+              console.log(`更新后的歌曲信息:`, updatedTrack);
+              return updatedTrack;
+            } else {
+              console.warn(`未找到歌曲 ${track.neteaseId} 的详情信息`);
+            }
+          }
+          return track;
+        });
+      }
+
+      console.log('最终更新后的播放列表:', playlist);
+      setPlayerState(prev => ({ ...prev, playlist }));
     } catch (error) {
-      console.error('Failed to fetch playlist:', error);
+      console.error('获取播放列表失败:', error);
     } finally {
       setIsLoadingPlaylist(false);
     }
@@ -145,6 +223,50 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         currentTrack: track,
         isPlaying: false // 先设置为false，等加载完成后再设置为true
       }));
+      
+      // --- 新增逻辑：如果播放的是网易云歌曲且信息不完整，尝试获取详情并更新播放列表 ---
+      if ((track as any).neteaseId) {
+        const neteaseId = (track as any).neteaseId.toString();
+        // 检查信息是否完整
+        const needsDetailFetch = !track.coverArtPath || !track.artist || !track.album;
+        if (needsDetailFetch) {
+          console.log(`播放网易云歌曲，信息不完整，尝试获取详情 (ID: ${neteaseId})`);
+          try {
+            const detailResponse = await fetch(`/api/netease/song/detail?ids=${neteaseId}`);
+            const detailData = await detailResponse.json();
+
+            if(detailData.success && detailData.data) {
+                const detail = detailData.data;
+                const updatedInfo = {
+                    title: detail.name || track.title, // 优先使用详情的数据，否则使用原始数据
+                    artist: detail.ar ? detail.ar.map((a: { name: string }) => a.name).join(', ') : track.artist, // 优先使用详情的数据，否则使用原始数据
+                    album: detail.al ? detail.al.name : track.album, // 优先使用详情的数据，否则使用原始数据
+                    coverArtPath: detail.al && detail.al.picUrl ? detail.al.picUrl : track.coverArtPath, // 优先使用详情的数据，否则使用原始数据
+                };
+                // 调用updatePlaylistTrackInfo更新播放列表和currentTrack (如果需要)
+                updatePlaylistTrackInfo(String(neteaseId), updatedInfo); // 使用track.id或neteaseId，取决于updatePlaylistTrackInfo如何匹配
+                // 由于上面updatePlaylistTrackInfo会更新playlist，如果currentTrack是playlist的引用，currentTrack也会更新。
+                // 如果currentTrack不是引用，我们这里手动更新一次currentTrack的状态。
+                 setPlayerState(prev => {
+                    if (prev.currentTrack && ((prev.currentTrack as any).neteaseId === (track as any).neteaseId)) {
+                         return {
+                            ...prev,
+                            currentTrack: { ...prev.currentTrack, ...updatedInfo }
+                        };
+                    }
+                    return prev; // 如果当前播放的不是这首歌，则不更新currentTrack
+                 });
+
+                console.log(`成功获取并更新歌曲详情 (ID: ${neteaseId})`);
+            } else {
+                console.warn(`Failed to fetch detail during playTrack for ID ${neteaseId}`, detailData.error);
+            }
+         } catch (detailError) {
+            console.error(`Error fetching detail during playTrack for ID ${neteaseId}:`, detailError);
+         }
+        }
+      }
+      // -------------------------------------------------------------
       
       // 等待DOM更新
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -287,7 +409,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         }
       }
       
-      addToast(errorMessage, 'error');
+      addToast({
+        message: errorMessage,
+        type: 'error',
+        duration: 5000,
+      });
     }
   };
 
@@ -545,8 +671,22 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setPlayerState(prev => ({ ...prev, currentTime: time }));
   };
   
+  // 更新播放列表中的特定歌曲的信息
+  const updatePlaylistTrackInfo = useCallback((trackId: string | number, trackInfo: Partial<Track>) => {
+    setPlayerState(prev => {
+      const newPlaylist = prev.playlist.map(track => {
+        const currentId = (track as any).neteaseId || (track as any).trackId || track.id;
+        if (currentId === trackId) {
+          return { ...track, ...trackInfo };
+        }
+        return track;
+      });
+      return { ...prev, playlist: newPlaylist };
+    });
+  }, [setPlayerState]);
+
   // 添加到播放列表
-  const addToPlaylist = async (track: Track) => {
+  const addToPlaylist = useCallback(async (track: Track) => {
     if (!currentUser) return;
     
     // 统一检查播放列表中是否已存在歌曲
@@ -559,31 +699,54 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     
     if (trackExists) {
       console.log('Track already exists in playlist:', track.title);
-      addToast(`《${track.title}》已在播放列表中`, 'info');
+      addToast({
+        message: `《${track.title}》已在播放列表中`,
+        type: 'info',
+        duration: 3000,
+      });
       return;
     }
     
     try {
-      // 根据歌曲来源构建请求数据
-      let requestData: any;
-      
+      let playlistTrack: Track = track;
+      // 1. 如果是网易云，先查详情
       if ((track as any).neteaseId || (track as any).source === 'netease') {
-        // netease歌曲
         const neteaseId = (track as any).neteaseId || track.id;
-        requestData = {
-          neteaseId: neteaseId,
-          title: track.title,
-          artist: track.artist,
-          album: track.album || '未知专辑',
-        };
+        try {
+          const detailResponse = await fetch(`/api/netease/song/detail?ids=${neteaseId}`);
+          const detailData = await detailResponse.json();
+          if (detailData.success && detailData.data) {
+            const detail = detailData.data;
+            playlistTrack = {
+              ...track,
+              title: detail.name || track.title,
+              artist: detail.ar ? detail.ar.map((a: { name: string }) => a.name).join(', ') : track.artist,
+              album: detail.al ? detail.al.name : track.album,
+              coverArtPath: 'https://p1.music.126.net/tzmGFZ0-DPOulXS97H5rmA==/18712588395102549.jpg', // mock
+              neteaseId: neteaseId,
+            };
+          } else {
+            playlistTrack = {
+              ...track,
+              coverArtPath: 'https://p1.music.126.net/tzmGFZ0-DPOulXS97H5rmA==/18712588395102549.jpg', // mock
+              neteaseId: neteaseId,
+            };
+          }
+        } catch (e) {
+          playlistTrack = {
+            ...track,
+            coverArtPath: 'https://p1.music.126.net/tzmGFZ0-DPOulXS97H5rmA==/18712588395102549.jpg', // mock
+            neteaseId: neteaseId,
+          };
+        }
       } else {
-        // 本地track歌曲
-        requestData = {
-          trackId: (track as any).trackId || track.id
+        // 本地歌曲保持原有逻辑，不mock封面
+        playlistTrack = {
+          ...track
         };
       }
       
-      console.log('Adding to playlist:', requestData);
+      console.log('Adding to playlist:', playlistTrack);
 
       const response = await fetch('/api/playlist', {
         method: 'POST',
@@ -591,7 +754,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           'Content-Type': 'application/json',
           ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
         },
-        body: JSON.stringify(requestData),
+        body: JSON.stringify(playlistTrack),
       });
 
       if (!response.ok) {
@@ -600,16 +763,59 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         throw new Error(errorData.error || `HTTP error ${response.status}`);
       }
 
+      // 成功添加到后端后，重新获取播放列表以更新前端状态
       await fetchPlaylist();
-      addToast(`《${track.title}》已添加到播放列表`, 'success');
+      
+      // 如果是网易云音乐歌曲，并且成功获取到详情，更新播放列表中的信息
+      if (playlistTrack.neteaseId !== undefined) {
+         // 延迟一小会儿，等待fetchPlaylist更新状态
+         setTimeout(async () => {
+           const updatedTrackInPlaylist = playerState.playlist.find(item => {
+             const itemId = (item as any).neteaseId || item.id;
+             return itemId === playlistTrack.neteaseId;
+           });
+
+           if (updatedTrackInPlaylist && (updatedTrackInPlaylist as any).neteaseId) {
+             const neteaseIdStr = (updatedTrackInPlaylist as any).neteaseId.toString();
+             
+             // 直接调用获取详情的API，绕过Player组件的useEffect
+             try {
+                const detailResponse = await fetch(`/api/netease/song/detail?ids=${neteaseIdStr}`);
+                const detailData = await detailResponse.json();
+
+                if(detailData.success && detailData.data) {
+                    const detail = detailData.data;
+                    // 调用PlayerContext中的updatePlaylistTrackInfo来更新播放列表中的歌曲信息
+                    updatePlaylistTrackInfo(String(playlistTrack.neteaseId), {
+                        title: detail.name,
+                        artist: detail.ar ? detail.ar.map((a: { name: string }) => a.name).join(', ') : 'Unknown Artist',
+                        album: detail.al ? detail.al.name : '未知专辑',
+                        coverArtPath: detail.al && detail.al.picUrl ? detail.al.picUrl : '',
+                    });
+                } else {
+                    console.warn(`Failed to fetch detail for newly added netease track ID ${playlistTrack.neteaseId}`, detailData.error);
+                }
+             } catch (detailError) {
+                console.error(`Error fetching detail for newly added netease track ID ${playlistTrack.neteaseId}:`, detailError);
+             }
+           }
+         }, 100); // 延迟100ms，确保playlist状态已更新
+      }
+
+      addToast({
+        message: `《${track.title}》已添加到播放列表`,
+        type: 'success',
+        duration: 3000,
+      });
     } catch (error) {
       console.error('Error adding to playlist:', error);
-      addToast(
-        error instanceof Error ? error.message : '添加到播放列表失败',
-        'error'
-      );
+      addToast({
+        message: error instanceof Error ? error.message : '添加到播放列表失败',
+        type: 'error',
+        duration: 5000,
+      });
     }
-  };
+  }, [currentUser, playerState.playlist, authToken, fetchPlaylist, addToast, updatePlaylistTrackInfo]);
   
   // 从播放列表移除
   const removeFromPlaylist = async (trackId: string | number) => {
@@ -624,7 +830,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       
       if (!trackToRemove) {
         console.error('Track not found in playlist:', trackId);
-        addToast('未找到要删除的歌曲', 'error');
+        addToast({
+          message: '未找到要删除的歌曲',
+          type: 'error',
+          duration: 3000,
+        });
         return;
       }
 
@@ -637,7 +847,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
       if (!idToRemove) {
         console.error('Invalid track ID:', trackId);
-        addToast('无效的歌曲ID', 'error');
+        addToast({
+          message: '无效的歌曲ID',
+          type: 'error',
+          duration: 3000,
+        });
         return;
       }
       
@@ -653,7 +867,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
       
       await fetchPlaylist();
-      addToast('已从播放列表移除', 'success');
+      addToast({
+        message: '已从播放列表移除',
+        type: 'success',
+        duration: 3000,
+      });
       
       // 如果删除的是当前播放的歌曲，切换到下一首
       if (playerState.currentTrack) {
@@ -666,7 +884,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
     } catch (error) {
       console.error('Failed to remove track from playlist:', error);
-      addToast('移除歌曲失败，请重试', 'error');
+      addToast({
+        message: '移除歌曲失败，请重试',
+        type: 'error',
+        duration: 5000,
+      });
     }
   };
   
