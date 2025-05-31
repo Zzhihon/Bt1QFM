@@ -468,6 +468,28 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("解析到track ID: %d", trackID)
 
+	// 检查是否正在处理中
+	if status := h.mp3Processor.GetProcessingStatus(trackIDStr); status != nil && status.IsProcessing {
+		log.Printf("Track %d 正在处理中，请稍后再试", trackID)
+		http.Error(w, "Track is being processed, please try again later", http.StatusServiceUnavailable)
+		return
+	}
+
+	// 设置处理状态
+	h.mp3Processor.SetProcessingStatus(trackIDStr, true, nil)
+	log.Printf("已设置处理状态为进行中")
+
+	// 在函数结束时更新处理状态
+	defer func() {
+		if err != nil {
+			h.mp3Processor.UpdateProcessingStatus(trackIDStr, err)
+			log.Printf("处理失败，已更新状态: %v", err)
+		} else {
+			h.mp3Processor.UpdateProcessingStatus(trackIDStr, nil)
+			log.Printf("处理成功，已更新状态")
+		}
+	}()
+
 	track, err := h.trackRepo.GetTrackByID(trackID)
 	if err != nil {
 		log.Printf("错误：获取track详情失败: %v", err)
@@ -520,22 +542,11 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("HLS播放列表在MinIO中是否存在: %v (路径: %s)", hlsExistsInMinio, minioM3U8Path)
 
 	if !hlsExistsInMinio {
-		// 检查是否正在处理中
-		if status := h.mp3Processor.GetProcessingStatus(trackIDStr); status != nil && status.IsProcessing {
-			log.Printf("Track %d 正在处理中，请稍后再试", trackID)
-			http.Error(w, "Track is being processed, please try again later", http.StatusServiceUnavailable)
-			return
-		}
 		log.Printf("HLS播放列表未找到，开始生成...")
-
-		// 设置处理状态
-		h.mp3Processor.SetProcessingStatus(trackIDStr, true, nil)
-		log.Printf("已设置处理状态为进行中")
 
 		// 确保本地临时目录存在（仅用于HLS输出）
 		if err := os.MkdirAll(localHLSDir, 0755); err != nil {
 			log.Printf("错误：创建本地HLS目录失败: %v", err)
-			h.mp3Processor.UpdateProcessingStatus(trackIDStr, err)
 			http.Error(w, fmt.Sprintf("Failed to create local HLS directory for track %d: %v", trackID, err), http.StatusInternalServerError)
 			return
 		}
@@ -545,7 +556,6 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 		tempAudioPath := filepath.Join(h.cfg.StaticDir, "temp", fmt.Sprintf("audio_%d_%s%s", trackID, safeStreamDirName, filepath.Ext(track.FilePath)))
 		if err := os.MkdirAll(filepath.Dir(tempAudioPath), 0755); err != nil {
 			log.Printf("错误：创建临时目录失败: %v", err)
-			h.mp3Processor.UpdateProcessingStatus(trackIDStr, err)
 			http.Error(w, fmt.Sprintf("Failed to create temp directory: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -556,7 +566,6 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 		err = h.downloadFileFromMinio(minioAudioPath, tempAudioPath)
 		if err != nil {
 			log.Printf("错误：从MinIO下载音频文件失败: %v", err)
-			h.mp3Processor.UpdateProcessingStatus(trackIDStr, err)
 			http.Error(w, fmt.Sprintf("Failed to download audio from MinIO: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -567,7 +576,6 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 		duration, procErr := h.mp3Processor.ProcessToHLS(tempAudioPath, m3u8LocalPath, segmentLocalPattern, hlsBaseURL, h.cfg.AudioBitrate, h.cfg.HLSSegmentTime)
 		if procErr != nil {
 			log.Printf("错误：处理音频文件失败: %v", procErr)
-			h.mp3Processor.UpdateProcessingStatus(trackIDStr, procErr)
 			// 清理临时文件
 			os.Remove(tempAudioPath)
 			http.Error(w, fmt.Sprintf("Failed to process audio to HLS for track %d: %v", trackID, procErr), http.StatusInternalServerError)
@@ -598,10 +606,6 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		track.HLSPlaylistPath = m3u8ServePath
 		track.Duration = duration
-
-		// 更新处理状态
-		h.mp3Processor.UpdateProcessingStatus(trackIDStr, nil)
-		log.Printf("已更新处理状态为完成")
 
 		// 清理本地HLS文件
 		defer os.RemoveAll(localHLSDir)
