@@ -2,6 +2,7 @@ package logger
 
 import (
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -50,7 +51,7 @@ func InitLogger(config Config) {
 		case ErrorLevel:
 			level = zapcore.ErrorLevel
 		default:
-			level = zapcore.InfoLevel
+			level = zapcore.DebugLevel // 默认使用 Debug 级别
 		}
 
 		// 配置编码器
@@ -62,36 +63,60 @@ func InitLogger(config Config) {
 			MessageKey:     "msg",
 			StacktraceKey:  "stacktrace",
 			LineEnding:     zapcore.DefaultLineEnding,
-			EncodeLevel:    zapcore.LowercaseLevelEncoder,
-			EncodeTime:     zapcore.ISO8601TimeEncoder,
-			EncodeDuration: zapcore.SecondsDurationEncoder,
-			EncodeCaller:   zapcore.ShortCallerEncoder,
+			EncodeLevel:    zapcore.CapitalLevelEncoder,   // 使用大写字母表示日志级别
+			EncodeTime:     zapcore.ISO8601TimeEncoder,    // 使用 ISO8601 时间格式
+			EncodeDuration: zapcore.StringDurationEncoder, // 使用字符串表示持续时间
+			EncodeCaller:   zapcore.ShortCallerEncoder,    // 使用短格式的调用者信息
 		}
 
-		// 配置输出
-		var writeSyncer zapcore.WriteSyncer
+		// 创建控制台输出
+		consoleEncoder := zapcore.NewConsoleEncoder(encoderConfig)
+		consoleCore := zapcore.NewCore(
+			consoleEncoder,
+			zapcore.AddSync(os.Stdout),
+			level,
+		)
+
+		// 创建文件输出
+		var fileCore zapcore.Core
 		if config.OutputPath != "" {
+			// 确保日志目录存在
+			if err := os.MkdirAll(filepath.Dir(config.OutputPath), 0755); err != nil {
+				panic(err)
+			}
+
 			// 使用 lumberjack 进行日志轮转
-			writeSyncer = zapcore.AddSync(&lumberjack.Logger{
+			fileWriter := zapcore.AddSync(&lumberjack.Logger{
 				Filename:   config.OutputPath,
 				MaxSize:    config.MaxSize,
 				MaxBackups: config.MaxBackups,
 				MaxAge:     config.MaxAge,
 				Compress:   config.Compress,
 			})
-		} else {
-			writeSyncer = zapcore.AddSync(os.Stdout)
+
+			// 使用 JSON 格式写入文件
+			fileEncoder := zapcore.NewJSONEncoder(encoderConfig)
+			fileCore = zapcore.NewCore(
+				fileEncoder,
+				fileWriter,
+				level,
+			)
 		}
 
-		// 创建核心
-		core := zapcore.NewCore(
-			zapcore.NewJSONEncoder(encoderConfig),
-			writeSyncer,
-			level,
-		)
+		// 合并多个输出
+		var core zapcore.Core
+		if fileCore != nil {
+			core = zapcore.NewTee(consoleCore, fileCore)
+		} else {
+			core = consoleCore
+		}
 
 		// 创建 logger
-		globalLogger = zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
+		globalLogger = zap.New(core,
+			zap.AddCaller(),                       // 添加调用者信息
+			zap.AddStacktrace(zapcore.ErrorLevel), // 在错误级别添加堆栈跟踪
+			zap.Development(),                     // 开发模式，提供更多调试信息
+		)
 	})
 }
 

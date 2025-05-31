@@ -16,6 +16,7 @@ import (
 	"Bt1QFM/core/audio"
 	"Bt1QFM/core/netease"
 	"Bt1QFM/db"
+	"Bt1QFM/logger"
 	"Bt1QFM/repository"
 	"Bt1QFM/storage"
 
@@ -27,6 +28,16 @@ import (
 func Start() {
 	cfg := config.Load()
 
+	// 初始化日志系统
+	logger.InitLogger(logger.Config{
+		Level:      logger.DebugLevel, // 设置为 Debug 级别以显示所有日志
+		OutputPath: "logs/app.log",    // 日志文件路径
+		MaxSize:    100,               // 单个日志文件最大大小（MB）
+		MaxBackups: 10,                // 保留的旧日志文件数量
+		MaxAge:     30,                // 日志文件保留天数
+		Compress:   true,              // 压缩旧日志文件
+	})
+
 	// 设置服务器超时
 	server := &http.Server{
 		Addr:         ":8080",
@@ -37,25 +48,25 @@ func Start() {
 
 	// 初始化 MinIO 客户端
 	if err := storage.InitMinio(); err != nil {
-		log.Fatalf("Failed to initialize MinIO: %v", err)
+		logger.Fatal("初始化 MinIO 失败", logger.ErrorField(err))
 	}
 
 	// Connect to the database
 	if err := db.ConnectDB(cfg); err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		logger.Fatal("连接数据库失败", logger.ErrorField(err))
 	}
 	defer db.DB.Close()
 
 	// Connect to Redis
 	if err := db.ConnectRedis(cfg); err != nil {
-		log.Fatalf("Failed to connect to Redis: %v", err)
+		logger.Fatal("连接 Redis 失败", logger.ErrorField(err))
 	}
 	defer db.CloseRedis()
-	log.Println("Successfully connected to Redis")
+	logger.Info("成功连接到 Redis")
 
 	// Initialize database schema
 	if err := db.InitDB(); err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+		logger.Fatal("初始化数据库失败", logger.ErrorField(err))
 	}
 
 	// Create necessary directories if they don't exist
@@ -220,23 +231,22 @@ func Start() {
 
 	// 在goroutine中启动服务器
 	go func() {
-		log.Println("Server starting on :8080...")
-		log.Println("Access the UI at http://localhost:8080/")
-		log.Println("Upload tracks via POST to http://localhost:8080/api/upload")
-		log.Println("List tracks via GET from http://localhost:8080/api/tracks")
-		log.Println("Stream tracks via GET from http://localhost:8080/stream/{track_id}/playlist.m3u8")
-		log.Println("Manage playlist via /api/playlist endpoints")
-		log.Println("Manage albums via /api/albums endpoints")
-		log.Println("Use /api/netease/search and /api/netease/command for Netease Music integration")
+		logger.Info("服务器启动中...",
+			logger.String("port", "8080"),
+			logger.String("ui_url", "http://localhost:8080/"),
+			logger.String("upload_url", "http://localhost:8080/api/upload"),
+			logger.String("tracks_url", "http://localhost:8080/api/tracks"),
+			logger.String("stream_url", "http://localhost:8080/stream/{track_id}/playlist.m3u8"),
+		)
 
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start server: %v", err)
+			logger.Fatal("服务器启动失败", logger.ErrorField(err))
 		}
 	}()
 
 	// 等待中断信号
 	<-stop
-	log.Println("Shutting down server...")
+	logger.Info("正在关闭服务器...")
 
 	// 创建一个5秒超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -244,19 +254,23 @@ func Start() {
 
 	// 优雅关闭服务器
 	if err := server.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		logger.Fatal("服务器强制关闭", logger.ErrorField(err))
 	}
 
-	log.Println("Server stopped")
+	logger.Info("服务器已停止")
 }
 
 func ensureDirExists(path string) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		log.Printf("Creating directory: %s", path)
+		logger.Info("创建目录", logger.String("path", path))
 		if err := os.MkdirAll(path, 0755); err != nil {
-			log.Fatalf("Failed to create directory %s: %v", path, err)
+			logger.Fatal("创建目录失败",
+				logger.String("path", path),
+				logger.ErrorField(err))
 		}
 	} else if err != nil {
-		log.Fatalf("Failed to check directory %s: %v", path, err)
+		logger.Fatal("检查目录失败",
+			logger.String("path", path),
+			logger.ErrorField(err))
 	}
 }
