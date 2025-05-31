@@ -22,6 +22,11 @@ func NewFFmpegProcessor(ffmpegPath string) *FFmpegProcessor {
 	return &FFmpegProcessor{ffmpegPath: ffmpegPath}
 }
 
+// FFmpegPath returns the path to the ffmpeg executable
+func (p *FFmpegProcessor) FFmpegPath() string {
+	return p.ffmpegPath
+}
+
 // getAudioFormat 获取音频文件的格式
 func (p *FFmpegProcessor) getAudioFormat(inputFile string) (string, error) {
 	ffprobePath := strings.Replace(p.ffmpegPath, "ffmpeg", "ffprobe", 1)
