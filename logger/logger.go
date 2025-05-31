@@ -3,6 +3,7 @@ package logger
 import (
 	"os"
 	"sync"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -157,4 +158,9 @@ func ErrorField(err error) zap.Field {
 
 func Any(key string, val interface{}) zap.Field {
 	return zap.Any(key, val)
+}
+
+// Duration 创建持续时间字段
+func Duration(key string, val time.Duration) zap.Field {
+	return zap.Duration(key, val)
 }

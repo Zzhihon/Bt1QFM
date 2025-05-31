@@ -135,6 +135,12 @@ var uploadSemaphore = make(chan struct{}, DefaultUploadConfig().MaxConcurrent)
 
 // UploadTrackHandler handles audio file uploads and metadata.
 func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) {
+	startTime := time.Now()
+	logger.Info("开始处理上传请求",
+		logger.String("method", r.Method),
+		logger.String("path", r.URL.Path),
+	)
+
 	config := DefaultUploadConfig()
 
 	// 获取信号量，控制并发
@@ -142,16 +148,13 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 	case uploadSemaphore <- struct{}{}:
 		defer func() { <-uploadSemaphore }()
 	default:
+		logger.Warn("服务器繁忙，拒绝新的上传请求")
 		http.Error(w, "Server is busy, please try again later", http.StatusServiceUnavailable)
 		return
 	}
 
-	logger.Info("Starting track upload process",
-		logger.String("method", r.Method),
-		logger.String("path", r.URL.Path),
-	)
-
 	if r.Method != http.MethodPost {
+		logger.Warn("不支持的请求方法", logger.String("method", r.Method))
 		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -159,32 +162,30 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 	// Get user ID from context
 	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
-		logger.Error("Failed to get user ID from context",
-			logger.ErrorField(err),
-		)
+		logger.Error("获取用户ID失败", logger.ErrorField(err))
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	logger.Info("获取用户信息成功", logger.Int64("userId", userID))
 
 	// 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(r.Context(), config.UploadTimeout)
 	defer cancel()
 
 	// 解析表单
+	parseStart := time.Now()
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		logger.Error("Failed to parse multipart form",
-			logger.ErrorField(err),
-		)
+		logger.Error("解析表单失败", logger.ErrorField(err))
 		http.Error(w, fmt.Sprintf("Failed to parse multipart form: %v", err), http.StatusBadRequest)
 		return
 	}
+	logger.Info("解析表单完成", logger.Duration("耗时", time.Since(parseStart)))
 
 	// 获取并验证音频文件
+	validateStart := time.Now()
 	trackFile, trackHeader, err := r.FormFile("trackFile")
 	if err != nil {
-		logger.Error("Failed to get track file from form",
-			logger.ErrorField(err),
-		)
+		logger.Error("获取音频文件失败", logger.ErrorField(err))
 		http.Error(w, "Missing 'trackFile' in form", http.StatusBadRequest)
 		return
 	}
@@ -192,6 +193,9 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 
 	// 验证文件大小
 	if trackHeader.Size > config.MaxFileSize {
+		logger.Warn("文件过大",
+			logger.Int64("size", trackHeader.Size),
+			logger.Int64("maxSize", config.MaxFileSize))
 		http.Error(w, fmt.Sprintf("File too large. Maximum size is %d MB", config.MaxFileSize>>20), http.StatusBadRequest)
 		return
 	}
@@ -206,20 +210,31 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if !validType {
+		logger.Warn("不支持的文件类型", logger.String("contentType", contentType))
 		http.Error(w, "Invalid file type", http.StatusBadRequest)
 		return
 	}
+	logger.Info("文件验证完成",
+		logger.Duration("耗时", time.Since(validateStart)),
+		logger.Int64("fileSize", trackHeader.Size),
+		logger.String("contentType", contentType))
 
 	// 获取其他表单数据
 	title := r.FormValue("title")
 	if title == "" {
+		logger.Warn("缺少标题字段")
 		http.Error(w, "Missing 'title' in form", http.StatusBadRequest)
 		return
 	}
 	artist := r.FormValue("artist")
 	album := r.FormValue("album")
+	logger.Info("获取元数据完成",
+		logger.String("title", title),
+		logger.String("artist", artist),
+		logger.String("album", album))
 
 	// 生成安全的文件名
+	generateStart := time.Now()
 	safeBaseFilename := generateSafeFilenamePrefix(title, artist, album)
 	trackFileExt := filepath.Ext(trackHeader.Filename)
 	if trackFileExt == "" {
@@ -230,16 +245,22 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 	// 设置文件路径
 	minioTrackPath := "audio/" + trackStoreFileName
 	trackFilePath := "/static/audio/" + trackStoreFileName
+	logger.Info("生成文件名完成",
+		logger.Duration("耗时", time.Since(generateStart)),
+		logger.String("safeFilename", safeBaseFilename),
+		logger.String("minioPath", minioTrackPath))
 
 	// 创建用于接收上传结果的channel
 	trackUploadChan := make(chan UploadResult)
 	coverUploadChan := make(chan UploadResult)
 
 	// 启动异步上传音频文件
+	uploadStart := time.Now()
 	go func() {
 		var lastErr error
 		for attempt := 0; attempt < config.RetryAttempts; attempt++ {
 			if attempt > 0 {
+				logger.Info("重试上传", logger.Int("attempt", attempt))
 				time.Sleep(config.RetryDelay)
 			}
 
@@ -251,6 +272,7 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 			tempFile, err := os.CreateTemp("", "upload-*")
 			if err != nil {
 				lastErr = err
+				logger.Error("创建临时文件失败", logger.ErrorField(err))
 				continue
 			}
 			defer os.Remove(tempFile.Name())
@@ -259,12 +281,14 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 			// 将上传的文件复制到临时文件
 			if _, err := io.Copy(tempFile, trackFile); err != nil {
 				lastErr = err
+				logger.Error("复制文件到临时文件失败", logger.ErrorField(err))
 				continue
 			}
 
 			// 重置文件指针
 			if _, err := tempFile.Seek(0, 0); err != nil {
 				lastErr = err
+				logger.Error("重置文件指针失败", logger.ErrorField(err))
 				continue
 			}
 
@@ -272,6 +296,7 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 			client := storage.GetMinioClient()
 			if client == nil {
 				lastErr = fmt.Errorf("MinIO client not initialized")
+				logger.Error("MinIO客户端未初始化")
 				continue
 			}
 
@@ -283,12 +308,19 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 			_, err = client.PutObject(uploadCtx, h.cfg.MinioBucket, minioTrackPath, tempFile, trackHeader.Size, opts)
 			if err != nil {
 				lastErr = err
+				logger.Error("上传到MinIO失败", logger.ErrorField(err))
 				continue
 			}
 
+			logger.Info("音频文件上传成功",
+				logger.Duration("耗时", time.Since(uploadStart)),
+				logger.String("path", minioTrackPath))
 			trackUploadChan <- UploadResult{Success: true, Path: minioTrackPath}
 			return
 		}
+		logger.Error("音频文件上传失败",
+			logger.ErrorField(lastErr),
+			logger.Int("attempts", config.RetryAttempts))
 		trackUploadChan <- UploadResult{Success: false, Error: fmt.Errorf("failed after %d attempts: %v", config.RetryAttempts, lastErr)}
 	}()
 
@@ -300,20 +332,24 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 
 		// 验证封面文件
 		if coverHeader.Size > 10<<20 { // 10MB
+			logger.Warn("封面文件过大", logger.Int64("size", coverHeader.Size))
 			http.Error(w, "Cover file too large", http.StatusBadRequest)
 			return
 		}
 
 		coverContentType := coverHeader.Header.Get("Content-Type")
 		if !strings.HasPrefix(coverContentType, "image/") {
+			logger.Warn("不支持的封面文件类型", logger.String("contentType", coverContentType))
 			http.Error(w, "Invalid cover file type", http.StatusBadRequest)
 			return
 		}
 
+		coverUploadStart := time.Now()
 		go func() {
 			var lastErr error
 			for attempt := 0; attempt < config.RetryAttempts; attempt++ {
 				if attempt > 0 {
+					logger.Info("重试上传封面", logger.Int("attempt", attempt))
 					time.Sleep(config.RetryDelay)
 				}
 
@@ -329,6 +365,7 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 				tempFile, err := os.CreateTemp("", "cover-*")
 				if err != nil {
 					lastErr = err
+					logger.Error("创建封面临时文件失败", logger.ErrorField(err))
 					continue
 				}
 				defer os.Remove(tempFile.Name())
@@ -337,12 +374,14 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 				// 将上传的文件复制到临时文件
 				if _, err := io.Copy(tempFile, coverFile); err != nil {
 					lastErr = err
+					logger.Error("复制封面到临时文件失败", logger.ErrorField(err))
 					continue
 				}
 
 				// 重置文件指针
 				if _, err := tempFile.Seek(0, 0); err != nil {
 					lastErr = err
+					logger.Error("重置封面文件指针失败", logger.ErrorField(err))
 					continue
 				}
 
@@ -350,6 +389,7 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 				client := storage.GetMinioClient()
 				if client == nil {
 					lastErr = fmt.Errorf("MinIO client not initialized")
+					logger.Error("MinIO客户端未初始化")
 					continue
 				}
 
@@ -361,18 +401,23 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 				_, err = client.PutObject(ctx, h.cfg.MinioBucket, minioCoverPath, tempFile, coverHeader.Size, opts)
 				if err != nil {
 					lastErr = err
+					logger.Error("上传封面到MinIO失败", logger.ErrorField(err))
 					continue
 				}
 
+				logger.Info("封面文件上传成功",
+					logger.Duration("耗时", time.Since(coverUploadStart)),
+					logger.String("path", minioCoverPath))
 				coverUploadChan <- UploadResult{Success: true, Path: coverArtServePath}
 				return
 			}
+			logger.Error("封面文件上传失败",
+				logger.ErrorField(lastErr),
+				logger.Int("attempts", config.RetryAttempts))
 			coverUploadChan <- UploadResult{Success: false, Error: fmt.Errorf("failed after %d attempts: %v", config.RetryAttempts, lastErr)}
 		}()
 	} else if err != http.ErrMissingFile {
-		logger.Error("Error processing cover file",
-			logger.ErrorField(err),
-		)
+		logger.Error("处理封面文件失败", logger.ErrorField(err))
 		http.Error(w, fmt.Sprintf("Error processing cover file: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -382,24 +427,22 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 	select {
 	case trackResult = <-trackUploadChan:
 	case <-ctx.Done():
+		logger.Error("音频文件上传超时")
 		http.Error(w, "Upload timeout", http.StatusRequestTimeout)
 		return
 	}
 
 	if !trackResult.Success {
-		logger.Error("Failed to upload track to MinIO",
-			logger.ErrorField(trackResult.Error),
-		)
+		logger.Error("音频文件上传失败", logger.ErrorField(trackResult.Error))
 		http.Error(w, fmt.Sprintf("Failed to upload track file: %v", trackResult.Error), http.StatusInternalServerError)
 		return
 	}
 
 	// 开始数据库事务
+	dbStart := time.Now()
 	tx, err := h.trackRepo.BeginTx()
 	if err != nil {
-		logger.Error("Failed to begin transaction",
-			logger.ErrorField(err),
-		)
+		logger.Error("开始数据库事务失败", logger.ErrorField(err))
 		http.Error(w, fmt.Sprintf("Failed to begin transaction: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -418,10 +461,9 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 	// 在事务中创建曲目
 	trackID, err := h.trackRepo.CreateTrackWithTx(tx, newTrack)
 	if err != nil {
-		logger.Error("Failed to create track record",
+		logger.Error("创建曲目记录失败",
 			logger.ErrorField(err),
-			logger.Int64("userId", userID),
-		)
+			logger.Int64("userId", userID))
 		if strings.Contains(strings.ToLower(err.Error()), "unique constraint") || strings.Contains(strings.ToLower(err.Error()), "duplicate entry") {
 			http.Error(w, fmt.Sprintf("Failed to create track: A track with a similar name or file path already exists for your account. Original error: %v", err), http.StatusConflict)
 		} else {
@@ -430,6 +472,9 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	newTrack.ID = trackID
+	logger.Info("创建曲目记录成功",
+		logger.Int64("trackId", trackID),
+		logger.Duration("耗时", time.Since(dbStart)))
 
 	// 如果存在封面文件，等待其上传完成
 	if coverFile != nil {
@@ -437,50 +482,52 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		select {
 		case coverResult = <-coverUploadChan:
 		case <-ctx.Done():
+			logger.Error("封面文件上传超时")
 			http.Error(w, "Cover upload timeout", http.StatusRequestTimeout)
 			return
 		}
 
 		if !coverResult.Success {
-			logger.Error("Failed to upload cover to MinIO",
-				logger.ErrorField(coverResult.Error),
-			)
+			logger.Error("封面文件上传失败", logger.ErrorField(coverResult.Error))
 			http.Error(w, fmt.Sprintf("Failed to upload cover to MinIO: %v", coverResult.Error), http.StatusInternalServerError)
 			return
 		}
 	}
 
 	// 生成 HLS 播放列表路径
+	hlsStart := time.Now()
 	safeStreamDirName := generateSafeFilenamePrefix(title, artist, album)
 	hlsStreamDir := filepath.Join("streams", safeStreamDirName)
 	m3u8ServePath := "/static/" + strings.ReplaceAll(filepath.ToSlash(hlsStreamDir), "\\", "/") + "/playlist.m3u8"
 
 	// 更新数据库中的 HLS 播放列表路径
 	if err := h.trackRepo.UpdateTrackHLSPath(trackID, m3u8ServePath, 0); err != nil {
-		logger.Error("Failed to update HLS path in database",
+		logger.Error("更新HLS路径失败",
 			logger.ErrorField(err),
 			logger.Int64("trackId", trackID),
-			logger.String("path", m3u8ServePath),
-		)
+			logger.String("path", m3u8ServePath))
 	}
+	logger.Info("HLS路径更新完成",
+		logger.Duration("耗时", time.Since(hlsStart)),
+		logger.String("path", m3u8ServePath))
 
 	// 提交事务
+	commitStart := time.Now()
 	if err := h.trackRepo.CommitTx(tx); err != nil {
-		logger.Error("Failed to commit transaction",
-			logger.ErrorField(err),
-		)
+		logger.Error("提交事务失败", logger.ErrorField(err))
 		http.Error(w, fmt.Sprintf("Failed to commit transaction: %v", err), http.StatusInternalServerError)
 		return
 	}
+	logger.Info("事务提交成功", logger.Duration("耗时", time.Since(commitStart)))
 
-	logger.Info("Successfully completed track upload",
+	logger.Info("上传处理完成",
+		logger.Duration("总耗时", time.Since(startTime)),
 		logger.Int64("trackId", trackID),
 		logger.Int64("userId", userID),
 		logger.String("title", newTrack.Title),
 		logger.String("minioPath", minioTrackPath),
 		logger.String("coverPath", newTrack.CoverArtPath),
-		logger.String("hlsPath", m3u8ServePath),
-	)
+		logger.String("hlsPath", m3u8ServePath))
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{"message": "Track uploaded successfully", "trackId": trackID, "track": newTrack})
@@ -616,10 +663,11 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("已设置处理状态为进行中")
 
 	// 在函数结束时更新处理状态
+	success := false
 	defer func() {
-		if err != nil {
-			h.mp3Processor.UpdateProcessingStatus(trackIDStr, err)
-			log.Printf("处理失败，已更新状态: %v", err)
+		if !success {
+			h.mp3Processor.UpdateProcessingStatus(trackIDStr, fmt.Errorf("streaming failed"))
+			log.Printf("处理失败，已更新状态")
 		} else {
 			h.mp3Processor.UpdateProcessingStatus(trackIDStr, nil)
 			log.Printf("处理成功，已更新状态")
@@ -763,22 +811,31 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 使用带缓冲的写入
 	buffer := make([]byte, 32*1024) // 32KB buffer
+	writeSuccess := true
 	for {
 		n, readErr := object.Read(buffer)
 		if n > 0 {
 			if _, writeErr := w.Write(buffer[:n]); writeErr != nil {
 				log.Printf("错误：写入响应失败: %v", writeErr)
-				return
+				writeSuccess = false
+				break
 			}
-			w.(http.Flusher).Flush()
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
 		}
 		if readErr == io.EOF {
 			break
 		}
 		if readErr != nil {
 			log.Printf("错误：读取M3U8文件失败: %v", readErr)
-			return
+			writeSuccess = false
+			break
 		}
+	}
+
+	if writeSuccess {
+		success = true
 	}
 
 	log.Printf("===================== 流请求处理完成 =====================")
