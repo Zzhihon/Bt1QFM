@@ -23,6 +23,7 @@ type TrackRepository interface {
 	CommitTx(tx *sql.Tx) error
 	CreateTrackWithTx(tx *sql.Tx, track *model.Track) (int64, error)
 	DeleteTrackWithTx(tx *sql.Tx, trackID int64) error
+	UpdateTrackStatus(trackID int64, status string) error
 }
 
 // mysqlTrackRepository implements TrackRepository for MySQL.
@@ -208,5 +209,22 @@ func (r *mysqlTrackRepository) DeleteTrackWithTx(tx *sql.Tx, trackID int64) erro
 	if err != nil {
 		return fmt.Errorf("failed to execute DeleteTrackWithTx: %w", err)
 	}
+	return nil
+}
+
+// UpdateTrackStatus updates the processing status for a given track ID.
+func (r *mysqlTrackRepository) UpdateTrackStatus(trackID int64, status string) error {
+	query := `UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?`
+	stmt, err := r.DB.Prepare(query)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement for UpdateTrackStatus: %w", err)
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(status, time.Now(), trackID)
+	if err != nil {
+		return fmt.Errorf("failed to execute UpdateTrackStatus for track ID %d: %w", trackID, err)
+	}
+	log.Printf("Status updated for track ID: %d to %s", trackID, status)
 	return nil
 }

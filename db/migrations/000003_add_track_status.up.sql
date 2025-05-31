@@ -1,0 +1,1 @@
+ALTER TABLE tracks ADD COLUMN status VARCHAR(20) DEFAULT 'processing' AFTER duration; 
