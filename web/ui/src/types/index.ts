@@ -20,6 +20,10 @@ export interface Track {
   userId?: number; // If tracks are user-specific
   neteaseId?: number; // Netease Music song ID
   duration?: number; // Track duration in seconds
+  source?: 'netease' | 'local'; // Track source type
+  createdAt?: string;
+  updatedAt?: string;
+  hlsPlaylistPath?: string;
 }
 
 export interface ApiResponseError {

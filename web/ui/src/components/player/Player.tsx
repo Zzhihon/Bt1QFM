@@ -67,7 +67,7 @@ const Player: React.FC = () => {
     // 检查缓存中是否已有数据
     const cachedDetail = songDetailCache.get(neteaseId);
     if (cachedDetail) {
-      console.log('使用缓存的歌曲详情:', cachedDetail);
+      console.log('---------------使用缓存的歌曲详情--------------', cachedDetail);
       updateTrackInfo(cachedDetail);
       return;
     }

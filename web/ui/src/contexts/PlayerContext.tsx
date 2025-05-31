@@ -748,13 +748,23 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       
       console.log('Adding to playlist:', playlistTrack);
 
+      const requestData = {
+        trackId: playlistTrack.source === 'netease' ? 0 : Number(playlistTrack.id),
+        neteaseId: playlistTrack.source === 'netease' ? Number(playlistTrack.id) : 0,
+        title: playlistTrack.title,
+        artist: playlistTrack.artist || '',
+        album: playlistTrack.album || '',
+        coverArtPath: playlistTrack.coverArtPath,
+        hlsPlaylistUrl: playlistTrack.hlsPlaylistUrl
+      };
+
       const response = await fetch('/api/playlist', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
         },
-        body: JSON.stringify(playlistTrack),
+        body: JSON.stringify(requestData),
       });
 
       if (!response.ok) {
