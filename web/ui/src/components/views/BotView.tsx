@@ -190,45 +190,21 @@ const BotView: React.FC = () => {
       // 添加到处理中集合
       setProcessingSongs(prev => new Set([...prev, song.id]));
 
-      const response = await fetch(`/api/netease/command?command=/netease ${song.id}`);
-      if (!response.ok) {
-        throw new Error('获取播放地址失败');
-      }
-      
-      const data = await response.json();
-      if (!data.success) {
-        // 检查是否是处理中的状态
-        if (data.error === '歌曲正在处理中，请稍后再试') {
-          addToast({
-            type: 'info',
-            message: '正在处理中...',
-            duration: 3000,
-          });
-          return;
-        }
-        throw new Error(data.error || '获取播放地址失败');
-      }
-
-      if (!Array.isArray(data.data) || data.data.length === 0) {
-        throw new Error('获取播放地址失败');
-      }
-
-      const songData = data.data[0];
-      if (!songData || !songData.url) {
-        throw new Error('获取播放地址失败');
-      }
-
       // 确保艺术家是数组格式，正确处理
       const artistStr = Array.isArray(song.artists) ? song.artists.join(', ') : (song.artists || '未知艺术家');
 
+      // 直接使用HLS流地址播放，不需要调用command接口
       playTrack({
         id: song.id,
+        neteaseId: song.id, // 添加neteaseId字段
         title: song.name,
         artist: artistStr,
         album: song.album || '未知专辑',
-        coverArtPath: song.picUrl || '',
-        url: songData.url,
-        position: 0
+        coverArtPath: song.coverUrl || song.picUrl || '',
+        url: `http://localhost:8080/streams/netease/${song.id}/playlist.m3u8`, // 直接使用HLS流地址
+        hlsPlaylistUrl: `/streams/netease/${song.id}/playlist.m3u8`, // 添加HLS播放列表URL
+        position: 0,
+        source: 'netease' // 添加source字段
       });
 
       const botMessage: Message = {

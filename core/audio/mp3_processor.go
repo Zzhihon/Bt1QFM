@@ -222,6 +222,11 @@ func (p *MP3Processor) UpdateProcessingStatus(songID string, err error) {
 	}
 }
 
+// ClearProcessingStatus 清除处理状态
+func (p *MP3Processor) ClearProcessingStatus(songID string) {
+	delete(p.processingStatus, songID)
+}
+
 // ProcessToHLS 将 MP3 文件转换为 HLS 格式
 func (p *MP3Processor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hlsBaseURL, audioBitrate, hlsSegmentTime string) (float32, error) {
 	log.Printf("Processing Netease MP3 %s to HLS. Output M3U8: %s, Segments: %s, Base URL: %s",

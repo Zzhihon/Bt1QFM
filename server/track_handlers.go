@@ -528,10 +528,18 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("检测到文件已存在，更新处理状态")
 			h.mp3Processor.UpdateProcessingStatus(trackIDStr, nil)
 		} else {
-			// 文件不存在，确实在处理中
-			log.Printf("Track %d 正在处理中，请稍后再试", trackID)
-			http.Error(w, "Track is being processed, please try again later", http.StatusServiceUnavailable)
-			return
+			// 检查是否超过重试次数
+			if status.RetryCount >= 3 {
+				log.Printf("Track %d 处理失败次数过多，清除处理状态", trackID)
+				h.mp3Processor.UpdateProcessingStatus(trackIDStr, fmt.Errorf("max retries exceeded"))
+				// 清除处理状态，允许重新开始处理
+				h.mp3Processor.ClearProcessingStatus(trackIDStr)
+			} else {
+				// 文件不存在，确实在处理中
+				log.Printf("Track %d 正在处理中，请稍后再试 (重试次数: %d)", trackID, status.RetryCount)
+				http.Error(w, "Track is being processed, please try again later", http.StatusServiceUnavailable)
+				return
+			}
 		}
 	}
 
@@ -543,8 +551,17 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 	success := false
 	defer func() {
 		if !success {
-			h.mp3Processor.UpdateProcessingStatus(trackIDStr, fmt.Errorf("streaming failed"))
-			log.Printf("处理失败，已更新状态")
+			status := h.mp3Processor.GetProcessingStatus(trackIDStr)
+			if status != nil {
+				status.RetryCount++
+				if status.RetryCount >= 3 {
+					log.Printf("处理失败次数过多，清除处理状态")
+					h.mp3Processor.ClearProcessingStatus(trackIDStr)
+				} else {
+					log.Printf("处理失败，更新重试次数: %d", status.RetryCount)
+					h.mp3Processor.UpdateProcessingStatus(trackIDStr, fmt.Errorf("streaming failed, retry count: %d", status.RetryCount))
+				}
+			}
 		} else {
 			h.mp3Processor.UpdateProcessingStatus(trackIDStr, nil)
 			log.Printf("处理成功，已更新状态")
