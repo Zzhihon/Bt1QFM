@@ -69,7 +69,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         const parsedState = JSON.parse(savedState);
         return {
           ...parsedState,
-          // 不再重置播放状态和当前时间
+          // 页面刷新后重置播放状态，但保持播放进度
+          isPlaying: false,
+          // 保持currentTime，不要重置为0
         };
       } catch (error) {
         console.error('Error parsing saved player state:', error);
@@ -92,25 +94,80 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     localStorage.setItem('playerState', JSON.stringify(playerState));
   }, [playerState]);
   
-  // 添加音频恢复逻辑
+  // 修复音频恢复逻辑 - 恢复播放进度
   useEffect(() => {
-    if (playerState.currentTrack && playerState.isPlaying) {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    // 设置音频基本属性
+    audio.volume = playerState.volume;
+    audio.muted = playerState.muted;
+
+    // 如果有当前播放的歌曲，设置音频源并恢复播放进度
+    if (playerState.currentTrack) {
+      console.log('恢复播放器状态，当前歌曲:', playerState.currentTrack);
+      console.log('恢复播放进度:', playerState.currentTime);
+      
       // 设置音频源
+      let audioUrl = '';
       if (playerState.currentTrack.hlsPlaylistUrl) {
-        audioRef.current.src = playerState.currentTrack.hlsPlaylistUrl;
+        const backendUrl = 'http://localhost:8080';
+        audioUrl = playerState.currentTrack.hlsPlaylistUrl.startsWith('http') 
+          ? playerState.currentTrack.hlsPlaylistUrl 
+          : `${backendUrl}${playerState.currentTrack.hlsPlaylistUrl}`;
+        
+        if (Hls.isSupported()) {
+          // 为HLS流初始化，并在加载完成后设置播放位置
+          const hls = new Hls({ debug: false });
+          hlsInstanceRef.current = hls;
+          
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            console.log('HLS清单解析完成，设置播放位置到:', playerState.currentTime);
+            // 设置播放位置
+            if (playerState.currentTime > 0) {
+              audio.currentTime = playerState.currentTime;
+            }
+          });
+          
+          hls.loadSource(audioUrl);
+          hls.attachMedia(audio);
+        } else if (audio.canPlayType('application/vnd.apple.mpegurl')) {
+          audio.src = audioUrl;
+          // 监听音频加载完成事件，然后设置播放位置
+          const handleLoadedData = () => {
+            console.log('音频数据加载完成，设置播放位置到:', playerState.currentTime);
+            if (playerState.currentTime > 0) {
+              audio.currentTime = playerState.currentTime;
+            }
+            audio.removeEventListener('loadeddata', handleLoadedData);
+          };
+          audio.addEventListener('loadeddata', handleLoadedData);
+        }
+      } else if (playerState.currentTrack.url) {
+        audio.src = playerState.currentTrack.url;
+        // 监听音频加载完成事件，然后设置播放位置
+        const handleLoadedData = () => {
+          console.log('音频数据加载完成，设置播放位置到:', playerState.currentTime);
+          if (playerState.currentTime > 0) {
+            audio.currentTime = playerState.currentTime;
+          }
+          audio.removeEventListener('loadeddata', handleLoadedData);
+        };
+        audio.addEventListener('loadeddata', handleLoadedData);
+      } else if (playerState.currentTrack.filePath) {
+        audio.src = playerState.currentTrack.filePath;
+        // 监听音频加载完成事件，然后设置播放位置
+        const handleLoadedData = () => {
+          console.log('音频数据加载完成，设置播放位置到:', playerState.currentTime);
+          if (playerState.currentTime > 0) {
+            audio.currentTime = playerState.currentTime;
+          }
+          audio.removeEventListener('loadeddata', handleLoadedData);
+        };
+        audio.addEventListener('loadeddata', handleLoadedData);
       }
-      // 设置音量
-      audioRef.current.volume = playerState.volume;
-      // 设置静音状态
-      audioRef.current.muted = playerState.muted;
-      // 设置播放位置
-      audioRef.current.currentTime = playerState.currentTime;
-      // 开始播放
-      audioRef.current.play().catch(error => {
-        console.error('Error resuming playback:', error);
-        // 如果自动播放失败，更新状态
-        setPlayerState(prev => ({ ...prev, isPlaying: false }));
-      });
+      
+      console.log('音频源已设置，等待用户操作');
     }
   }, []); // 仅在组件挂载时执行一次
   
@@ -482,19 +539,45 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     
     try {
       if (playerState.isPlaying) {
+        // 暂停播放
         audioRef.current.pause();
         setPlayerState(prev => ({ ...prev, isPlaying: false }));
+        console.log('播放已暂停');
       } else {
-        // 如果当前没有播放，先确保音频已加载
+        // 开始播放
+        console.log('准备开始播放');
+        
+        // 检查音频是否需要重新设置源
+        if (!audioRef.current.src || audioRef.current.readyState === 0) {
+          console.log('音频源未设置或未加载，重新播放当前歌曲');
+          await playTrack(playerState.currentTrack);
+          return;
+        }
+        
+        // 如果音频数据不足，等待加载
         if (audioRef.current.readyState < 3) { // HAVE_FUTURE_DATA
+          console.log('等待音频数据加载...');
           await new Promise((resolve, reject) => {
-            const handleCanPlay = () => {
+            const timeout = setTimeout(() => {
               audioRef.current.removeEventListener('canplay', handleCanPlay);
               audioRef.current.removeEventListener('error', handleError);
+              reject(new Error('音频加载超时'));
+            }, 10000);
+            
+            const handleCanPlay = () => {
+              clearTimeout(timeout);
+              audioRef.current.removeEventListener('canplay', handleCanPlay);
+              audioRef.current.removeEventListener('error', handleError);
+              // 在音频准备好后，确保播放位置正确
+              if (playerState.currentTime > 0 && Math.abs(audioRef.current.currentTime - playerState.currentTime) > 1) {
+                console.log('调整播放位置从', audioRef.current.currentTime, '到', playerState.currentTime);
+                audioRef.current.currentTime = playerState.currentTime;
+              }
               resolve(null);
             };
             
             const handleError = (error: Event) => {
+              clearTimeout(timeout);
               audioRef.current.removeEventListener('canplay', handleCanPlay);
               audioRef.current.removeEventListener('error', handleError);
               reject(error);
@@ -503,14 +586,37 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             audioRef.current.addEventListener('canplay', handleCanPlay);
             audioRef.current.addEventListener('error', handleError);
           });
+        } else {
+          // 如果音频已经准备好，确保播放位置正确
+          if (playerState.currentTime > 0 && Math.abs(audioRef.current.currentTime - playerState.currentTime) > 1) {
+            console.log('调整播放位置从', audioRef.current.currentTime, '到', playerState.currentTime);
+            audioRef.current.currentTime = playerState.currentTime;
+          }
         }
         
+        // 开始播放
         await audioRef.current.play();
         setPlayerState(prev => ({ ...prev, isPlaying: true }));
+        console.log('播放已开始');
       }
     } catch (error) {
       console.error('Error toggling play/pause:', error);
       setPlayerState(prev => ({ ...prev, isPlaying: false }));
+      
+      // 如果播放失败，尝试重新加载歌曲
+      if (playerState.currentTrack && !playerState.isPlaying) {
+        console.log('播放失败，尝试重新加载歌曲');
+        try {
+          await playTrack(playerState.currentTrack);
+        } catch (replayError) {
+          console.error('重新播放失败:', replayError);
+          addToast({
+            message: '播放失败，请重试',
+            type: 'error',
+            duration: 3000,
+          });
+        }
+      }
     }
   };
   
@@ -999,16 +1105,18 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   }, [currentUser]);
   
-  // 监听音频事件
+  // 监听音频事件 - 确保事件监听器正确设置
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     
     const handlePlay = () => {
+      console.log('音频开始播放事件');
       setPlayerState(prev => ({ ...prev, isPlaying: true }));
     };
     
     const handlePause = () => {
+      console.log('音频暂停事件'); 
       setPlayerState(prev => ({ ...prev, isPlaying: false }));
     };
     
@@ -1021,6 +1129,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     };
     
     const handleEnded = () => {
+      console.log('音频播放结束事件');
       // 根据播放模式处理歌曲结束后的行为
       switch (playerState.playMode) {
         case PlayMode.SEQUENTIAL:
@@ -1061,22 +1170,43 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }));
     };
     
+    const handleLoadStart = () => {
+      console.log('音频开始加载');
+    };
+    
+    const handleCanPlay = () => {
+      console.log('音频可以播放');
+    };
+    
+    const handleError = (error: Event) => {
+      console.error('音频播放错误:', error);
+      setPlayerState(prev => ({ ...prev, isPlaying: false }));
+    };
+    
+    // 添加所有事件监听器
     audio.addEventListener('play', handlePlay);
     audio.addEventListener('pause', handlePause);
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('volumechange', handleVolumeChange);
+    audio.addEventListener('loadstart', handleLoadStart);
+    audio.addEventListener('canplay', handleCanPlay);
+    audio.addEventListener('error', handleError);
     
     return () => {
+      // 清理所有事件监听器
       audio.removeEventListener('play', handlePlay);
       audio.removeEventListener('pause', handlePause);
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('volumechange', handleVolumeChange);
+      audio.removeEventListener('loadstart', handleLoadStart);
+      audio.removeEventListener('canplay', handleCanPlay);
+      audio.removeEventListener('error', handleError);
     };
   }, [playerState.playMode, playerState.playlist, playerState.currentTrack]);
   
-  // 保存播放状态到localStorage
+  // 保存播放状态到localStorage - 确保保存播放进度
   const savePlayerState = useCallback((state: PlayerState) => {
     try {
       // 创建一个最小化的状态对象，只保存必要信息
@@ -1088,12 +1218,16 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           album: state.currentTrack.album,
           coverArtPath: state.currentTrack.coverArtPath,
           position: state.currentTrack.position,
-          // 不保存url和hlsPlaylistUrl
+          hlsPlaylistUrl: state.currentTrack.hlsPlaylistUrl, // 保存播放链接用于恢复
+          url: state.currentTrack.url, // 保存URL用于恢复
+          filePath: state.currentTrack.filePath, // 保存文件路径用于恢复
+          neteaseId: (state.currentTrack as any).neteaseId, // 保存网易云ID
+          source: (state.currentTrack as any).source, // 保存来源信息
         } : null,
         isPlaying: state.isPlaying,
         volume: state.volume,
         muted: state.muted,
-        currentTime: state.currentTime,
+        currentTime: state.currentTime, // 重要：保存播放进度
         duration: state.duration,
         playMode: state.playMode,
         playlist: state.playlist.map(item => ({
@@ -1103,7 +1237,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           album: item.album,
           coverArtPath: item.coverArtPath,
           position: item.position,
-          // 不保存url和hlsPlaylistUrl
+          hlsPlaylistUrl: item.hlsPlaylistUrl, // 保存播放链接
+          neteaseId: (item as any).neteaseId, // 保存网易云ID
+          source: (item as any).source, // 保存来源信息
         }))
       };
       localStorage.setItem('playerState', JSON.stringify(stateToSave));
