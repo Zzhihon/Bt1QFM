@@ -166,8 +166,16 @@ const BotView: React.FC = () => {
   };
 
   const handlePlay = async (song: NeteaseSong) => {
+    console.log('🎵 开始处理歌曲播放:', {
+      songId: song.id,
+      songName: song.name,
+      artists: song.artists,
+      currentTime: new Date().toISOString()
+    });
+
     // 检查是否是当前正在播放的歌曲
     if (playerState.currentTrack && playerState.currentTrack.id === song.id) {
+      console.log('⚠️ 歌曲已在播放中:', song.id);
       addToast({
         type: 'info',
         message: '播放中...',
@@ -178,6 +186,7 @@ const BotView: React.FC = () => {
 
     // 检查歌曲是否正在处理中
     if (processingSongs.has(song.id)) {
+      console.log('⚠️ 歌曲正在处理中:', song.id);
       addToast({
         type: 'info',
         message: '歌曲正在处理中，请稍后再试...',
@@ -189,23 +198,74 @@ const BotView: React.FC = () => {
     try {
       // 添加到处理中集合
       setProcessingSongs(prev => new Set([...prev, song.id]));
+      console.log('📝 已添加到处理队列:', song.id);
 
       // 确保艺术家是数组格式，正确处理
       const artistStr = Array.isArray(song.artists) ? song.artists.join(', ') : (song.artists || '未知艺术家');
+      console.log('👨‍🎤 艺术家信息处理:', { original: song.artists, processed: artistStr });
 
-      // 直接使用HLS流地址播放，不需要调用command接口
-      playTrack({
+      // 构建HLS流地址
+      const hlsUrl = `http://localhost:8080/streams/netease/${song.id}/playlist.m3u8`;
+      const hlsPlaylistUrl = `/streams/netease/${song.id}/playlist.m3u8`;
+      
+      console.log('🔗 构建HLS URL:', {
+        fullUrl: hlsUrl,
+        playlistUrl: hlsPlaylistUrl
+      });
+
+      // 检查HLS流是否可用
+      console.log('🔍 检查HLS流可用性...');
+      try {
+        const streamCheck = await fetch(hlsUrl);
+        console.log('📊 HLS流检查结果:', {
+          status: streamCheck.status,
+          statusText: streamCheck.statusText,
+          headers: Object.fromEntries(streamCheck.headers.entries())
+        });
+        
+        if (streamCheck.ok) {
+          const content = await streamCheck.text();
+          console.log('📄 playlist.m3u8 内容长度:', content.length);
+          console.log('📄 playlist.m3u8 前100字符:', content.substring(0, 100));
+          
+          if (content.length === 0) {
+            console.error('❌ playlist.m3u8 文件为空!');
+            throw new Error('播放列表文件为空，请稍后再试');
+          }
+          
+          if (!content.includes('#EXTM3U')) {
+            console.error('❌ playlist.m3u8 格式无效:', content);
+            throw new Error('播放列表格式无效');
+          }
+        } else {
+          console.error('❌ HLS流不可用:', streamCheck.status, streamCheck.statusText);
+          throw new Error(`正在处理播放流，请稍后再试 (${streamCheck.status})`);
+        }
+      } catch (streamError) {
+        console.error('❌ HLS流检查失败:', streamError);
+        throw new Error('正在处理播放流，请稍后再试');
+      }
+
+      // 构建播放轨道数据
+      const trackData = {
         id: song.id,
-        neteaseId: song.id, // 添加neteaseId字段
+        neteaseId: song.id,
         title: song.name,
         artist: artistStr,
         album: song.album || '未知专辑',
         coverArtPath: song.coverUrl || song.picUrl || '',
-        url: `http://localhost:8080/streams/netease/${song.id}/playlist.m3u8`, // 直接使用HLS流地址
-        hlsPlaylistUrl: `/streams/netease/${song.id}/playlist.m3u8`, // 添加HLS播放列表URL
+        url: hlsUrl,
+        hlsPlaylistUrl: hlsPlaylistUrl,
         position: 0,
-        source: 'netease' // 添加source字段
-      });
+        source: 'netease'
+      };
+      
+      console.log('🎵 播放轨道数据:', trackData);
+
+      // 开始播放
+      console.log('▶️ 调用 playTrack...');
+      playTrack(trackData);
+      console.log('✅ playTrack 调用完成');
 
       const botMessage: Message = {
         id: Date.now().toString(),
@@ -214,17 +274,36 @@ const BotView: React.FC = () => {
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, botMessage]);
+      console.log('💬 已添加播放消息到聊天');
+
     } catch (error: any) {
+      console.error('❌ 播放失败:', {
+        error: error.message,
+        stack: error.stack,
+        songId: song.id,
+        songName: song.name
+      });
+      
       addToast({
         type: 'error',
         message: error.message || '播放失败',
         duration: 3000,
       });
+      
+      // 添加错误消息到聊天
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        type: 'bot',
+        content: `播放失败: ${error.message || '未知错误'}`,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       // 从处理中集合中移除
       setProcessingSongs(prev => {
         const newSet = new Set(prev);
         newSet.delete(song.id);
+        console.log('🔄 已从处理队列移除:', song.id);
         return newSet;
       });
     }
