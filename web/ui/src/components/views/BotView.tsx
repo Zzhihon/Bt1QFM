@@ -213,38 +213,100 @@ const BotView: React.FC = () => {
         playlistUrl: hlsPlaylistUrl
       });
 
-      // 检查HLS流是否可用
+      // 检查HLS流是否可用，带重试机制
       console.log('🔍 检查HLS流可用性...');
-      try {
-        const streamCheck = await fetch(hlsUrl);
-        console.log('📊 HLS流检查结果:', {
-          status: streamCheck.status,
-          statusText: streamCheck.statusText,
-          headers: Object.fromEntries(streamCheck.headers.entries())
-        });
-        
-        if (streamCheck.ok) {
-          const content = await streamCheck.text();
-          console.log('📄 playlist.m3u8 内容长度:', content.length);
-          console.log('📄 playlist.m3u8 前100字符:', content.substring(0, 100));
-          
-          if (content.length === 0) {
-            console.error('❌ playlist.m3u8 文件为空!');
-            throw new Error('播放列表文件为空，请稍后再试');
+      
+      const checkStreamWithRetry = async (maxRetries = 3, retryDelay = 8888): Promise<string> => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            console.log(`🔄 第 ${attempt}/${maxRetries} 次尝试获取HLS流...`);
+            
+            // 只使用 cache: 'no-cache' 避免缓存，不设置自定义头以避免 OPTIONS 预检请求
+            const streamCheck = await fetch(hlsUrl, {
+              cache: 'no-cache'
+            });
+            
+            console.log('📊 HLS流检查结果:', {
+              attempt,
+              status: streamCheck.status,
+              statusText: streamCheck.statusText,
+              url: hlsUrl
+            });
+            
+            if (streamCheck.ok) {
+              const content = await streamCheck.text();
+              console.log('📄 playlist.m3u8 内容长度:', content.length);
+              
+              if (content.length === 0) {
+                console.warn(`⚠️ 第 ${attempt} 次尝试: playlist.m3u8 文件为空`);
+                
+                if (attempt < maxRetries) {
+                  // 显示重试提示
+                  addToast({
+                    type: 'info',
+                    message: `正在准备播放流... (${attempt}/${maxRetries})`,
+                    duration: 1500,
+                  });
+                  
+                  console.log(`⏳ 等待 ${retryDelay}ms 后重试...`);
+                  await new Promise(resolve => setTimeout(resolve, retryDelay));
+                  continue;
+                } else {
+                  throw new Error('播放列表文件为空，音频流可能还在准备中，请稍后再试');
+                }
+              }
+              
+              if (!content.includes('#EXTM3U')) {
+                console.error('❌ playlist.m3u8 格式无效:', content.substring(0, 100));
+                throw new Error('播放列表格式无效');
+              }
+              
+              console.log('✅ HLS流验证成功');
+              console.log('📄 playlist.m3u8 前100字符:', content.substring(0, 100));
+              return content;
+            } else {
+              console.error(`❌ 第 ${attempt} 次尝试失败:`, streamCheck.status, streamCheck.statusText);
+              
+              if (attempt < maxRetries) {
+                // 显示重试提示
+                addToast({
+                  type: 'info',
+                  message: `正在准备播放流... (${attempt}/${maxRetries})`,
+                  duration: 1500,
+                });
+                
+                console.log(`⏳ 等待 ${retryDelay}ms 后重试...`);
+                await new Promise(resolve => setTimeout(resolve, retryDelay));
+                continue;
+              } else {
+                throw new Error(`正在处理播放流，请稍后再试 (${streamCheck.status})`);
+              }
+            }
+          } catch (error) {
+            console.error(`❌ 第 ${attempt} 次尝试出错:`, error);
+            
+            if (attempt < maxRetries) {
+              // 显示重试提示
+              addToast({
+                type: 'info',
+                message: `正在准备播放流... (${attempt}/${maxRetries})`,
+                duration: 1500,
+              });
+              
+              console.log(`⏳ 等待 ${retryDelay}ms 后重试...`);
+              await new Promise(resolve => setTimeout(resolve, retryDelay));
+              continue;
+            } else {
+              throw error;
+            }
           }
-          
-          if (!content.includes('#EXTM3U')) {
-            console.error('❌ playlist.m3u8 格式无效:', content);
-            throw new Error('播放列表格式无效');
-          }
-        } else {
-          console.error('❌ HLS流不可用:', streamCheck.status, streamCheck.statusText);
-          throw new Error(`正在处理播放流，请稍后再试 (${streamCheck.status})`);
         }
-      } catch (streamError) {
-        console.error('❌ HLS流检查失败:', streamError);
-        throw new Error('正在处理播放流，请稍后再试');
-      }
+        
+        throw new Error('所有重试尝试都失败了');
+      };
+
+      // 执行带重试的流检查
+      await checkStreamWithRetry();
 
       // 构建播放轨道数据
       const trackData = {
