@@ -26,6 +26,5 @@ WORKDIR /app
 
 
 COPY --from=builder /app/1qfm /app/1qfm
-COPY --from=builder /app/.env /app/.env
 
 CMD ["/app/1qfm"]
