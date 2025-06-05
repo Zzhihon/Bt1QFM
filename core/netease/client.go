@@ -22,9 +22,13 @@ type Client struct {
 
 // NewClient 创建新的客户端实例
 func NewClient() *Client {
+	baseURL := os.Getenv("NETEASE_API_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:3000"
+	}
+
 	return &Client{
-		// 默认使用本地代理的地址
-		BaseURL: "http://localhost:3000",
+		BaseURL: baseURL,
 		HTTPClient: &http.Client{
 			Timeout: 10 * time.Second, // 设置默认超时
 		},
