@@ -10,11 +10,10 @@ WORKDIR /app
 # 设置 npm 镜像为 npmmirror
 RUN npm config set registry https://registry.npmmirror.com
 
-# 复制依赖文件
 COPY package.json package-lock.json ./
 
-# 解决 optional dependencies 问题：清理后使用 npm install（更鲁棒）
-RUN rm -rf node_modules package-lock.json && npm install
+# 添加 lodash 安装
+RUN rm -rf node_modules package-lock.json && npm install lodash && npm install
 
 # 复制项目所有文件（忽略 .dockerignore 中配置的）
 COPY . .
