@@ -272,7 +272,7 @@ const BotView: React.FC = () => {
                 addToast({
                   type: 'info',
                   message: `正在准备播放流... (${attempt}/${maxRetries})`,
-                  duration: 1500,
+                  duration: 5000,
                 });
                 
                 console.log(`⏳ 等待 ${retryDelay}ms 后重试...`);
