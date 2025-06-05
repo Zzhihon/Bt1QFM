@@ -63,3 +63,7 @@ Thumbs.db
 node_modules
 
 static/streams
+
+web/ui/dist/
+web/ui/dist.tar.gz
+

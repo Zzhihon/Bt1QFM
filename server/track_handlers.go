@@ -342,10 +342,20 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		"track":   newTrack,
 	})
 
+	// 将文件内容读取到缓冲区，避免文件关闭后无法读取
+	fileBuffer := &bytes.Buffer{}
+	if _, err := io.Copy(fileBuffer, trackFile); err != nil {
+		logger.Error("读取文件到缓冲区失败",
+			logger.ErrorField(err),
+			logger.Int64("trackId", trackID))
+		h.trackRepo.UpdateTrackStatus(trackID, "failed")
+		return
+	}
+
 	// 启动异步处理
 	go func() {
 		// 处理音频文件上传
-		if err := h.processAudioFileAsync(trackFile, trackHeader, minioTrackPath, contentType, trackID, safeBaseFilename); err != nil {
+		if err := h.processAudioFileAsync(fileBuffer, trackHeader, minioTrackPath, contentType, trackID, safeBaseFilename); err != nil {
 			logger.Error("异步处理音频文件失败",
 				logger.ErrorField(err),
 				logger.Int64("trackId", trackID))
@@ -359,7 +369,7 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 // processAudioFileAsync 异步处理音频文件
-func (h *APIHandler) processAudioFileAsync(trackFile multipart.File, trackHeader *multipart.FileHeader, minioTrackPath, contentType string, trackID int64, safeBaseFilename string) error {
+func (h *APIHandler) processAudioFileAsync(fileBuffer *bytes.Buffer, trackHeader *multipart.FileHeader, minioTrackPath, contentType string, trackID int64, safeBaseFilename string) error {
 	// 创建临时文件
 	tempFile, err := os.CreateTemp("", "upload-*")
 	if err != nil {
@@ -368,9 +378,9 @@ func (h *APIHandler) processAudioFileAsync(trackFile multipart.File, trackHeader
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
 
-	// 将上传的文件复制到临时文件
-	if _, err := io.Copy(tempFile, trackFile); err != nil {
-		return fmt.Errorf("复制文件到临时文件失败: %v", err)
+	// 将缓冲区内容写入临时文件
+	if _, err := io.Copy(tempFile, fileBuffer); err != nil {
+		return fmt.Errorf("写入缓冲区到临时文件失败: %v", err)
 	}
 
 	// 重置文件指针
@@ -474,6 +484,20 @@ func (h *APIHandler) GetTracksHandler(w http.ResponseWriter, r *http.Request) {
 func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("===================== 开始处理流请求 =====================")
 	log.Printf("请求路径: %s", r.URL.Path)
+	log.Printf("请求方法: %s", r.Method)
+
+	// 设置 CORS 头部
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Max-Age", "86400")
+
+	// 处理预检请求
+	if r.Method == http.MethodOptions {
+		log.Printf("处理OPTIONS预检请求")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 
 	if r.Method != http.MethodGet {
 		log.Printf("错误：不支持的请求方法: %s", r.Method)
@@ -700,8 +724,9 @@ func (h *APIHandler) StreamHandler(w http.ResponseWriter, r *http.Request) {
 	defer object.Close()
 	log.Printf("成功获取M3U8文件")
 
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	// 设置响应头部
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	w.Header().Set("Cache-Control", "no-cache")
 
 	// 使用带缓冲的写入
 	buffer := make([]byte, 32*1024) // 32KB buffer
@@ -983,8 +1008,18 @@ func (h *APIHandler) downloadFileFromMinio(objectPath, localPath string) error {
 	}
 
 	cfg := config.Load()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// 增加超时时间到5分钟，适应大文件下载
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	log.Printf("开始从MinIO下载文件: %s -> %s", objectPath, localPath)
+
+	// 获取文件信息
+	stat, err := client.StatObject(ctx, cfg.MinioBucket, objectPath, minio.StatObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get object stat from MinIO: %v", err)
+	}
+	log.Printf("文件大小: %d bytes (%.2f MB)", stat.Size, float64(stat.Size)/(1024*1024))
 
 	object, err := client.GetObject(ctx, cfg.MinioBucket, objectPath, minio.GetObjectOptions{})
 	if err != nil {
@@ -998,10 +1033,49 @@ func (h *APIHandler) downloadFileFromMinio(objectPath, localPath string) error {
 	}
 	defer localFile.Close()
 
-	_, err = io.Copy(localFile, object)
-	if err != nil {
-		return fmt.Errorf("failed to copy file: %v", err)
+	// 使用更大的缓冲区进行复制，并添加进度监控
+	buffer := make([]byte, 1024*1024) // 1MB缓冲区
+	var totalBytes int64
+	startTime := time.Now()
+
+	for {
+		n, readErr := object.Read(buffer)
+		if n > 0 {
+			written, writeErr := localFile.Write(buffer[:n])
+			if writeErr != nil {
+				return fmt.Errorf("failed to write to local file: %v", writeErr)
+			}
+			totalBytes += int64(written)
+
+			// 每10MB记录一次进度
+			if totalBytes%(10*1024*1024) == 0 || (totalBytes > 0 && totalBytes%1024*1024 < int64(n)) {
+				elapsed := time.Since(startTime)
+				progress := float64(totalBytes) / float64(stat.Size) * 100
+				speed := float64(totalBytes) / elapsed.Seconds() / (1024 * 1024) // MB/s
+				log.Printf("下载进度: %.1f%% (%d/%d bytes, %.2f MB/s)", 
+					progress, totalBytes, stat.Size, speed)
+			}
+		}
+
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return fmt.Errorf("failed to read from MinIO: %v", readErr)
+		}
+
+		// 检查上下文是否已取消
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("download cancelled: %v", ctx.Err())
+		default:
+		}
 	}
+
+	elapsed := time.Since(startTime)
+	avgSpeed := float64(totalBytes) / elapsed.Seconds() / (1024 * 1024)
+	log.Printf("下载完成: %d bytes, 耗时: %v, 平均速度: %.2f MB/s", 
+		totalBytes, elapsed, avgSpeed)
 
 	return nil
 }
