@@ -133,4 +133,7 @@ const Navbar: React.FC = () => {
   );
 };
 
-export default Navbar; 
+export default Navbar;
+
+// 导航栏代码无需修改，问题在于 Router basename 配置
+// 确保 App.tsx 中设置了 <Router basename="/1qfm">
