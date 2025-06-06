@@ -1,8 +1,10 @@
 package logger
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,6 +38,22 @@ type Config struct {
 	Compress   bool
 }
 
+// customCallerEncoder 自定义调用者编码器，只显示相对路径
+func customCallerEncoder(caller zapcore.EntryCaller, enc zapcore.PrimitiveArrayEncoder) {
+	// 获取当前工作目录作为根目录
+	if wd, err := os.Getwd(); err == nil {
+		// 尝试获取相对路径
+		if relPath, err := filepath.Rel(wd, caller.File); err == nil {
+			// 确保使用正斜杠，统一路径格式
+			relPath = strings.ReplaceAll(relPath, "\\", "/")
+			enc.AppendString(fmt.Sprintf("%s:%d", relPath, caller.Line))
+			return
+		}
+	}
+	// 如果无法获取相对路径，则使用文件名
+	enc.AppendString(fmt.Sprintf("%s:%d", filepath.Base(caller.File), caller.Line))
+}
+
 // InitLogger 初始化日志系统
 func InitLogger(config Config) {
 	once.Do(func() {
@@ -63,10 +81,10 @@ func InitLogger(config Config) {
 			MessageKey:     "msg",
 			StacktraceKey:  "stacktrace",
 			LineEnding:     zapcore.DefaultLineEnding,
-			EncodeLevel:    zapcore.LowercaseLevelEncoder,  // 使用小写字母表示日志级别
-			EncodeTime:     zapcore.RFC3339TimeEncoder,     // 使用 RFC3339 时间格式
-			EncodeDuration: zapcore.StringDurationEncoder,  // 使用字符串表示持续时间
-			EncodeCaller:   zapcore.ShortCallerEncoder,     // 使用短格式的调用者信息
+			EncodeLevel:    zapcore.LowercaseLevelEncoder, // 使用小写字母表示日志级别
+			EncodeTime:     zapcore.RFC3339TimeEncoder,    // 使用 RFC3339 时间格式
+			EncodeDuration: zapcore.StringDurationEncoder, // 使用字符串表示持续时间
+			EncodeCaller:   customCallerEncoder,           // 使用自定义调用者编码器
 		}
 
 		// 创建控制台输出 - 使用JSON格式
@@ -114,6 +132,7 @@ func InitLogger(config Config) {
 		// 创建 logger
 		globalLogger = zap.New(core,
 			zap.AddCaller(),                       // 添加调用者信息
+			zap.AddCallerSkip(1),                  // 跳过一层调用栈，显示真正的调用者
 			zap.AddStacktrace(zapcore.ErrorLevel), // 在错误级别添加堆栈跟踪
 			zap.Development(),                     // 开发模式，提供更多调试信息
 		)
