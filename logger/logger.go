@@ -56,21 +56,21 @@ func InitLogger(config Config) {
 
 		// 配置编码器
 		encoderConfig := zapcore.EncoderConfig{
-			TimeKey:        "time",
+			TimeKey:        "timestamp",
 			LevelKey:       "level",
 			NameKey:        "logger",
 			CallerKey:      "caller",
 			MessageKey:     "msg",
 			StacktraceKey:  "stacktrace",
 			LineEnding:     zapcore.DefaultLineEnding,
-			EncodeLevel:    zapcore.CapitalLevelEncoder,   // 使用大写字母表示日志级别
-			EncodeTime:     zapcore.ISO8601TimeEncoder,    // 使用 ISO8601 时间格式
-			EncodeDuration: zapcore.StringDurationEncoder, // 使用字符串表示持续时间
-			EncodeCaller:   zapcore.ShortCallerEncoder,    // 使用短格式的调用者信息
+			EncodeLevel:    zapcore.LowercaseLevelEncoder,  // 使用小写字母表示日志级别
+			EncodeTime:     zapcore.RFC3339TimeEncoder,     // 使用 RFC3339 时间格式
+			EncodeDuration: zapcore.StringDurationEncoder,  // 使用字符串表示持续时间
+			EncodeCaller:   zapcore.ShortCallerEncoder,     // 使用短格式的调用者信息
 		}
 
-		// 创建控制台输出
-		consoleEncoder := zapcore.NewConsoleEncoder(encoderConfig)
+		// 创建控制台输出 - 使用JSON格式
+		consoleEncoder := zapcore.NewJSONEncoder(encoderConfig)
 		consoleCore := zapcore.NewCore(
 			consoleEncoder,
 			zapcore.AddSync(os.Stdout),
