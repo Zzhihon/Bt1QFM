@@ -52,6 +52,17 @@ interface PlayerContextType {
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
+// 声明全局变量类型
+declare const __BACKEND_URL__: string;
+
+// 获取后端 URL，提供默认值
+const getBackendUrl = () => {
+  if (typeof __BACKEND_URL__ !== 'undefined') {
+    return __BACKEND_URL__;
+  }
+  return import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
+};
+
 export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { currentUser, authToken } = useAuth();
   const { addToast } = useToast();
@@ -60,6 +71,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   
   const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
+  
+  // 获取后端 URL - 移动到组件顶部
+  const backendUrl = getBackendUrl();
   
   const [playerState, setPlayerState] = useState<PlayerState>(() => {
     // 从localStorage中恢复播放器状态
@@ -111,7 +125,6 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       // 设置音频源
       let audioUrl = '';
       if (playerState.currentTrack.hlsPlaylistUrl) {
-        const backendUrl = 'http://localhost:8080';
         audioUrl = playerState.currentTrack.hlsPlaylistUrl.startsWith('http') 
           ? playerState.currentTrack.hlsPlaylistUrl 
           : `${backendUrl}${playerState.currentTrack.hlsPlaylistUrl}`;
@@ -169,7 +182,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       
       console.log('音频源已设置，等待用户操作');
     }
-  }, []); // 仅在组件挂载时执行一次
+  }, [backendUrl]); // 添加 backendUrl 到依赖数组
   
   // 获取播放列表
   const fetchPlaylist = async () => {
@@ -336,7 +349,6 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       // 统一处理不同来源的歌曲
       if (track.hlsPlaylistUrl) {
         // 本地存储的歌曲（track来源）
-        const backendUrl = 'http://localhost:8080';
         audioUrl = track.hlsPlaylistUrl.startsWith('http') 
           ? track.hlsPlaylistUrl 
           : `${backendUrl}${track.hlsPlaylistUrl}`;

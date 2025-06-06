@@ -24,6 +24,17 @@ interface NeteaseSong {
   coverUrl?: string; // 添加静态封面URL字段
 }
 
+// 声明全局变量类型
+declare const __BACKEND_URL__: string;
+
+// 获取后端 URL，提供默认值
+const getBackendUrl = () => {
+  if (typeof __BACKEND_URL__ !== 'undefined') {
+    return __BACKEND_URL__;
+  }
+  return import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
+};
+
 const BotView: React.FC = () => {
   const { currentUser, authToken } = useAuth();
   const { 
@@ -47,6 +58,18 @@ const BotView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [processingSongs, setProcessingSongs] = useState<Set<number>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // 获取后端 URL
+  const backendUrl = getBackendUrl();
+
+  // 添加调试信息，打印后端URL配置
+  useEffect(() => {
+    console.log('🔧 BotView 后端URL配置信息:');
+    console.log('  - VITE_BACKEND_URL 环境变量:', import.meta.env.VITE_BACKEND_URL);
+    console.log('  - __BACKEND_URL__ 全局变量:', typeof __BACKEND_URL__ !== 'undefined' ? __BACKEND_URL__ : 'undefined');
+    console.log('  - 最终使用的后端URL:', backendUrl);
+    console.log('  - 当前页面URL:', window.location.href);
+  }, [backendUrl]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -204,13 +227,15 @@ const BotView: React.FC = () => {
       const artistStr = Array.isArray(song.artists) ? song.artists.join(', ') : (song.artists || '未知艺术家');
       console.log('👨‍🎤 艺术家信息处理:', { original: song.artists, processed: artistStr });
 
-      // 构建HLS流地址
-      const hlsUrl = `http://localhost:8080/streams/netease/${song.id}/playlist.m3u8`;
+      // 构建HLS流地址 - 使用动态后端URL
+      const hlsUrl = `${backendUrl}/streams/netease/${song.id}/playlist.m3u8`;
       const hlsPlaylistUrl = `/streams/netease/${song.id}/playlist.m3u8`;
       
       console.log('🔗 构建HLS URL:', {
+        backendUrl: backendUrl,
         fullUrl: hlsUrl,
-        playlistUrl: hlsPlaylistUrl
+        playlistUrl: hlsPlaylistUrl,
+        songId: song.id
       });
 
       // 检查HLS流是否可用，带重试机制
@@ -220,6 +245,7 @@ const BotView: React.FC = () => {
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
             console.log(`🔄 第 ${attempt}/${maxRetries} 次尝试获取HLS流...`);
+            console.log(`📡 请求URL: ${hlsUrl}`);
             
             // 只使用 cache: 'no-cache' 避免缓存，不设置自定义头以避免 OPTIONS 预检请求
             const streamCheck = await fetch(hlsUrl, {
@@ -228,9 +254,10 @@ const BotView: React.FC = () => {
             
             console.log('📊 HLS流检查结果:', {
               attempt,
+              requestUrl: hlsUrl,
               status: streamCheck.status,
               statusText: streamCheck.statusText,
-              url: hlsUrl
+              headers: Object.fromEntries(streamCheck.headers.entries())
             });
             
             if (streamCheck.ok) {
@@ -283,7 +310,11 @@ const BotView: React.FC = () => {
               }
             }
           } catch (error) {
-            console.error(`❌ 第 ${attempt} 次尝试出错:`, error);
+            console.error(`❌ 第 ${attempt} 次尝试出错:`, {
+              requestUrl: hlsUrl,
+              error: error instanceof Error ? error.message : error,
+              attempt
+            });
             
             if (attempt < maxRetries) {
               // 显示重试提示
@@ -343,7 +374,9 @@ const BotView: React.FC = () => {
         error: error.message,
         stack: error.stack,
         songId: song.id,
-        songName: song.name
+        songName: song.name,
+        backendUrl: backendUrl,
+        hlsUrl: `${backendUrl}/streams/netease/${song.id}/playlist.m3u8`
       });
       
       addToast({
