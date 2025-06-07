@@ -69,8 +69,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setCurrentUser(user);
       setAuthToken(token);
 
-      // 使用replace而不是href，避免在历史记录中留下登录页面
-      window.location.replace('/music-library');
+      // 登录成功后的跳转交由调用方处理，以便在有路径前缀时正常工作
     } catch (error: any) {
       throw new Error(error.message || 'Login failed');
     } finally {
@@ -114,8 +113,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setCurrentUser(user);
       setAuthToken(token);
 
-      // 使用replace而不是href，避免在历史记录中留下注册页面
-      window.location.replace('/music-library');
+      // 注册完成后的跳转交由调用方处理，兼容带有前缀的部署环境
     } catch (error: any) {
       throw new Error(error.message || 'Registration failed');
     } finally {
@@ -130,8 +128,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.removeItem('currentUser');
     localStorage.removeItem('authToken');
     
-    // 使用replace而不是href，避免在历史记录中留下已登出的页面
-    window.location.replace('/login');
+    // 登出后的跳转交由调用方处理，兼容带有前缀的部署环境
   };
 
   return (
