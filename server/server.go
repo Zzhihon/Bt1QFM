@@ -41,9 +41,9 @@ func Start() {
 	// 设置服务器超时
 	server := &http.Server{
 		Addr:         ":8080",
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  300 * time.Second,
+		WriteTimeout: 300 * time.Second,
+		IdleTimeout:  1200 * time.Second,
 	}
 
 	// 初始化 MinIO 客户端
