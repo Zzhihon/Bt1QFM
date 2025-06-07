@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
+	"Bt1QFM/cache"
 	"Bt1QFM/config"
-	"Bt1QFM/db"
+	// "Bt1QFM/db"
 	"Bt1QFM/logger"
 	"Bt1QFM/storage"
 
@@ -150,9 +150,9 @@ func sendSegment(path string, conn *websocket.Conn, trackID int64, client *minio
 		}
 	}
 
-	if db.RedisClient != nil {
+	if cache.RedisClient != nil {
 		key := fmt.Sprintf("segment:%d:%s", trackID, filepath.Base(path))
-		if err := db.RedisClient.Set(context.Background(), key, data, 5*time.Minute).Err(); err != nil {
+		if err := cache.RedisClient.Set(context.Background(), key, data, 5*time.Minute).Err(); err != nil {
 			logger.Warn("redis set", logger.ErrorField(err))
 		}
 	}

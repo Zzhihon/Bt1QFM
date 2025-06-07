@@ -234,6 +234,17 @@ func (p *MP3Processor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hlsBa
 		logger.String("outputM3U8", outputM3U8),
 		logger.String("baseURL", hlsBaseURL))
 
+	// 验证输入文件
+	if fileInfo, err := os.Stat(inputFile); err != nil {
+		return 0, fmt.Errorf("输入文件不可访问 %s: %w", inputFile, err)
+	} else if fileInfo.Size() == 0 {
+		return 0, fmt.Errorf("输入文件为空 %s", inputFile)
+	} else {
+		logger.Debug("输入文件验证通过",
+			logger.String("inputFile", inputFile),
+			logger.Int64("fileSize", fileInfo.Size()))
+	}
+
 	// 确保输出目录存在
 	outputDir := filepath.Dir(outputM3U8)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
@@ -272,7 +283,16 @@ func (p *MP3Processor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hlsBa
 		logger.String("path", p.ffmpegPath),
 		logger.String("args", strings.Join(args, " ")))
 
+	// 在执行FFmpeg前再次验证文件
+	if _, err := os.Stat(inputFile); err != nil {
+		return 0, fmt.Errorf("FFmpeg执行前文件丢失 %s: %w", inputFile, err)
+	}
+
 	if err := cmd.Run(); err != nil {
+		// 检查文件是否在执行过程中被删除
+		if _, statErr := os.Stat(inputFile); statErr != nil {
+			return 0, fmt.Errorf("FFmpeg执行期间文件被删除 %s: %w (original error: %v)", inputFile, statErr, err)
+		}
 		return 0, fmt.Errorf("ffmpeg execution failed for %s: %w\nFFmpeg Error: %s", inputFile, err, stderr.String())
 	}
 

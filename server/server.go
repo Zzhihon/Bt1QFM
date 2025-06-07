@@ -4,14 +4,7 @@ import (
 	"context"
 	"io"
 
-	"net/http"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"strings"
-	"syscall"
-	"time"
-
+	"Bt1QFM/cache"
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
 	"Bt1QFM/core/netease"
@@ -19,6 +12,13 @@ import (
 	"Bt1QFM/logger"
 	"Bt1QFM/repository"
 	"Bt1QFM/storage"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7"
@@ -58,10 +58,10 @@ func Start() {
 	defer db.DB.Close()
 
 	// Connect to Redis
-	if err := db.ConnectRedis(cfg); err != nil {
+	if err := cache.ConnectRedis(cfg); err != nil {
 		logger.Fatal("连接 Redis 失败", logger.ErrorField(err))
 	}
-	defer db.CloseRedis()
+	defer cache.CloseRedis()
 	logger.Info("成功连接到 Redis")
 
 	// Initialize database schema
@@ -77,6 +77,7 @@ func Start() {
 	ensureDirExists(filepath.Join(cfg.StaticDir, "streams")) // For HLS streams
 
 	audioProcessor := audio.NewFFmpegProcessor(cfg.FFmpegPath)
+	mp3Processor := audio.NewMP3Processor(cfg.FFmpegPath)
 	trackRepo := repository.NewMySQLTrackRepository()
 	userRepo := repository.NewMySQLUserRepository(db.DB)
 	albumRepo := repository.NewMySQLAlbumRepository(db.DB)
@@ -141,39 +142,46 @@ func Start() {
 
 	// 添加MinIO文件服务路由
 	router.PathPrefix("/streams/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		objectPath := strings.TrimPrefix(r.URL.Path, "/")
-		client := storage.GetMinioClient()
-		if client == nil {
-			http.Error(w, "MinIO client not available", http.StatusInternalServerError)
+		// 解析路径：/streams/[netease/]streamID/filename
+		path := strings.TrimPrefix(r.URL.Path, "/streams/")
+		pathParts := strings.Split(path, "/")
+
+		var streamID, fileName string
+		var isNetease bool
+
+		if len(pathParts) >= 3 && pathParts[0] == "netease" {
+			// /streams/netease/streamID/filename
+			isNetease = true
+			streamID = pathParts[1]
+			fileName = pathParts[2]
+		} else if len(pathParts) >= 2 {
+			// /streams/streamID/filename
+			isNetease = false
+			streamID = pathParts[0]
+			fileName = pathParts[1]
+		} else {
+			http.Error(w, "Invalid stream path", http.StatusBadRequest)
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		object, err := client.GetObject(ctx, cfg.MinioBucket, objectPath, minio.GetObjectOptions{})
+		// 使用流处理器获取文件
+		streamProcessor := audio.NewStreamProcessor(mp3Processor, cfg)
+		data, contentType, err := streamProcessor.StreamGet(streamID, fileName, isNetease)
 		if err != nil {
+			logger.Warn("获取流分片失败",
+				logger.String("streamId", streamID),
+				logger.String("fileName", fileName),
+				logger.ErrorField(err))
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
-		}
-		defer object.Close()
-
-		var contentType string
-		if strings.HasSuffix(objectPath, ".m3u8") {
-			contentType = "application/vnd.apple.mpegurl"
-		} else if strings.HasSuffix(objectPath, ".ts") {
-			contentType = "video/MP2T"
-		} else {
-			contentType = "application/octet-stream"
 		}
 
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Cache-Control", "public, max-age=31536000") // 缓存一年
+		w.Header().Set("Cache-Control", "public, max-age=31536000")
 
-		_, err = io.Copy(w, object)
-		if err != nil {
-			logger.Error("Error serving file from MinIO: %v", logger.ErrorField(err))
+		if _, err := w.Write(data); err != nil {
+			logger.Error("写入响应失败", logger.ErrorField(err))
 		}
 	})
 

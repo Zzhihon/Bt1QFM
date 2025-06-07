@@ -2,26 +2,21 @@ package netease
 
 import (
 	"bytes"
-	// "context"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	// "os"
-	// "path/filepath"
+	"os"
 	"strconv"
 	"time"
 
-	// "Bt1QFM/config"
+	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
-	// "Bt1QFM/core/utils"
 	"Bt1QFM/logger"
 	"Bt1QFM/model"
 	"Bt1QFM/repository"
-	// "Bt1QFM/storage"
-
-	// "github.com/minio/minio-go/v7"
 )
 
 // GetSongURL 获取歌曲URL
@@ -329,121 +324,114 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 		}
 
 		// 获取第一首歌的URL并预处理
-		// if i == 0 && mp3Processor != nil && staticDir != "" {
-		// 	// 异步预处理第一首歌
-		// 	go func() {
-		// 		cfg := config.Load()
-		// 		minioClient := storage.GetMinioClient()
-		// 		if minioClient == nil {
-		// 			logger.Error("[SearchSongs] MinIO客户端为空，无法上传到MinIO", logger.String("song", song.Name))
-		// 			return
-		// 		}
+		if i == 0 && mp3Processor != nil && staticDir != "" {
+			// 异步预处理第一首歌
+			go func(songID int64, songName string) {
+				streamID := fmt.Sprintf("%d", songID)
+				logger.Info("[SearchSongs] 开始预处理歌曲", 
+					logger.Int64("song_id", songID), 
+					logger.String("name", songName))
 
-		// 		// 检查是否已经处理过
-		// 		var err error
-		// 		m3u8Path := fmt.Sprintf("streams/netease/%d/playlist.m3u8", song.ID)
-		// 		_, err = minioClient.StatObject(context.Background(), cfg.MinioBucket, m3u8Path, minio.StatObjectOptions{})
-		// 		if err == nil {
-		// 			logger.Info("[SearchSongs] 歌曲已预处理过，跳过", logger.Int64("song_id", song.ID), logger.String("name", song.Name))
-		// 			return
-		// 		}
+				// 获取歌曲URL
+				songURL, err := c.GetSongURL(streamID)
+				if err != nil {
+					logger.Error("[SearchSongs] 获取歌曲URL失败",
+						logger.Int64("song_id", songID),
+						logger.String("name", songName),
+						logger.ErrorField(err))
+					return
+				}
 
-		// 		// 获取歌曲URL
-		// 		songURL, err := c.GetSongURL(fmt.Sprintf("%d", song.ID))
-		// 		if err != nil {
-		// 			logger.Error("[SearchSongs] 获取歌曲URL失败", logger.Int64("song_id", song.ID), logger.String("name", song.Name), logger.ErrorField(err))
-		// 			return
-		// 		}
+				// 创建一个持久的临时文件，用于流处理
+				tempFile, err := os.CreateTemp("", fmt.Sprintf("netease_%d_*.mp3", songID))
+				if err != nil {
+					logger.Error("[SearchSongs] 创建临时文件失败",
+						logger.Int64("song_id", songID),
+						logger.ErrorField(err))
+					return
+				}
+				tempFilePath := tempFile.Name()
+				tempFile.Close() // 关闭文件句柄但不删除文件
 
-		// 		// 下载音频文件
-		// 		tempDir := filepath.Join(staticDir, "temp", fmt.Sprintf("%d", song.ID))
-		// 		os.MkdirAll(tempDir, 0755)
-		// 		defer os.RemoveAll(tempDir)
+				// 下载文件
+				if err := downloadFile(songURL, tempFilePath); err != nil {
+					logger.Error("[SearchSongs] 下载音频文件失败",
+						logger.Int64("song_id", songID),
+						logger.String("name", songName),
+						logger.ErrorField(err))
+					os.Remove(tempFilePath) // 下载失败时清理文件
+					return
+				}
 
-		// 		mp3Path := filepath.Join(tempDir, "original.mp3")
-		// 		if err := utils.DownloadFile(songURL, mp3Path); err != nil {
-		// 			logger.Error("[SearchSongs] 下载音频文件失败", logger.Int64("song_id", song.ID), logger.String("name", song.Name), logger.ErrorField(err))
-		// 			return
-		// 		}
+				// 验证文件是否存在且大小合理
+				if fileInfo, err := os.Stat(tempFilePath); err != nil {
+					logger.Error("[SearchSongs] 临时文件不存在",
+						logger.Int64("song_id", songID),
+						logger.String("tempFile", tempFilePath),
+						logger.ErrorField(err))
+					return
+				} else if fileInfo.Size() == 0 {
+					logger.Error("[SearchSongs] 临时文件为空",
+						logger.Int64("song_id", songID),
+						logger.String("tempFile", tempFilePath))
+					os.Remove(tempFilePath)
+					return
+				} else {
+					logger.Info("[SearchSongs] 文件下载完成",
+						logger.Int64("song_id", songID),
+						logger.String("tempFile", tempFilePath),
+						logger.Int64("fileSize", fileInfo.Size()))
+				}
 
-		// 		// 优化音频文件
-		// 		optimizedPath := filepath.Join(tempDir, "optimized.mp3")
-		// 		if err := mp3Processor.OptimizeMP3(mp3Path, optimizedPath); err != nil {
-		// 			logger.Error("[SearchSongs] 优化音频文件失败", logger.Int64("song_id", song.ID), logger.String("name", song.Name), logger.ErrorField(err))
-		// 			return
-		// 		}
+				// 使用流处理器处理音频
+				cfg := config.Load()
+				streamProcessor := audio.NewStreamProcessor(mp3Processor, cfg)
 
-		// 		// 转换为HLS格式
-		// 		hlsDir := filepath.Join(tempDir, "streams/netease")
-		// 		outputM3U8 := filepath.Join(hlsDir, "playlist.m3u8")
-		// 		segmentPattern := filepath.Join(hlsDir, "segment_%03d.ts")
-		// 		hlsBaseURL := fmt.Sprintf("/streams/netease/%d/", song.ID)
+				// 使用同步方式处理流，等待处理完成后再删除临时文件
+				if err := streamProcessor.StreamProcessSync(context.Background(), streamID, tempFilePath, true); err != nil {
+					logger.Error("[SearchSongs] 流处理失败",
+						logger.Int64("song_id", songID),
+						logger.String("name", songName),
+						logger.String("tempFile", tempFilePath),
+						logger.ErrorField(err))
+				} else {
+					logger.Info("[SearchSongs] 歌曲预处理完成",
+						logger.Int64("song_id", songID),
+						logger.String("name", songName))
+				}
 
-		// 		_, err = mp3Processor.ProcessToHLS(optimizedPath, outputM3U8, segmentPattern, hlsBaseURL, "192k", "4")
-		// 		if err != nil {
-		// 			logger.Error("[SearchSongs] 转换为HLS格式失败", logger.Int64("song_id", song.ID), logger.String("name", song.Name), logger.ErrorField(err))
-		// 			return
-		// 		}
-
-		// 		// 上传到MinIO
-		// 		// 上传m3u8文件
-		// 		minioM3U8Path := fmt.Sprintf("streams/netease/%d/playlist.m3u8", song.ID)
-		// 		m3u8Content, err := os.ReadFile(outputM3U8)
-		// 		if err != nil {
-		// 			logger.Error("[SearchSongs] 读取m3u8文件失败", logger.Int64("song_id", song.ID), logger.String("name", song.Name), logger.ErrorField(err))
-		// 			return
-		// 		}
-		// 		logger.Debug("[SearchSongs] 上传m3u8文件", logger.String("path", minioM3U8Path))
-
-		// 		_, err = minioClient.PutObject(context.Background(), cfg.MinioBucket, minioM3U8Path, bytes.NewReader(m3u8Content), int64(len(m3u8Content)), minio.PutObjectOptions{
-		// 			ContentType: "application/vnd.apple.mpegurl",
-		// 		})
-		// 		if err != nil {
-		// 			logger.Error("[SearchSongs] 上传m3u8文件失败", logger.Int64("song_id", song.ID), logger.String("name", song.Name), logger.ErrorField(err))
-		// 			return
-		// 		}
-
-		// 		// 上传ts文件
-		// 		tsFiles, err := filepath.Glob(filepath.Join(hlsDir, "*.ts"))
-		// 		if err != nil {
-		// 			logger.Error("[SearchSongs] 查找ts文件失败", logger.Int64("song_id", song.ID), logger.String("name", song.Name), logger.ErrorField(err))
-		// 			return
-		// 		}
-		// 		logger.Debug("[SearchSongs] 找到ts文件", logger.Int("count", len(tsFiles)))
-
-		// 		logger.Info("[SearchSongs] 开始上传分片文件", logger.Int64("song_id", song.ID), logger.String("name", song.Name), logger.Int("segments_count", len(tsFiles)))
-		// 		for _, tsFile := range tsFiles {
-		// 			segmentName := filepath.Base(tsFile)
-		// 			segmentPath := fmt.Sprintf("streams/netease/%d/%s", song.ID, segmentName)
-		// 			segmentContent, err := os.ReadFile(tsFile)
-		// 			if err != nil {
-		// 				logger.Warn("[SearchSongs] 读取ts文件失败",
-		// 					logger.Int64("song_id", song.ID),
-		// 					logger.String("name", song.Name),
-		// 					logger.String("file", segmentName),
-		// 					logger.ErrorField(err))
-		// 				continue
-		// 			}
-
-		// 			_, err = minioClient.PutObject(context.Background(), cfg.MinioBucket, segmentPath, bytes.NewReader(segmentContent), int64(len(segmentContent)), minio.PutObjectOptions{
-		// 				ContentType: "video/MP2T",
-		// 			})
-		// 			if err != nil {
-		// 				logger.Warn("[SearchSongs] 上传ts文件失败",
-		// 					logger.Int64("song_id", song.ID),
-		// 					logger.String("name", song.Name),
-		// 					logger.String("file", segmentName),
-		// 					logger.ErrorField(err))
-		// 				continue
-		// 			}
-		// 		}
-
-		// 		logger.Info("[SearchSongs] 歌曲预处理完成", logger.Int64("song_id", song.ID), logger.String("name", song.Name))
-		// 	}()
-		// }
+				// 处理完成后删除临时文件
+				if err := os.Remove(tempFilePath); err != nil {
+					logger.Warn("[SearchSongs] 清理临时文件失败",
+						logger.String("tempFile", tempFilePath),
+						logger.ErrorField(err))
+				} else {
+					logger.Debug("[SearchSongs] 临时文件已清理",
+						logger.String("tempFile", tempFilePath))
+				}
+			}(song.ID, song.Name)
+		}
 	}
 
 	return searchResult, nil
+}
+
+// downloadFile 下载文件的辅助函数
+func downloadFile(url, filepath string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	out, err := os.Create(filepath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
 }
 
 // GetDynamicCover 获取歌曲动态封面

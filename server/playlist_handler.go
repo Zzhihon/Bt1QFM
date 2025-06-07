@@ -10,7 +10,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"Bt1QFM/db"
+	// "Bt1QFM/db"
+	"Bt1QFM/cache"
 	"Bt1QFM/repository"
 )
 
@@ -71,7 +72,7 @@ func (h *APIHandler) GetPlaylistHandler(ctx context.Context, userID int64, w htt
 	}
 
 	// 获取播放列表
-	playlist, err := db.GetPlaylist(ctx, userID)
+	playlist, err := cache.GetPlaylist(ctx, userID)
 	if err != nil {
 		log.Printf("Error getting playlist for user %d: %v", userID, err)
 		http.Error(w, fmt.Sprintf("Failed to get playlist: %v", err), http.StatusInternalServerError)
@@ -80,7 +81,7 @@ func (h *APIHandler) GetPlaylistHandler(ctx context.Context, userID int64, w htt
 
 	// 如果播放列表为空，返回空数组
 	if playlist == nil {
-		playlist = []db.PlaylistItem{}
+		playlist = []cache.PlaylistItem{}
 	}
 
 	// 为每首歌添加完整信息（如果需要）
@@ -224,7 +225,7 @@ func (h *APIHandler) AddToPlaylistHandler(ctx context.Context, userID int64, w h
 		log.Printf("[AddToPlaylistHandler] 找到普通歌曲: %s - %s", track.Title, track.Artist)
 	}
 
-	item := db.PlaylistItem{
+	item := cache.PlaylistItem{
 		TrackID:   requestData.TrackID,
 		NeteaseID: requestData.NeteaseID,
 		Title:     requestData.Title,
@@ -235,7 +236,7 @@ func (h *APIHandler) AddToPlaylistHandler(ctx context.Context, userID int64, w h
 	log.Printf("[AddToPlaylistHandler] 准备添加到播放列表: {TrackID:%d NeteaseID:%d Title:%s Artist:%s Album:%s}",
 		item.TrackID, item.NeteaseID, item.Title, item.Artist, item.Album)
 
-	if err := db.AddTrackToPlaylist(ctx, userID, item); err != nil {
+	if err := cache.AddTrackToPlaylist(ctx, userID, item); err != nil {
 		log.Printf("[AddToPlaylistHandler] 添加到播放列表失败: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to add track to playlist: %v", err), http.StatusInternalServerError)
 		return
@@ -274,7 +275,7 @@ func (h *APIHandler) RemoveFromPlaylistHandler(ctx context.Context, userID int64
 		return
 	}
 
-	if err := db.RemoveTrackFromPlaylist(ctx, userID, trackID); err != nil {
+	if err := cache.RemoveTrackFromPlaylist(ctx, userID, trackID); err != nil {
 		log.Printf("Error removing track from playlist: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to remove track from playlist: %v", err), http.StatusInternalServerError)
 		return
@@ -288,7 +289,7 @@ func (h *APIHandler) RemoveFromPlaylistHandler(ctx context.Context, userID int64
 
 // ClearPlaylistHandler 清空播放列表
 func (h *APIHandler) ClearPlaylistHandler(ctx context.Context, userID int64, w http.ResponseWriter, r *http.Request) {
-	if err := db.ClearPlaylist(ctx, userID); err != nil {
+	if err := cache.ClearPlaylist(ctx, userID); err != nil {
 		log.Printf("Error clearing playlist: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to clear playlist: %v", err), http.StatusInternalServerError)
 		return
@@ -316,7 +317,7 @@ func (h *APIHandler) UpdatePlaylistOrderHandler(ctx context.Context, userID int6
 		return
 	}
 
-	if err := db.UpdatePlaylistOrder(ctx, userID, requestData.TrackIDs); err != nil {
+	if err := cache.UpdatePlaylistOrder(ctx, userID, requestData.TrackIDs); err != nil {
 		log.Printf("Error updating playlist order: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to update playlist order: %v", err), http.StatusInternalServerError)
 		return
@@ -330,7 +331,7 @@ func (h *APIHandler) UpdatePlaylistOrderHandler(ctx context.Context, userID int6
 
 // ShufflePlaylistHandler 随机排序播放列表
 func (h *APIHandler) ShufflePlaylistHandler(ctx context.Context, userID int64, w http.ResponseWriter, r *http.Request) {
-	if err := db.ShufflePlaylist(ctx, userID); err != nil {
+	if err := cache.ShufflePlaylist(ctx, userID); err != nil {
 		log.Printf("Error shuffling playlist: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to shuffle playlist: %v", err), http.StatusInternalServerError)
 		return
@@ -370,7 +371,7 @@ func (h *APIHandler) AddAllTracksToPlaylistHandler(w http.ResponseWriter, r *htt
 	ctx := r.Context()
 
 	// 首先清空现有播放列表
-	if err := db.ClearPlaylist(ctx, userID); err != nil {
+	if err := cache.ClearPlaylist(ctx, userID); err != nil {
 		log.Printf("Error clearing playlist before adding all tracks: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to clear existing playlist: %v", err), http.StatusInternalServerError)
 		return
@@ -386,7 +387,7 @@ func (h *APIHandler) AddAllTracksToPlaylistHandler(w http.ResponseWriter, r *htt
 
 	addedCount := 0
 	for i, track := range tracks {
-		item := db.PlaylistItem{
+		item := cache.PlaylistItem{
 			TrackID:  track.ID,
 			Title:    track.Title,
 			Artist:   track.Artist,
@@ -394,7 +395,7 @@ func (h *APIHandler) AddAllTracksToPlaylistHandler(w http.ResponseWriter, r *htt
 			Position: i,
 		}
 
-		if err := db.AddTrackToPlaylist(ctx, userID, item); err != nil {
+		if err := cache.AddTrackToPlaylist(ctx, userID, item); err != nil {
 			log.Printf("Warning: Failed to add track %d to playlist: %v", track.ID, err)
 			continue
 		}

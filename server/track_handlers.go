@@ -403,6 +403,23 @@ func (h *APIHandler) processAudioFileAsync(fileBuffer *bytes.Buffer, trackHeader
 		return fmt.Errorf("上传到MinIO失败: %v", err)
 	}
 
+	// 使用新的流处理器处理音频
+	streamProcessor := audio.NewStreamProcessor(h.mp3Processor, h.cfg)
+	streamID := strconv.FormatInt(trackID, 10)
+
+	// 重置文件指针以供流处理使用
+	if _, err := tempFile.Seek(0, 0); err != nil {
+		return fmt.Errorf("重置文件指针失败: %v", err)
+	}
+
+	// 启动流处理
+	if err := streamProcessor.StreamProcess(context.Background(), streamID, tempFile.Name(), false); err != nil {
+		logger.Error("流处理失败",
+			logger.Int64("trackId", trackID),
+			logger.ErrorField(err))
+		return fmt.Errorf("流处理失败: %v", err)
+	}
+
 	// 生成HLS流
 	hlsStreamDir := filepath.Join("streams", safeBaseFilename)
 	m3u8ServePath := "/static/" + strings.ReplaceAll(filepath.ToSlash(hlsStreamDir), "\\", "/") + "/playlist.m3u8"
