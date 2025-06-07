@@ -481,21 +481,6 @@ func (h *APIHandler) processAudioFileAsync(fileBuffer *bytes.Buffer, trackHeader
 		return fmt.Errorf("重置文件指针失败: %v", err)
 	}
 
-	// 上传到MinIO
-	client := storage.GetMinioClient()
-	if client == nil {
-		return fmt.Errorf("MinIO client not initialized")
-	}
-
-	opts := minio.PutObjectOptions{
-		ContentType:      contentType,
-		DisableMultipart: true,
-	}
-
-	_, err = client.PutObject(context.Background(), h.cfg.MinioBucket, minioTrackPath, tempFile, trackHeader.Size, opts)
-	if err != nil {
-		return fmt.Errorf("上传到MinIO失败: %v", err)
-	}
 
 	// 使用新的流处理器处理音频
 	streamProcessor := audio.NewStreamProcessor(h.mp3Processor, h.cfg)
