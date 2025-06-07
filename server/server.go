@@ -117,6 +117,7 @@ func Start() {
 	router.HandleFunc("/api/upload", apiHandler.AuthMiddleware(apiHandler.UploadTrackHandler)).Methods(http.MethodPost)
 	router.HandleFunc("/api/upload/cover", apiHandler.AuthMiddleware(apiHandler.UploadCoverHandler)).Methods(http.MethodPost)
 	router.HandleFunc("/stream/{track_id}/playlist.m3u8", apiHandler.StreamHandler).Methods(http.MethodGet)
+	router.HandleFunc("/ws/stream/{track_id}", apiHandler.WebSocketStreamHandler)
 
 	// 播放列表相关的API端点
 	router.HandleFunc("/api/playlist", apiHandler.AuthMiddleware(apiHandler.PlaylistHandler)).Methods(http.MethodGet, http.MethodPost, http.MethodDelete)

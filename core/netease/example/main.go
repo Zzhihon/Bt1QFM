@@ -14,7 +14,7 @@ func main() {
 
 	// 1. 搜索歌曲
 	fmt.Println("搜索歌曲...")
-	searchResult, err := client.SearchSongs("周杰伦", 10, 2)
+	searchResult, err := client.SearchSongs("周杰伦", 10, 2, nil, "")
 	if err != nil {
 		log.Fatalf("搜索失败: %v", err)
 	}
