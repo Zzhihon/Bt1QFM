@@ -3,18 +3,18 @@ package netease
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 
+	"Bt1QFM/logger"
 	"Bt1QFM/model"
 )
 
 // GetPlaylistDetail 获取歌单详情
 func (c *Client) GetPlaylistDetail(playlistID string) (*model.NeteasePlaylist, error) {
 	url := fmt.Sprintf("%s/playlist/detail?id=%s", c.BaseURL, playlistID)
-	log.Printf("[playlist/GetPlaylistDetail] 获取歌单详情 (ID: %s)", playlistID)
+	logger.Info("[GetPlaylistDetail] 获取歌单详情", logger.String("playlist_id", playlistID))
 	resp, err := c.HTTPClient.Get(url)
 	if err != nil {
-		log.Printf("[playlist/GetPlaylistDetail] 请求失败 (ID: %s): %v", playlistID, err)
+		logger.Error("[GetPlaylistDetail] 请求失败", logger.String("playlist_id", playlistID), logger.ErrorField(err))
 		return nil, fmt.Errorf("请求失败: %w", err)
 	}
 	defer resp.Body.Close()
@@ -25,20 +25,20 @@ func (c *Client) GetPlaylistDetail(playlistID string) (*model.NeteasePlaylist, e
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Printf("[playlist/GetPlaylistDetail] 解析响应失败 (ID: %s): %v", playlistID, err)
+		logger.Error("[GetPlaylistDetail] 解析响应失败", logger.String("playlist_id", playlistID), logger.ErrorField(err))
 		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
-	log.Printf("[playlist/GetPlaylistDetail] 成功获取歌单详情 (ID: %s, 名称: %s)", playlistID, result.Playlist.Name)
+	logger.Info("[GetPlaylistDetail] 成功获取歌单详情", logger.String("playlist_id", playlistID), logger.String("name", result.Playlist.Name))
 	return &result.Playlist, nil
 }
 
 // GetPlaylistTracks 获取歌单中的歌曲列表
 func (c *Client) GetPlaylistTracks(playlistID string) ([]model.NeteaseSong, error) {
 	url := fmt.Sprintf("%s/playlist/track/all?id=%s", c.BaseURL, playlistID)
-	log.Printf("[playlist/GetPlaylistTracks] 获取歌单歌曲列表 (ID: %s)", playlistID)
+	logger.Info("[GetPlaylistTracks] 获取歌单歌曲列表", logger.String("playlist_id", playlistID))
 	resp, err := c.HTTPClient.Get(url)
 	if err != nil {
-		log.Printf("[playlist/GetPlaylistTracks] 请求失败 (ID: %s): %v", playlistID, err)
+		logger.Error("[GetPlaylistTracks] 请求失败", logger.String("playlist_id", playlistID), logger.ErrorField(err))
 		return nil, fmt.Errorf("请求失败: %w", err)
 	}
 	defer resp.Body.Close()
@@ -49,9 +49,9 @@ func (c *Client) GetPlaylistTracks(playlistID string) ([]model.NeteaseSong, erro
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Printf("[playlist/GetPlaylistTracks] 解析响应失败 (ID: %s): %v", playlistID, err)
+		logger.Error("[GetPlaylistTracks] 解析响应失败", logger.String("playlist_id", playlistID), logger.ErrorField(err))
 		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
-	log.Printf("[playlist/GetPlaylistTracks] 成功获取歌单歌曲 (ID: %s, 数量: %d)", playlistID, len(result.Songs))
+	logger.Info("[GetPlaylistTracks] 成功获取歌单歌曲", logger.String("playlist_id", playlistID), logger.Int("songs_count", len(result.Songs)))
 	return result.Songs, nil
 }

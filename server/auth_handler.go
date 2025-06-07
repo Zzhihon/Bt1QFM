@@ -5,13 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 
 	"Bt1QFM/core/auth"
+	"Bt1QFM/logger"
 	"Bt1QFM/model"
-)	
+)
 
 // LoginRequest represents the login request body
 type LoginRequest struct {
@@ -40,7 +40,7 @@ func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("[Login] 解析请求体失败: %v", err)
+		logger.Error("[Login] 解析请求体失败", logger.ErrorField(err))
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -61,24 +61,24 @@ func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			log.Printf("[Login] 用户不存在: %s", req.Username)
+			logger.Warn("[Login] 用户不存在", logger.String("username", req.Username))
 			http.Error(w, "Invalid username/email or password", http.StatusUnauthorized)
 		} else {
-			log.Printf("[Login] 查询用户失败: %v", err)
+			logger.Error("[Login] 查询用户失败", logger.ErrorField(err))
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
 		return
 	}
 
 	if user == nil {
-		log.Printf("[Login] 用户不存在: %s", req.Username)
+		logger.Warn("[Login] 用户不存在", logger.String("username", req.Username))
 		http.Error(w, "Invalid username/email or password", http.StatusUnauthorized)
 		return
 	}
 
 	// 验证密码
 	if !auth.VerifyPassword(req.Password, user.PasswordHash) {
-		log.Printf("[Login] 密码验证失败: %s", req.Username)
+		logger.Warn("[Login] 密码验证失败", logger.String("username", req.Username))
 		http.Error(w, "Invalid username/email or password", http.StatusUnauthorized)
 		return
 	}
@@ -86,7 +86,7 @@ func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// 生成JWT token
 	token, err := auth.GenerateToken(user.ID, user.Username)
 	if err != nil {
-		log.Printf("[Login] 生成Token失败: %v", err)
+		logger.Error("[Login] 生成Token失败", logger.ErrorField(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -113,7 +113,7 @@ func (h *APIHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		response.User.Preferences = user.Preferences
 	}
 
-	log.Printf("[Login] 登录成功: %s", user.Username)
+	logger.Info("[Login] 登录成功", logger.String("username", user.Username))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)

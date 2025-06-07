@@ -66,4 +66,4 @@ static/streams
 
 web/ui/dist/
 web/ui/dist.tar.gz
-
+*.bat

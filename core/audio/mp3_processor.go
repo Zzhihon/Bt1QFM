@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"sync"
 
 	"Bt1QFM/core/utils"
+	"Bt1QFM/logger"
 )
 
 // PreprocessTask 表示预处理任务
@@ -104,7 +104,7 @@ func (p *MP3Processor) worker() {
 			// 下载音频文件
 			tempFile := filepath.Join(tempDir, fmt.Sprintf("%s.mp3", task.SongID))
 			if err := utils.DownloadFile(task.URL, tempFile); err != nil {
-				log.Printf("下载音频文件失败: %v", err)
+				logger.Error("下载音频文件失败", logger.String("songId", task.SongID), logger.ErrorField(err))
 				p.UpdateProcessingStatus(task.SongID, err)
 				task.ResultChan <- &PreprocessResult{
 					Success: false,
@@ -229,8 +229,10 @@ func (p *MP3Processor) ClearProcessingStatus(songID string) {
 
 // ProcessToHLS 将 MP3 文件转换为 HLS 格式
 func (p *MP3Processor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hlsBaseURL, audioBitrate, hlsSegmentTime string) (float32, error) {
-	log.Printf("Processing Netease MP3 %s to HLS. Output M3U8: %s, Segments: %s, Base URL: %s",
-		inputFile, outputM3U8, segmentPattern, hlsBaseURL)
+	logger.Info("Processing MP3 to HLS",
+		logger.String("inputFile", inputFile),
+		logger.String("outputM3U8", outputM3U8),
+		logger.String("baseURL", hlsBaseURL))
 
 	// 确保输出目录存在
 	outputDir := filepath.Dir(outputM3U8)
@@ -241,7 +243,7 @@ func (p *MP3Processor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hlsBa
 	// 获取音频时长
 	duration, err := p.GetAudioDuration(inputFile)
 	if err != nil {
-		log.Printf("Warning: could not get audio duration for %s: %v. Proceeding without duration.", inputFile, err)
+		logger.Warn("Could not get audio duration, proceeding without", logger.String("file", inputFile), logger.ErrorField(err))
 	}
 
 	// 构建 FFmpeg 参数
@@ -266,13 +268,17 @@ func (p *MP3Processor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hlsBa
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	log.Printf("Executing FFmpeg command: %s %s", p.ffmpegPath, strings.Join(args, " "))
+	logger.Debug("Executing FFmpeg command",
+		logger.String("path", p.ffmpegPath),
+		logger.String("args", strings.Join(args, " ")))
 
 	if err := cmd.Run(); err != nil {
 		return 0, fmt.Errorf("ffmpeg execution failed for %s: %w\nFFmpeg Error: %s", inputFile, err, stderr.String())
 	}
 
-	log.Printf("Successfully transcoded Netease MP3 %s to HLS: %s", inputFile, outputM3U8)
+	logger.Info("Successfully transcoded MP3 to HLS",
+		logger.String("inputFile", inputFile),
+		logger.String("outputM3U8", outputM3U8))
 	return duration, nil
 }
 

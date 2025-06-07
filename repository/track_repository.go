@@ -3,10 +3,10 @@ package repository
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"time"
 
 	"Bt1QFM/db"
+	"Bt1QFM/logger"
 	"Bt1QFM/model"
 )
 
@@ -56,7 +56,7 @@ func (r *mysqlTrackRepository) CreateTrack(track *model.Track) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to get last insert ID for CreateTrack: %w", err)
 	}
-	log.Printf("Track created with ID: %d, Title: %s", id, track.Title)
+	logger.Info("Track created", logger.Int64("trackId", id), logger.String("title", track.Title))
 	return id, nil
 }
 
@@ -117,7 +117,7 @@ func (r *mysqlTrackRepository) UpdateTrackHLSPath(trackID int64, hlsPath string,
 	if err != nil {
 		return fmt.Errorf("failed to execute UpdateTrackHLSPath for track ID %d: %w", trackID, err)
 	}
-	log.Printf("HLS path updated for track ID: %d to %s", trackID, hlsPath)
+	logger.Info("HLS path updated", logger.Int64("trackId", trackID), logger.String("path", hlsPath))
 	return nil
 }
 
@@ -134,7 +134,7 @@ func (r *mysqlTrackRepository) UpdateTrackCoverArtPath(trackID int64, coverPath 
 	if err != nil {
 		return fmt.Errorf("failed to execute UpdateTrackCoverArtPath for track ID %d: %w", trackID, err)
 	}
-	log.Printf("Cover art path updated for track ID: %d to %s", trackID, coverPath)
+	logger.Info("Cover art path updated", logger.Int64("trackId", trackID), logger.String("path", coverPath))
 	return nil
 }
 
@@ -182,7 +182,7 @@ func (r *mysqlTrackRepository) CreateTrackWithTx(tx *sql.Tx, track *model.Track)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get last insert ID for CreateTrackWithTx: %w", err)
 	}
-	log.Printf("Track created with ID: %d, Title: %s", id, track.Title)
+	logger.Info("Track created with transaction", logger.Int64("trackId", id), logger.String("title", track.Title))
 	return id, nil
 }
 
@@ -215,6 +215,6 @@ func (r *mysqlTrackRepository) UpdateTrackStatus(trackID int64, status string) e
 	if err != nil {
 		return fmt.Errorf("failed to execute UpdateTrackStatus for track ID %d: %w", trackID, err)
 	}
-	log.Printf("Status updated for track ID: %d to %s", trackID, status)
+	logger.Info("Track status updated", logger.Int64("trackId", trackID), logger.String("status", status))
 	return nil
 }

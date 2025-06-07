@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"io"
-	"log"
+
 	"net/http"
 	"os"
 	"os/signal"
@@ -174,7 +174,7 @@ func Start() {
 
 		_, err = io.Copy(w, object)
 		if err != nil {
-			log.Printf("Error serving file from MinIO: %v", err)
+			logger.Error("Error serving file from MinIO: %v", logger.ErrorField(err))
 		}
 	})
 
@@ -212,7 +212,7 @@ func Start() {
 
 		_, err = io.Copy(w, object)
 		if err != nil {
-			log.Printf("Error serving file from MinIO: %v", err)
+			logger.Error("Error serving file from MinIO: %v", logger.ErrorField(err))
 		}
 	})
 

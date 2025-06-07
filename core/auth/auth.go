@@ -2,8 +2,9 @@ package auth
 
 import (
 	"fmt"
-	"log"
 	"time"
+
+	"Bt1QFM/logger"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -22,16 +23,21 @@ func HashPassword(password string) (string, error) {
 
 // VerifyPassword compares a password with a bcrypt hash.
 func VerifyPassword(password, hash string) bool {
-	log.Printf("[Auth] 开始密码验证 - 密码长度: %d, 哈希长度: %d", len(password), len(hash))
-	log.Printf("[Auth] 密码哈希前10个字符: %s", hash[:10])
+	logger.Debug("[Auth] 开始密码验证",
+		logger.Int("passwordLen", len(password)),
+		logger.Int("hashLen", len(hash)))
+
+	if len(hash) >= 10 {
+		logger.Debug("[Auth] 密码哈希前10个字符", logger.String("hashPrefix", hash[:10]))
+	}
 
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	if err != nil {
-		log.Printf("[Auth] 密码验证失败: %v", err)
+		logger.Warn("[Auth] 密码验证失败", logger.ErrorField(err))
 		return false
 	}
 
-	log.Printf("[Auth] 密码验证成功")
+	logger.Debug("[Auth] 密码验证成功")
 	return true
 }
 

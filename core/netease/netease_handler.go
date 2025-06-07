@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,6 +15,7 @@ import (
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
 	"Bt1QFM/core/utils"
+	"Bt1QFM/logger"
 	"Bt1QFM/model"
 	"Bt1QFM/repository"
 	"Bt1QFM/storage"
@@ -65,7 +65,7 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	// 获取查询参数
 	query := r.URL.Query().Get("q")
 	if query == "" {
-		log.Printf("[HandleSearch] 错误: 缺少搜索关键词")
+		logger.Error("[HandleSearch] 错误: 缺少搜索关键词")
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "请提供搜索关键词",
@@ -73,12 +73,12 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[HandleSearch] 开始搜索歌曲: %s", query)
+	logger.Info("[HandleSearch] 开始搜索歌曲", logger.String("query", query))
 
 	// 使用已实现的SearchSongs函数
 	result, err := h.client.SearchSongs(query, 5, 0, h.mp3Processor, h.config.StaticDir)
 	if err != nil {
-		log.Printf("[HandleSearch] 搜索失败: %v", err)
+		logger.Error("[HandleSearch] 搜索失败", logger.ErrorField(err))
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "搜索失败: " + err.Error(),
@@ -86,7 +86,7 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[HandleSearch] 搜索成功，找到 %d 首歌曲", len(result.Songs))
+	logger.Info("[HandleSearch] 搜索成功", logger.Int("songs_count", len(result.Songs)))
 
 	// 转换结果格式
 	response := SearchResponse{
@@ -101,12 +101,12 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 			artistNames[i] = artist.Name
 		}
 
-		log.Printf("[HandleSearch] 处理歌曲: %s (ID: %d)", song.Name, song.ID)
+		logger.Debug("[HandleSearch] 处理歌曲", logger.String("name", song.Name), logger.Int64("id", song.ID))
 
 		// 获取动态封面
 		videoURL, err := h.client.GetDynamicCover(fmt.Sprintf("%d", song.ID))
 		if err != nil {
-			log.Printf("[HandleSearch] 获取动态封面失败 (歌曲ID: %d): %v", song.ID, err)
+			logger.Warn("[HandleSearch] 获取动态封面失败", logger.Int64("song_id", song.ID), logger.ErrorField(err))
 			// 继续处理，不中断流程
 		}
 
@@ -125,72 +125,77 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	// 返回结果
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
-	log.Printf("[HandleSearch] 搜索请求处理完成")
+	logger.Info("[HandleSearch] 搜索请求处理完成")
 }
 
 // checkAndUpdateHLS 异步检查并更新HLS路径
 func (h *NeteaseHandler) checkAndUpdateHLS(songID string) {
-	log.Printf("[checkAndUpdateHLS] 开始检查歌曲HLS路径 (ID: %s)", songID)
+	logger.Info("[checkAndUpdateHLS] 开始检查歌曲HLS路径", logger.String("song_id", songID))
 
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[checkAndUpdateHLS] 发生panic (ID: %s): %v", songID, r)
+				logger.Error("[checkAndUpdateHLS] 发生panic", logger.String("song_id", songID), logger.Any("panic", r))
 			}
 		}()
 
 		if songID == "" {
-			log.Printf("[checkAndUpdateHLS] 歌曲ID为空")
+			logger.Error("[checkAndUpdateHLS] 歌曲ID为空")
 			return
 		}
 
-		log.Printf("[checkAndUpdateHLS] 创建仓库实例 (ID: %s)", songID)
+		logger.Debug("[checkAndUpdateHLS] 创建仓库实例", logger.String("song_id", songID))
 		repo := repository.NewNeteaseSongRepository()
 		if repo == nil {
-			log.Printf("[checkAndUpdateHLS] 创建仓库失败 (ID: %s)", songID)
+			logger.Error("[checkAndUpdateHLS] 创建仓库失败", logger.String("song_id", songID))
 			return
 		}
 
 		// 检查数据库中是否存在该歌曲
-		log.Printf("[checkAndUpdateHLS] 查询数据库中的歌曲信息 (ID: %s)", songID)
+		logger.Debug("[checkAndUpdateHLS] 查询数据库中的歌曲信息", logger.String("song_id", songID))
 		song, err := repo.GetNeteaseSongByID(songID)
 		if err != nil {
-			log.Printf("[checkAndUpdateHLS] 获取歌曲信息失败 (ID: %s): %v", songID, err)
+			logger.Error("[checkAndUpdateHLS] 获取歌曲信息失败", logger.String("song_id", songID), logger.ErrorField(err))
 			return
 		}
 
 		if song == nil {
-			log.Printf("[checkAndUpdateHLS] 数据库中不存在该歌曲，需要创建新记录 (ID: %s)", songID)
+			logger.Info("[checkAndUpdateHLS] 数据库中不存在该歌曲，需要创建新记录", logger.String("song_id", songID))
 		} else {
-			log.Printf("[checkAndUpdateHLS] 数据库中的歌曲信息: ID=%d, Title=%s, HLS路径=%s",
-				song.ID, song.Title, song.HLSPlaylistPath)
+			logger.Debug("[checkAndUpdateHLS] 数据库中的歌曲信息",
+				logger.Int64("id", song.ID),
+				logger.String("title", song.Title),
+				logger.String("hls_path", song.HLSPlaylistPath))
 		}
 
 		// 如果歌曲不存在或HLS路径为空，则调用GetSongURL更新
 		if song == nil || song.HLSPlaylistPath == "" {
-			log.Printf("[checkAndUpdateHLS] 开始调用GetSongURL更新歌曲信息 (ID: %s)", songID)
+			logger.Info("[checkAndUpdateHLS] 开始调用GetSongURL更新歌曲信息", logger.String("song_id", songID))
 			url, err := h.client.GetSongURL(songID)
 			if err != nil {
-				log.Printf("[checkAndUpdateHLS] 更新歌曲信息失败 (ID: %s): %v", songID, err)
+				logger.Error("[checkAndUpdateHLS] 更新歌曲信息失败", logger.String("song_id", songID), logger.ErrorField(err))
 				return
 			}
-			log.Printf("[checkAndUpdateHLS] GetSongURL返回URL: %s (ID: %s)", url, songID)
+			logger.Debug("[checkAndUpdateHLS] GetSongURL返回URL", logger.String("song_id", songID), logger.String("url", url))
 
 			// 再次检查数据库更新情况
 			updatedSong, err := repo.GetNeteaseSongByID(songID)
 			if err != nil {
-				log.Printf("[checkAndUpdateHLS] 更新后查询歌曲信息失败 (ID: %s): %v", songID, err)
+				logger.Error("[checkAndUpdateHLS] 更新后查询歌曲信息失败", logger.String("song_id", songID), logger.ErrorField(err))
 				return
 			}
 			if updatedSong != nil {
-				log.Printf("[checkAndUpdateHLS] 更新后的歌曲信息: ID=%d, Title=%s, HLS路径=%s",
-					updatedSong.ID, updatedSong.Title, updatedSong.HLSPlaylistPath)
+				logger.Info("[checkAndUpdateHLS] 更新后的歌曲信息",
+					logger.Int64("id", updatedSong.ID),
+					logger.String("title", updatedSong.Title),
+					logger.String("hls_path", updatedSong.HLSPlaylistPath))
 			} else {
-				log.Printf("[checkAndUpdateHLS] 更新后未找到歌曲信息 (ID: %s)", songID)
+				logger.Warn("[checkAndUpdateHLS] 更新后未找到歌曲信息", logger.String("song_id", songID))
 			}
 		} else {
-			log.Printf("[checkAndUpdateHLS] 歌曲HLS路径已存在，无需更新 (ID: %s, HLS路径: %s)",
-				songID, song.HLSPlaylistPath)
+			logger.Info("[checkAndUpdateHLS] 歌曲HLS路径已存在，无需更新",
+				logger.String("song_id", songID),
+				logger.String("hls_path", song.HLSPlaylistPath))
 		}
 	}()
 }
@@ -200,7 +205,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	// 获取命令文本
 	command := r.URL.Query().Get("command")
 	if command == "" {
-		log.Printf("[HandleCommand] 错误: 缺少命令参数")
+		logger.Error("[HandleCommand] 错误: 缺少命令参数")
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "请提供命令",
@@ -208,12 +213,12 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[HandleCommand] 开始处理命令: %s", command)
+	logger.Info("[HandleCommand] 开始处理命令", logger.String("command", command))
 
 	// 解析命令
 	parts := strings.Fields(command)
 	if len(parts) < 2 || parts[0] != "/netease" {
-		log.Printf("[HandleCommand] 错误: 无效的命令格式: %s", command)
+		logger.Error("[HandleCommand] 错误: 无效的命令格式", logger.String("command", command))
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "无效的命令格式，请使用 /netease [歌曲ID]",
@@ -225,7 +230,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	songIDStr := parts[1]
 	songID, err := strconv.ParseInt(songIDStr, 10, 64)
 	if err != nil {
-		log.Printf("[HandleCommand] 错误: 无效的歌曲ID: %s, 错误: %v", songIDStr, err)
+		logger.Error("[HandleCommand] 错误: 无效的歌曲ID", logger.String("song_id", songIDStr), logger.ErrorField(err))
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "无效的歌曲ID: " + err.Error(),
@@ -237,7 +242,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	status := h.mp3Processor.GetProcessingStatus(songIDStr)
 	if status != nil {
 		if status.IsProcessing {
-			log.Printf("[HandleCommand] 歌曲正在处理中 (ID: %s)", songIDStr)
+			logger.Info("[HandleCommand] 歌曲正在处理中", logger.String("song_id", songIDStr))
 			json.NewEncoder(w).Encode(SearchResponse{
 				Success: false,
 				Error:   "歌曲正在处理中，请稍后再试",
@@ -245,11 +250,14 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if status.Error != nil && status.RetryCount < status.MaxRetries {
-			log.Printf("[HandleCommand] 处理失败，准备重试 (ID: %s, 重试次数: %d/%d)",
-				songIDStr, status.RetryCount+1, status.MaxRetries)
+			logger.Warn("[HandleCommand] 处理失败，准备重试",
+				logger.String("song_id", songIDStr),
+				logger.Int("retry_count", status.RetryCount+1),
+				logger.Int("max_retries", status.MaxRetries))
 		} else if status.Error != nil {
-			log.Printf("[HandleCommand] 处理失败，超过最大重试次数 (ID: %s, 错误: %v)",
-				songIDStr, status.Error)
+			logger.Error("[HandleCommand] 处理失败，超过最大重试次数",
+				logger.String("song_id", songIDStr),
+				logger.ErrorField(status.Error))
 			json.NewEncoder(w).Encode(SearchResponse{
 				Success: false,
 				Error:   "处理失败，请稍后重试",
@@ -261,7 +269,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	// 检查MinIO中是否已存在该歌曲的HLS文件
 	minioClient := storage.GetMinioClient()
 	if minioClient == nil {
-		log.Printf("[HandleCommand] 错误: MinIO客户端未初始化")
+		logger.Error("[HandleCommand] 错误: MinIO客户端未初始化")
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "存储服务未初始化",
@@ -273,7 +281,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	m3u8Path := fmt.Sprintf("streams/netease/%s/playlist.m3u8", songIDStr)
 	_, err = minioClient.StatObject(context.Background(), h.config.MinioBucket, m3u8Path, minio.StatObjectOptions{})
 	if err == nil {
-		log.Printf("[HandleCommand] 发现已存在的HLS文件 (ID: %s)", songIDStr)
+		logger.Info("[HandleCommand] 发现已存在的HLS文件", logger.String("song_id", songIDStr))
 		hlsURL := fmt.Sprintf("/streams/netease/%s/playlist.m3u8", songIDStr)
 		response := SearchResponse{
 			Success: true,
@@ -290,12 +298,12 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 如果HLS文件不存在，继续处理请求
-	log.Printf("[HandleCommand] 开始获取歌曲URL (ID: %s)", songIDStr)
+	logger.Info("[HandleCommand] 开始获取歌曲URL", logger.String("song_id", songIDStr))
 
 	// 获取歌曲URL
 	url, err := h.client.GetSongURL(songIDStr)
 	if err != nil {
-		log.Printf("[HandleCommand] 获取歌曲URL失败 (ID: %s): %v", songIDStr, err)
+		logger.Error("[HandleCommand] 获取歌曲URL失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
 			Error:   "获取播放地址失败: " + err.Error(),
@@ -312,7 +320,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	// 创建临时目录
 	tempDir := filepath.Join(h.config.StaticDir, "temp", "netease")
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		log.Printf("[HandleCommand] 创建临时目录失败 (ID: %s): %v", songIDStr, err)
+		logger.Error("[HandleCommand] 创建临时目录失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
 		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
@@ -323,9 +331,9 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 
 	// 下载音频文件
 	tempFile := filepath.Join(tempDir, fmt.Sprintf("%s.mp3", songIDStr))
-	log.Printf("[HandleCommand] 开始下载音频文件 (ID: %s)", songIDStr)
+	logger.Info("[HandleCommand] 开始下载音频文件", logger.String("song_id", songIDStr))
 	if err := utils.DownloadFile(url, tempFile); err != nil {
-		log.Printf("[HandleCommand] 下载音频文件失败 (ID: %s): %v", songIDStr, err)
+		logger.Error("[HandleCommand] 下载音频文件失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
 		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
@@ -337,9 +345,9 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 
 	// 优化MP3文件
 	optimizedFile := filepath.Join(tempDir, fmt.Sprintf("%s_optimized.mp3", songIDStr))
-	log.Printf("[HandleCommand] 开始优化MP3文件 (ID: %s)", songIDStr)
+	logger.Info("[HandleCommand] 开始优化MP3文件", logger.String("song_id", songIDStr))
 	if err := h.mp3Processor.OptimizeMP3(tempFile, optimizedFile); err != nil {
-		log.Printf("[HandleCommand] 优化MP3文件失败 (ID: %s): %v", songIDStr, err)
+		logger.Error("[HandleCommand] 优化MP3文件失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
 		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
@@ -352,7 +360,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	// 转换为HLS格式
 	hlsDir := filepath.Join(h.config.StaticDir, "streams", "netease", songIDStr)
 	if err := os.MkdirAll(hlsDir, 0755); err != nil {
-		log.Printf("[HandleCommand] 创建HLS目录失败 (ID: %s): %v", songIDStr, err)
+		logger.Error("[HandleCommand] 创建HLS目录失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
 		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
@@ -366,7 +374,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	hlsBaseURL := fmt.Sprintf("/streams/netease/%s/", songIDStr)
 
 	// 处理为HLS格式
-	log.Printf("[HandleCommand] 开始转换为HLS格式 (ID: %s)", songIDStr)
+	logger.Info("[HandleCommand] 开始转换为HLS格式", logger.String("song_id", songIDStr))
 	duration, err := h.mp3Processor.ProcessToHLS(
 		optimizedFile,
 		outputM3U8,
@@ -376,7 +384,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		"4",
 	)
 	if err != nil {
-		log.Printf("[HandleCommand] 转换为HLS格式失败 (ID: %s): %v", songIDStr, err)
+		logger.Error("[HandleCommand] 转换为HLS格式失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
 		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
@@ -386,12 +394,12 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 上传HLS文件到MinIO
-	log.Printf("[HandleCommand] 开始上传HLS文件到MinIO (ID: %s)", songIDStr)
+	logger.Info("[HandleCommand] 开始上传HLS文件到MinIO", logger.String("song_id", songIDStr))
 
 	// 上传m3u8文件
 	m3u8Content, err := os.ReadFile(outputM3U8)
 	if err != nil {
-		log.Printf("[HandleCommand] 读取m3u8文件失败 (ID: %s): %v", songIDStr, err)
+		logger.Error("[HandleCommand] 读取m3u8文件失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
 		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
@@ -404,7 +412,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		ContentType: "application/vnd.apple.mpegurl",
 	})
 	if err != nil {
-		log.Printf("[HandleCommand] 上传m3u8文件到MinIO失败 (ID: %s): %v", songIDStr, err)
+		logger.Error("[HandleCommand] 上传m3u8文件到MinIO失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
 		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
@@ -416,7 +424,7 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	// 上传所有分片文件
 	segments, err := filepath.Glob(filepath.Join(hlsDir, "segment_*.ts"))
 	if err != nil {
-		log.Printf("[HandleCommand] 获取分片文件列表失败 (ID: %s): %v", songIDStr, err)
+		logger.Error("[HandleCommand] 获取分片文件列表失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
 		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
 		json.NewEncoder(w).Encode(SearchResponse{
 			Success: false,
@@ -425,12 +433,14 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[HandleCommand] 开始上传分片文件 (ID: %s, 分片数量: %d)", songIDStr, len(segments))
+	logger.Info("[HandleCommand] 开始上传分片文件", logger.String("song_id", songIDStr), logger.Int("segments_count", len(segments)))
 	for _, segment := range segments {
 		segmentContent, err := os.ReadFile(segment)
 		if err != nil {
-			log.Printf("[HandleCommand] 读取分片文件失败 (ID: %s, 文件: %s): %v",
-				songIDStr, filepath.Base(segment), err)
+			logger.Warn("[HandleCommand] 读取分片文件失败",
+				logger.String("song_id", songIDStr),
+				logger.String("file", filepath.Base(segment)),
+				logger.ErrorField(err))
 			continue
 		}
 
@@ -440,8 +450,10 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 			ContentType: "video/MP2T",
 		})
 		if err != nil {
-			log.Printf("[HandleCommand] 上传分片文件失败 (ID: %s, 文件: %s): %v",
-				songIDStr, segmentName, err)
+			logger.Warn("[HandleCommand] 上传分片文件失败",
+				logger.String("song_id", songIDStr),
+				logger.String("file", segmentName),
+				logger.ErrorField(err))
 			continue
 		}
 	}
@@ -467,16 +479,13 @@ func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
-	log.Printf("[HandleCommand] 处理完成 (ID: %s, 播放地址: %s)", songIDStr, hlsURL)
+	logger.Info("[HandleCommand] 处理完成", logger.String("song_id", songIDStr), logger.String("hls_url", hlsURL))
 }
 
 // HandleSongDetail handles requests for Netease song details.
 func (h *NeteaseHandler) HandleSongDetail(w http.ResponseWriter, r *http.Request) {
-	// log.Println("[NeteaseHandler] Handling song detail request") // 移除日志
-
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		// log.Println("[NeteaseHandler] Method not allowed for song detail") // 移除日志
 		return
 	}
 
@@ -484,24 +493,21 @@ func (h *NeteaseHandler) HandleSongDetail(w http.ResponseWriter, r *http.Request
 	ids := r.URL.Query().Get("ids")
 	if ids == "" {
 		http.Error(w, "Missing required parameter: ids", http.StatusBadRequest)
-		// log.Println("[NeteaseHandler] Missing 'ids' parameter for song detail") // 移除日志
 		return
 	}
-
-	// log.Printf("[NeteaseHandler] Fetching song detail from proxy for IDs: %s", ids) // 移除日志
 
 	// 直接调用网易云API（通过本地代理3000端口）获取原始响应
 	url := fmt.Sprintf("%s/song/detail?ids=%s", h.client.BaseURL, ids)
 	req, err := h.client.createRequest("GET", url)
 	if err != nil {
-		log.Printf("[NeteaseHandler] Failed to create request for song detail (IDs: %s): %v", ids, err)
+		logger.Error("[HandleSongDetail] Failed to create request", logger.String("ids", ids), logger.ErrorField(err))
 		http.Error(w, fmt.Sprintf("Failed to create request: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	resp, err := h.client.HTTPClient.Do(req)
 	if err != nil {
-		log.Printf("[NeteaseHandler] Request to proxy failed for song detail (IDs: %s): %v", ids, err)
+		logger.Error("[HandleSongDetail] Request to proxy failed", logger.String("ids", ids), logger.ErrorField(err))
 		http.Error(w, fmt.Sprintf("Request to proxy failed: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -510,13 +516,10 @@ func (h *NeteaseHandler) HandleSongDetail(w http.ResponseWriter, r *http.Request
 	// 读取原始响应数据
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("[NeteaseHandler] Failed to read response body from proxy (IDs: %s): %v", ids, err)
+		logger.Error("[HandleSongDetail] Failed to read response body", logger.String("ids", ids), logger.ErrorField(err))
 		http.Error(w, fmt.Sprintf("Failed to read response body: %v", err), http.StatusInternalServerError)
 		return
 	}
-
-	// **移除打印原始响应数据**
-	// log.Printf("[NeteaseHandler] Raw response body from proxy (IDs: %s):\n%s", ids, string(bodyBytes)) // 移除日志
 
 	// 定义一个临时 struct 来匹配网易云 API 的原始结构
 	var tempResult struct {
@@ -537,12 +540,10 @@ func (h *NeteaseHandler) HandleSongDetail(w http.ResponseWriter, r *http.Request
 
 	// 解析到临时 struct
 	if err := json.NewDecoder(resp.Body).Decode(&tempResult); err != nil {
-		log.Printf("[NeteaseHandler] Failed to decode JSON response from proxy (IDs: %s): %v", ids, err)
+		logger.Error("[HandleSongDetail] Failed to decode JSON response", logger.String("ids", ids), logger.ErrorField(err))
 		http.Error(w, fmt.Sprintf("Failed to decode JSON: %v", err), http.StatusInternalServerError)
 		return
 	}
-
-	// log.Printf("[NeteaseHandler] Decoded response from proxy (IDs: %s), Code: %d, Songs count: %d", ids, tempResult.Code, len(tempResult.Songs)) // 移除日志
 
 	// 构建符合前端期望的响应结构
 	response := struct {
@@ -568,31 +569,28 @@ func (h *NeteaseHandler) HandleSongDetail(w http.ResponseWriter, r *http.Request
 			// CreatedAt 可以根据需要设置或忽略
 		}
 		response.Success = true
-		// log.Printf("[NeteaseHandler] Assigned song detail to response.Data (ID: %d, Title: %s)", response.Data.ID, response.Data.Name) // 移除日志
-		// log.Printf("[NeteaseHandler] Assigned song detail - CoverArtPath: %s, Artists count: %d", response.Data.Album.PicURL, len(response.Data.Artists)) // 移除日志
 	} else {
-		log.Printf("[NeteaseHandler] Proxy returned non-200 code or empty songs list for IDs: %s", ids)
+		logger.Warn("[HandleSongDetail] Proxy returned non-200 code or empty songs list", logger.String("ids", ids))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
-	// log.Printf("[NeteaseHandler] Song detail request handled for IDs: %s", ids) // 移除日志
 }
 
 // HandleDynamicCover handles requests for Netease dynamic song cover.
 func (h *NeteaseHandler) HandleDynamicCover(w http.ResponseWriter, r *http.Request) {
-	log.Println("[NeteaseHandler] Handling dynamic cover request")
+	logger.Info("[HandleDynamicCover] Handling dynamic cover request")
 
 	if r.Method != http.MethodGet {
 		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
-		log.Println("[NeteaseHandler] Method not allowed for dynamic cover")
+		logger.Error("[HandleDynamicCover] Method not allowed for dynamic cover")
 		return
 	}
 
 	ids := r.URL.Query().Get("id")
 	if ids == "" {
 		http.Error(w, "Missing 'id' parameter", http.StatusBadRequest)
-		log.Println("[NeteaseHandler] Missing 'id' parameter for dynamic cover")
+		logger.Error("[HandleDynamicCover] Missing 'id' parameter for dynamic cover")
 		return
 	}
 
@@ -617,7 +615,7 @@ func (h *NeteaseHandler) HandleDynamicCover(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err != nil {
-		log.Printf("[NeteaseHandler] Error getting dynamic cover for ID %s: %v", ids, err)
+		logger.Error("[HandleDynamicCover] Error getting dynamic cover", logger.String("id", ids), logger.ErrorField(err))
 		response.Code = 500 // 或者根据错误类型设置其他状态码
 		response.Message = fmt.Sprintf("Failed to get dynamic cover: %v", err)
 		response.Data.VideoPlayURL = "" // 错误时清空URL
@@ -627,10 +625,10 @@ func (h *NeteaseHandler) HandleDynamicCover(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("[NeteaseHandler] Error encoding JSON response for dynamic cover: %v", err)
+		logger.Error("[HandleDynamicCover] Error encoding JSON response", logger.ErrorField(err))
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("[NeteaseHandler] Successfully returned dynamic cover for ID %s", ids)
+	logger.Info("[HandleDynamicCover] Successfully returned dynamic cover", logger.String("id", ids))
 }

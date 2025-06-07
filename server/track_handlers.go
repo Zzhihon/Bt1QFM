@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -1127,4 +1126,56 @@ func (h *APIHandler) downloadFileFromMinio(objectPath, localPath string) error {
 		logger.Float64("avgSpeed", avgSpeed))
 
 	return nil
+}
+
+// RegisterRoutes 注册API路由
+func (h *APIHandler) RegisterRoutes(router *mux.Router) {
+	// 音轨相关路由
+	router.HandleFunc("/tracks", h.UploadTrackHandler).Methods(http.MethodPost)
+	router.HandleFunc("/tracks", h.GetTracksHandler).Methods(http.MethodGet)
+	router.HandleFunc("/stream/{trackID}/playlist.m3u8", h.StreamHandler).Methods(http.MethodGet, http.MethodOptions)
+
+	// 封面上传路由
+	router.HandleFunc("/upload/cover", h.UploadCoverHandler).Methods(http.MethodPost)
+
+	// 更新音轨顺序
+	router.HandleFunc("/albums/{id}/tracks/{track_id}/position", h.UpdateTrackPositionHandler).Methods(http.MethodPut)
+
+	// 静态文件服务（MinIO）
+	router.PathPrefix("/static/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		objectPath := strings.TrimPrefix(r.URL.Path, "/static/")
+		client := storage.GetMinioClient()
+		if client == nil {
+			http.Error(w, "MinIO client not available", http.StatusInternalServerError)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		object, err := client.GetObject(ctx, h.cfg.MinioBucket, objectPath, minio.GetObjectOptions{})
+		if err != nil {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+		defer object.Close()
+
+		var contentType string
+		if strings.HasPrefix(objectPath, "covers/") {
+			contentType = "image/jpeg"
+		} else if strings.HasPrefix(objectPath, "audio/") {
+			contentType = "audio/mpeg"
+		} else {
+			contentType = "application/octet-stream"
+		}
+
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Cache-Control", "public, max-age=31536000") // 缓存一年
+
+		_, err = io.Copy(w, object)
+		if err != nil {
+			logger.Error("Error serving file from MinIO", logger.ErrorField(err))
+		}
+	})
 }

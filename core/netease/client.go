@@ -2,11 +2,12 @@ package netease
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"Bt1QFM/logger"
 )
 
 // Client 网易云音乐API客户端
@@ -78,7 +79,7 @@ func (c *Client) createRequest(method, url string) (*http.Request, error) {
 	if cookie := os.Getenv("NETEASE_COOKIE"); cookie != "" {
 		req.Header.Set("Cookie", cookie)
 	} else {
-		log.Printf("[client/createRequest] 警告: 未设置NETEASE_COOKIE环境变量")
+		logger.Warn("[createRequest] 警告: 未设置NETEASE_COOKIE环境变量")
 	}
 
 	return req, nil
