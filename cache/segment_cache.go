@@ -46,7 +46,7 @@ func GetSegmentCache(key string) ([]byte, error) {
 			logger.Debug("获取分片缓存失败",
 				logger.String("key", key),
 				logger.ErrorField(err))
-			return nil, err
+			return nil, nil
 		}
 	}
 
