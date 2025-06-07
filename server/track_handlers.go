@@ -137,9 +137,21 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 	logger.Info("开始处理上传请求",
 		logger.String("method", r.Method),
 		logger.String("path", r.URL.Path),
+		logger.String("remoteAddr", r.RemoteAddr),
+		logger.String("userAgent", r.UserAgent()),
+		logger.Int64("contentLength", r.ContentLength),
 	)
 
 	config := DefaultUploadConfig()
+
+	// 检查请求大小
+	if r.ContentLength > config.MaxFileSize {
+		logger.Warn("请求体过大，拒绝处理",
+			logger.Int64("contentLength", r.ContentLength),
+			logger.Int64("maxSize", config.MaxFileSize))
+		http.Error(w, fmt.Sprintf("Request too large. Maximum size is %d MB", config.MaxFileSize>>20), http.StatusRequestEntityTooLarge)
+		return
+	}
 
 	// 获取信号量，控制并发
 	select {
@@ -166,21 +178,86 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	logger.Info("获取用户信息成功", logger.Int64("userId", userID))
 
-	// 解析表单
+	// 解析表单 - 增加超时和错误处理
 	parseStart := time.Now()
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		logger.Error("解析表单失败", logger.ErrorField(err))
-		http.Error(w, fmt.Sprintf("Failed to parse multipart form: %v", err), http.StatusBadRequest)
+	logger.Info("开始解析表单",
+		logger.Int64("contentLength", r.ContentLength),
+		logger.String("contentType", r.Header.Get("Content-Type")))
+
+	// 创建带超时的上下文
+	parseCtx, cancel := context.WithTimeout(r.Context(), config.UploadTimeout)
+	defer cancel()
+
+	// 使用通道来处理解析操作，以便能够应用超时
+	parseResult := make(chan error, 1)
+	go func() {
+		// 设置较大的内存限制来处理大文件
+		err := r.ParseMultipartForm(config.MaxFileSize)
+		parseResult <- err
+	}()
+
+	// 等待解析完成或超时
+	select {
+	case err := <-parseResult:
+		if err != nil {
+			// 检查是否是网络相关错误
+			if strings.Contains(err.Error(), "i/o timeout") ||
+				strings.Contains(err.Error(), "read tcp") ||
+				strings.Contains(err.Error(), "connection reset") {
+				logger.Error("网络连接问题导致表单解析失败",
+					logger.ErrorField(err),
+					logger.String("remoteAddr", r.RemoteAddr),
+					logger.Int64("contentLength", r.ContentLength),
+					logger.Duration("parseTime", time.Since(parseStart)))
+				http.Error(w, "Network connection issue. Please check your connection and try again.", http.StatusRequestTimeout)
+				return
+			}
+
+			// 检查是否是请求体过大的问题
+			if strings.Contains(err.Error(), "request body too large") ||
+				strings.Contains(err.Error(), "multipart message too large") {
+				logger.Error("请求体过大导致表单解析失败",
+					logger.ErrorField(err),
+					logger.Int64("contentLength", r.ContentLength),
+					logger.Int64("maxSize", config.MaxFileSize))
+				http.Error(w, fmt.Sprintf("File too large. Maximum size is %d MB", config.MaxFileSize>>20), http.StatusRequestEntityTooLarge)
+				return
+			}
+
+			logger.Error("解析表单失败",
+				logger.ErrorField(err),
+				logger.String("remoteAddr", r.RemoteAddr),
+				logger.Int64("contentLength", r.ContentLength),
+				logger.Duration("parseTime", time.Since(parseStart)))
+			http.Error(w, "Failed to parse upload form. Please check your file and try again.", http.StatusBadRequest)
+			return
+		}
+	case <-parseCtx.Done():
+		logger.Error("表单解析超时",
+			logger.String("remoteAddr", r.RemoteAddr),
+			logger.Int64("contentLength", r.ContentLength),
+			logger.Duration("timeout", config.UploadTimeout),
+			logger.Duration("elapsed", time.Since(parseStart)))
+		http.Error(w, "Upload timeout. Please try with a smaller file or check your connection.", http.StatusRequestTimeout)
 		return
 	}
-	logger.Info("解析表单完成", logger.Duration("耗时", time.Since(parseStart)))
+
+	logger.Info("解析表单完成",
+		logger.Duration("耗时", time.Since(parseStart)),
+		logger.Int64("contentLength", r.ContentLength))
 
 	// 获取并验证音频文件
 	validateStart := time.Now()
 	trackFile, trackHeader, err := r.FormFile("trackFile")
 	if err != nil {
-		logger.Error("获取音频文件失败", logger.ErrorField(err))
-		http.Error(w, "Missing 'trackFile' in form", http.StatusBadRequest)
+		logger.Error("获取音频文件失败",
+			logger.ErrorField(err),
+			logger.String("remoteAddr", r.RemoteAddr))
+		if err == http.ErrMissingFile {
+			http.Error(w, "Missing audio file. Please select a file to upload.", http.StatusBadRequest)
+		} else {
+			http.Error(w, "Failed to process uploaded file.", http.StatusBadRequest)
+		}
 		return
 	}
 	defer trackFile.Close()
@@ -189,7 +266,8 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 	if trackHeader.Size > config.MaxFileSize {
 		logger.Warn("文件过大",
 			logger.Int64("size", trackHeader.Size),
-			logger.Int64("maxSize", config.MaxFileSize))
+			logger.Int64("maxSize", config.MaxFileSize),
+			logger.String("filename", trackHeader.Filename))
 		http.Error(w, fmt.Sprintf("File too large. Maximum size is %d MB", config.MaxFileSize>>20), http.StatusBadRequest)
 		return
 	}
@@ -204,14 +282,17 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if !validType {
-		logger.Warn("不支持的文件类型", logger.String("contentType", contentType))
-		http.Error(w, "Invalid file type", http.StatusBadRequest)
+		logger.Warn("不支持的文件类型",
+			logger.String("contentType", contentType),
+			logger.String("filename", trackHeader.Filename))
+		http.Error(w, "Invalid file type. Please upload MP3 or WAV files only.", http.StatusBadRequest)
 		return
 	}
 	logger.Info("文件验证完成",
 		logger.Duration("耗时", time.Since(validateStart)),
 		logger.Int64("fileSize", trackHeader.Size),
-		logger.String("contentType", contentType))
+		logger.String("contentType", contentType),
+		logger.String("filename", trackHeader.Filename))
 
 	// 获取其他表单数据
 	title := r.FormValue("title")
@@ -510,8 +591,6 @@ func (h *APIHandler) GetTracksHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // StreamHandler serves the HLS playlist for a given track ID.
-
-
 
 // UploadCoverHandler 处理封面图片上传
 func (h *APIHandler) UploadCoverHandler(w http.ResponseWriter, r *http.Request) {
