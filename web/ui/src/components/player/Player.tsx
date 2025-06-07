@@ -175,9 +175,11 @@ const Player: React.FC = () => {
         return { icon: <Repeat className="h-5 w-5" />, text: '列表循环' };
       case PlayMode.REPEAT_ONE:
         return { 
-          icon: <div className="relative">
+          icon: <div className="relative w-5 h-5">
             <Repeat className="h-5 w-5" />
-            <span className="absolute text-[10px] font-bold top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">1</span>
+            <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-cyber-primary rounded-full flex items-center justify-center z-10">
+              <span className="text-[9px] font-bold text-cyber-bg-darker leading-none">1</span>
+            </div>
           </div>, 
           text: '单曲循环' 
         };
@@ -188,7 +190,6 @@ const Player: React.FC = () => {
         return { 
           icon: <div className="flex items-center">
             <ArrowRight className="h-5 w-5" />
-            <ArrowRight className="h-5 w-5 -ml-2" />
           </div>, 
           text: '顺序播放' 
         };
@@ -305,7 +306,7 @@ const Player: React.FC = () => {
                 className="text-cyber-secondary hover:text-cyber-primary transition-colors" 
                 title={playModeInfo.text}
               >
-                {React.cloneElement(playModeInfo.icon, { className: 'h-5 w-5' })}
+                {playModeInfo.icon}
               </button>
               
               {/* 播放列表按钮 */}

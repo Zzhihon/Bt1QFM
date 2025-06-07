@@ -675,18 +675,13 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (currentPosition !== -1) {
       // 如果是顺序播放模式，且当前是最后一首
       if (playerState.playMode === PlayMode.SEQUENTIAL && currentPosition === playerState.playlist.length - 1) {
-        // 如果当前正在播放，则停止播放
-        if (playerState.isPlaying) {
-          console.log('Reached end of playlist in sequential mode, stopping playback');
-          if (audioRef.current) {
-            audioRef.current.pause();
-            setPlayerState(prev => ({ ...prev, isPlaying: false }));
-          }
-          return;
+        // 顺序播放模式下，播放完最后一首后停止播放
+        console.log('Reached end of playlist in sequential mode, stopping playback');
+        if (audioRef.current) {
+          audioRef.current.pause();
+          setPlayerState(prev => ({ ...prev, isPlaying: false }));
         }
-        // 如果当前已停止，且用户点击了下一首，则从头开始播放
-        console.log('Restarting from beginning of playlist in sequential mode');
-        nextPosition = 0;
+        return;
       } else {
         nextPosition = (currentPosition + 1) % playerState.playlist.length;
       }
@@ -1145,11 +1140,20 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       // 根据播放模式处理歌曲结束后的行为
       switch (playerState.playMode) {
         case PlayMode.SEQUENTIAL:
-          handleNext();
-          break;
-        case PlayMode.REPEAT_ALL:
+          // 顺序播放：检查是否是最后一首
           const currentPosition = playerState.currentTrack?.position ?? -1;
           if (currentPosition === playerState.playlist.length - 1) {
+            // 如果是最后一首，停止播放
+            console.log('Reached end of playlist in sequential mode, stopping playback');
+            setPlayerState(prev => ({ ...prev, isPlaying: false }));
+          } else {
+            // 不是最后一首，播放下一首
+            handleNext();
+          }
+          break;
+        case PlayMode.REPEAT_ALL:
+          const currentPos = playerState.currentTrack?.position ?? -1;
+          if (currentPos === playerState.playlist.length - 1) {
             // 如果是最后一首，从头开始播放
             const firstTrack = playerState.playlist.find(track => track.position === 0);
             if (firstTrack) {
