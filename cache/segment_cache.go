@@ -36,10 +36,18 @@ func GetSegmentCache(key string) ([]byte, error) {
 
 	data, err := RedisClient.Get(ctx, key).Bytes()
 	if err != nil {
-		logger.Debug("获取分片缓存失败",
-			logger.String("key", key),
-			logger.ErrorField(err))
-		return nil, err
+		// 如果不是 redis nil 错误，重试一次
+		if err.Error() != "redis: nil" {
+			time.Sleep(50 * time.Millisecond)
+			data, err = RedisClient.Get(ctx, key).Bytes()
+		}
+
+		if err != nil {
+			logger.Debug("获取分片缓存失败",
+				logger.String("key", key),
+				logger.ErrorField(err))
+			return nil, err
+		}
 	}
 
 	logger.Debug("分片缓存获取成功",

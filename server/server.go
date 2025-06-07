@@ -3,6 +3,13 @@ package server
 import (
 	"context"
 	"io"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
 
 	"Bt1QFM/cache"
 	"Bt1QFM/config"
@@ -12,13 +19,6 @@ import (
 	"Bt1QFM/logger"
 	"Bt1QFM/repository"
 	"Bt1QFM/storage"
-	"net/http"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"strings"
-	"syscall"
-	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7"
@@ -116,7 +116,7 @@ func Start() {
 	router.HandleFunc("/api/tracks", apiHandler.AuthMiddleware(apiHandler.GetTracksHandler)).Methods(http.MethodGet)
 	router.HandleFunc("/api/upload", apiHandler.AuthMiddleware(apiHandler.UploadTrackHandler)).Methods(http.MethodPost)
 	router.HandleFunc("/api/upload/cover", apiHandler.AuthMiddleware(apiHandler.UploadCoverHandler)).Methods(http.MethodPost)
-	router.HandleFunc("/stream/{track_id}/playlist.m3u8", apiHandler.StreamHandler).Methods(http.MethodGet)
+	// router.HandleFunc("/stream/{track_id}/playlist.m3u8", apiHandler.StreamHandler).Methods(http.MethodGet)
 	router.HandleFunc("/ws/stream/{track_id}", apiHandler.WebSocketStreamHandler)
 
 	// 播放列表相关的API端点
@@ -168,12 +168,17 @@ func Start() {
 		streamProcessor := audio.NewStreamProcessor(mp3Processor, cfg)
 		data, contentType, err := streamProcessor.StreamGet(streamID, fileName, isNetease)
 		if err != nil {
-			logger.Warn("获取流分片失败",
-				logger.String("streamId", streamID),
-				logger.String("fileName", fileName),
-				logger.ErrorField(err))
-			http.Error(w, "File not found", http.StatusNotFound)
-			return
+			// 重试一次
+			time.Sleep(100 * time.Millisecond)
+			data, contentType, err = streamProcessor.StreamGet(streamID, fileName, isNetease)
+			if err != nil {
+				logger.Warn("获取流分片失败",
+					logger.String("streamId", streamID),
+					logger.String("fileName", fileName),
+					logger.ErrorField(err))
+				http.Error(w, "File not found", http.StatusNotFound)
+				return
+			}
 		}
 
 		w.Header().Set("Content-Type", contentType)

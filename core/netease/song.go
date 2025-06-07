@@ -328,8 +328,8 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 			// 异步预处理第一首歌
 			go func(songID int64, songName string) {
 				streamID := fmt.Sprintf("%d", songID)
-				logger.Info("[SearchSongs] 开始预处理歌曲", 
-					logger.Int64("song_id", songID), 
+				logger.Info("[SearchSongs] 开始预处理歌曲",
+					logger.Int64("song_id", songID),
 					logger.String("name", songName))
 
 				// 获取歌曲URL

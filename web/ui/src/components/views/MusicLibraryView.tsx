@@ -103,7 +103,7 @@ const MusicLibraryView: React.FC = () => {
 
         return {
           ...track,
-          hlsPlaylistUrl: track.hlsPlaylistUrl || (track.id ? `/stream/${track.id}/playlist.m3u8` : undefined),
+          hlsPlaylistUrl: track.hlsPlaylistUrl || (track.id ? `/streams/${track.id}/playlist.m3u8` : undefined),
           coverArtPath: finalCoverArtPath 
         };
       });
