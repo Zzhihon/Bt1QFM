@@ -34,27 +34,51 @@ func GetSegmentCache(key string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	data, err := RedisClient.Get(ctx, key).Bytes()
-	if err != nil {
-		// 如果不是 redis nil 错误，重试一次
-		if err.Error() != "redis: nil" {
-			time.Sleep(50 * time.Millisecond)
-			data, err = RedisClient.Get(ctx, key).Bytes()
+	// 最多重试2次
+	maxRetries := 2
+	retryDelay := 100 * time.Millisecond
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		data, err := RedisClient.Get(ctx, key).Bytes()
+		if err != nil {
+			// 如果是 redis nil 错误（键不存在），返回nil但不返回错误，让调用方继续查找MinIO
+			if err.Error() == "redis: nil" {
+				logger.Debug("分片缓存不存在",
+					logger.String("key", key))
+				return nil, nil // 返回nil, nil表示缓存未命中但无错误
+			}
+
+			// 如果是其他错误且不是最后一次尝试，继续重试
+			if attempt < maxRetries-1 {
+				logger.Warn("获取分片缓存失败，准备重试",
+					logger.String("key", key),
+					logger.Int("attempt", attempt+1),
+					logger.Int("maxRetries", maxRetries),
+					logger.ErrorField(err))
+
+				time.Sleep(retryDelay)
+				retryDelay *= 2 // 指数退避
+				continue
+			}
+
+			// 最后一次尝试仍然失败，返回nil但不返回错误，让调用方继续查找MinIO
+			logger.Error("获取分片缓存最终失败，将尝试从MinIO获取",
+				logger.String("key", key),
+				logger.Int("totalAttempts", maxRetries),
+				logger.ErrorField(err))
+			return nil, nil // 返回nil, nil让调用方继续查找
 		}
 
-		if err != nil {
-			logger.Debug("获取分片缓存失败",
-				logger.String("key", key),
-				logger.ErrorField(err))
-			return nil, nil
-		}
+		// 成功获取
+		logger.Debug("分片缓存获取成功",
+			logger.String("key", key),
+			logger.Int("dataSize", len(data)),
+			logger.Int("attempt", attempt+1))
+
+		return data, nil
 	}
 
-	logger.Debug("分片缓存获取成功",
-		logger.String("key", key),
-		logger.Int("dataSize", len(data)))
-
-	return data, nil
+	return nil, nil
 }
 
 // DeleteSegmentCache 删除分片缓存

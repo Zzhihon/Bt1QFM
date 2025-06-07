@@ -372,20 +372,32 @@ func (sp *StreamProcessor) StreamGet(streamID, fileName string, isNetease bool) 
 		return data, contentType, nil
 	}
 
+	// Redis未命中或获取失败，继续尝试从MinIO获取
+	logger.Debug("Redis缓存未命中，尝试从MinIO获取",
+		logger.String("streamId", streamID),
+		logger.String("fileName", fileName))
+
 	// 第三级：从MinIO获取
 	var minioPath string
 	if isNetease {
 		minioPath = fmt.Sprintf("streams/netease/%s/%s", streamID, fileName)
+		logger.Debug("MinIO路径获取分片", logger.String("minioPath", minioPath))
 	} else {
 		minioPath = fmt.Sprintf("streams/%s/%s", streamID, fileName)
+		logger.Debug("MinIO路径获取分片", logger.String("minioPath", minioPath))
 	}
 
 	if data, contentType, err := sp.getFromMinIO(minioPath, fileName); err == nil {
 		logger.Debug("从MinIO获取成功", logger.String("streamId", streamID))
 
-		// 异步回填到Redis缓存
+		// 异步回填到Redis缓存（仅在Redis可用时）
 		go func() {
-			cache.SetSegmentCache(cacheKey, data, 1800*time.Second)
+			if setErr := cache.SetSegmentCache(cacheKey, data, 1800*time.Second); setErr != nil {
+				logger.Warn("回填Redis缓存失败",
+					logger.String("streamId", streamID),
+					logger.String("fileName", fileName),
+					logger.ErrorField(setErr))
+			}
 		}()
 
 		return data, contentType, nil
