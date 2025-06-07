@@ -2,25 +2,21 @@ package netease
 
 import (
 	"bytes"
-	"context"
+	// "context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
+
 
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
-	"Bt1QFM/core/utils"
 	"Bt1QFM/logger"
 	"Bt1QFM/model"
 	"Bt1QFM/repository"
-	"Bt1QFM/storage"
+	// "Bt1QFM/storage"
 
-	"github.com/minio/minio-go/v7"
+	// "github.com/minio/minio-go/v7"
 )
 
 // NeteaseHandler 处理网易云音乐相关的请求
@@ -76,7 +72,7 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	logger.Info("[HandleSearch] 开始搜索歌曲", logger.String("query", query))
 
 	// 使用已实现的SearchSongs函数
-	result, err := h.client.SearchSongs(query, 5, 0, h.mp3Processor, h.config.StaticDir)
+	result, err := h.client.SearchSongs(query, 3, 0, h.mp3Processor, h.config.StaticDir)
 	if err != nil {
 		logger.Error("[HandleSearch] 搜索失败", logger.ErrorField(err))
 		json.NewEncoder(w).Encode(SearchResponse{
@@ -201,286 +197,7 @@ func (h *NeteaseHandler) checkAndUpdateHLS(songID string) {
 }
 
 // HandleCommand 处理命令请求
-func (h *NeteaseHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
-	// 获取命令文本
-	command := r.URL.Query().Get("command")
-	if command == "" {
-		logger.Error("[HandleCommand] 错误: 缺少命令参数")
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "请提供命令",
-		})
-		return
-	}
 
-	logger.Info("[HandleCommand] 开始处理命令", logger.String("command", command))
-
-	// 解析命令
-	parts := strings.Fields(command)
-	if len(parts) < 2 || parts[0] != "/netease" {
-		logger.Error("[HandleCommand] 错误: 无效的命令格式", logger.String("command", command))
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "无效的命令格式，请使用 /netease [歌曲ID]",
-		})
-		return
-	}
-
-	// 提取歌曲ID
-	songIDStr := parts[1]
-	songID, err := strconv.ParseInt(songIDStr, 10, 64)
-	if err != nil {
-		logger.Error("[HandleCommand] 错误: 无效的歌曲ID", logger.String("song_id", songIDStr), logger.ErrorField(err))
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "无效的歌曲ID: " + err.Error(),
-		})
-		return
-	}
-
-	// 检查处理状态
-	status := h.mp3Processor.GetProcessingStatus(songIDStr)
-	if status != nil {
-		if status.IsProcessing {
-			logger.Info("[HandleCommand] 歌曲正在处理中", logger.String("song_id", songIDStr))
-			json.NewEncoder(w).Encode(SearchResponse{
-				Success: false,
-				Error:   "歌曲正在处理中，请稍后再试",
-			})
-			return
-		}
-		if status.Error != nil && status.RetryCount < status.MaxRetries {
-			logger.Warn("[HandleCommand] 处理失败，准备重试",
-				logger.String("song_id", songIDStr),
-				logger.Int("retry_count", status.RetryCount+1),
-				logger.Int("max_retries", status.MaxRetries))
-		} else if status.Error != nil {
-			logger.Error("[HandleCommand] 处理失败，超过最大重试次数",
-				logger.String("song_id", songIDStr),
-				logger.ErrorField(status.Error))
-			json.NewEncoder(w).Encode(SearchResponse{
-				Success: false,
-				Error:   "处理失败，请稍后重试",
-			})
-			return
-		}
-	}
-
-	// 检查MinIO中是否已存在该歌曲的HLS文件
-	minioClient := storage.GetMinioClient()
-	if minioClient == nil {
-		logger.Error("[HandleCommand] 错误: MinIO客户端未初始化")
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "存储服务未初始化",
-		})
-		return
-	}
-
-	// 检查m3u8文件是否存在
-	m3u8Path := fmt.Sprintf("streams/netease/%s/playlist.m3u8", songIDStr)
-	_, err = minioClient.StatObject(context.Background(), h.config.MinioBucket, m3u8Path, minio.StatObjectOptions{})
-	if err == nil {
-		logger.Info("[HandleCommand] 发现已存在的HLS文件", logger.String("song_id", songIDStr))
-		hlsURL := fmt.Sprintf("/streams/netease/%s/playlist.m3u8", songIDStr)
-		response := SearchResponse{
-			Success: true,
-			Data: []SearchSongItem{
-				{
-					ID:  songID,
-					URL: hlsURL,
-				},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
-		return
-	}
-
-	// 如果HLS文件不存在，继续处理请求
-	logger.Info("[HandleCommand] 开始获取歌曲URL", logger.String("song_id", songIDStr))
-
-	// 获取歌曲URL
-	url, err := h.client.GetSongURL(songIDStr)
-	if err != nil {
-		logger.Error("[HandleCommand] 获取歌曲URL失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "获取播放地址失败: " + err.Error(),
-		})
-		return
-	}
-
-	// 异步检查并更新HLS路径
-	h.checkAndUpdateHLS(songIDStr)
-
-	// 设置处理状态
-	h.mp3Processor.SetProcessingStatus(songIDStr, true, nil)
-
-	// 创建临时目录
-	tempDir := filepath.Join(h.config.StaticDir, "temp", "netease")
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		logger.Error("[HandleCommand] 创建临时目录失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
-		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "创建临时目录失败: " + err.Error(),
-		})
-		return
-	}
-
-	// 下载音频文件
-	tempFile := filepath.Join(tempDir, fmt.Sprintf("%s.mp3", songIDStr))
-	logger.Info("[HandleCommand] 开始下载音频文件", logger.String("song_id", songIDStr))
-	if err := utils.DownloadFile(url, tempFile); err != nil {
-		logger.Error("[HandleCommand] 下载音频文件失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
-		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "下载音频文件失败: " + err.Error(),
-		})
-		return
-	}
-	defer os.Remove(tempFile)
-
-	// 优化MP3文件
-	optimizedFile := filepath.Join(tempDir, fmt.Sprintf("%s_optimized.mp3", songIDStr))
-	logger.Info("[HandleCommand] 开始优化MP3文件", logger.String("song_id", songIDStr))
-	if err := h.mp3Processor.OptimizeMP3(tempFile, optimizedFile); err != nil {
-		logger.Error("[HandleCommand] 优化MP3文件失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
-		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "优化MP3文件失败: " + err.Error(),
-		})
-		return
-	}
-	defer os.Remove(optimizedFile)
-
-	// 转换为HLS格式
-	hlsDir := filepath.Join(h.config.StaticDir, "streams", "netease", songIDStr)
-	if err := os.MkdirAll(hlsDir, 0755); err != nil {
-		logger.Error("[HandleCommand] 创建HLS目录失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
-		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "创建HLS目录失败: " + err.Error(),
-		})
-		return
-	}
-
-	outputM3U8 := filepath.Join(hlsDir, "playlist.m3u8")
-	segmentPattern := filepath.Join(hlsDir, "segment_%03d.ts")
-	hlsBaseURL := fmt.Sprintf("/streams/netease/%s/", songIDStr)
-
-	// 处理为HLS格式
-	logger.Info("[HandleCommand] 开始转换为HLS格式", logger.String("song_id", songIDStr))
-	duration, err := h.mp3Processor.ProcessToHLS(
-		optimizedFile,
-		outputM3U8,
-		segmentPattern,
-		hlsBaseURL,
-		"192k",
-		"4",
-	)
-	if err != nil {
-		logger.Error("[HandleCommand] 转换为HLS格式失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
-		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "转换为HLS格式失败: " + err.Error(),
-		})
-		return
-	}
-
-	// 上传HLS文件到MinIO
-	logger.Info("[HandleCommand] 开始上传HLS文件到MinIO", logger.String("song_id", songIDStr))
-
-	// 上传m3u8文件
-	m3u8Content, err := os.ReadFile(outputM3U8)
-	if err != nil {
-		logger.Error("[HandleCommand] 读取m3u8文件失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
-		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "读取m3u8文件失败: " + err.Error(),
-		})
-		return
-	}
-
-	_, err = minioClient.PutObject(context.Background(), h.config.MinioBucket, m3u8Path, bytes.NewReader(m3u8Content), int64(len(m3u8Content)), minio.PutObjectOptions{
-		ContentType: "application/vnd.apple.mpegurl",
-	})
-	if err != nil {
-		logger.Error("[HandleCommand] 上传m3u8文件到MinIO失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
-		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "上传m3u8文件失败: " + err.Error(),
-		})
-		return
-	}
-
-	// 上传所有分片文件
-	segments, err := filepath.Glob(filepath.Join(hlsDir, "segment_*.ts"))
-	if err != nil {
-		logger.Error("[HandleCommand] 获取分片文件列表失败", logger.String("song_id", songIDStr), logger.ErrorField(err))
-		h.mp3Processor.UpdateProcessingStatus(songIDStr, err)
-		json.NewEncoder(w).Encode(SearchResponse{
-			Success: false,
-			Error:   "获取分片文件列表失败: " + err.Error(),
-		})
-		return
-	}
-
-	logger.Info("[HandleCommand] 开始上传分片文件", logger.String("song_id", songIDStr), logger.Int("segments_count", len(segments)))
-	for _, segment := range segments {
-		segmentContent, err := os.ReadFile(segment)
-		if err != nil {
-			logger.Warn("[HandleCommand] 读取分片文件失败",
-				logger.String("song_id", songIDStr),
-				logger.String("file", filepath.Base(segment)),
-				logger.ErrorField(err))
-			continue
-		}
-
-		segmentName := filepath.Base(segment)
-		segmentPath := fmt.Sprintf("streams/netease/%s/%s", songIDStr, segmentName)
-		_, err = minioClient.PutObject(context.Background(), h.config.MinioBucket, segmentPath, bytes.NewReader(segmentContent), int64(len(segmentContent)), minio.PutObjectOptions{
-			ContentType: "video/MP2T",
-		})
-		if err != nil {
-			logger.Warn("[HandleCommand] 上传分片文件失败",
-				logger.String("song_id", songIDStr),
-				logger.String("file", segmentName),
-				logger.ErrorField(err))
-			continue
-		}
-	}
-
-	// 清理临时文件
-	os.RemoveAll(hlsDir)
-
-	// 更新处理状态为成功
-	h.mp3Processor.UpdateProcessingStatus(songIDStr, nil)
-
-	// 返回HLS播放地址
-	hlsURL := fmt.Sprintf("/streams/netease/%s/playlist.m3u8", songIDStr)
-	response := SearchResponse{
-		Success: true,
-		Data: []SearchSongItem{
-			{
-				ID:       songID,
-				URL:      hlsURL,
-				Duration: int(duration * 1000), // 转换为毫秒
-			},
-		},
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-	logger.Info("[HandleCommand] 处理完成", logger.String("song_id", songIDStr), logger.String("hls_url", hlsURL))
-}
 
 // HandleSongDetail handles requests for Netease song details.
 func (h *NeteaseHandler) HandleSongDetail(w http.ResponseWriter, r *http.Request) {
