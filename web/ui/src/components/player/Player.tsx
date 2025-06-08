@@ -321,28 +321,50 @@ const Player: React.FC = () => {
   return (
     <>
       {/* 主播放器控件 - 底部固定 */}
-      <div className="fixed bottom-0 left-0 right-0 bg-cyber-bg-darker border-t-2 border-cyber-primary p-2.5 z-50">
-        <div className="max-w-7xl mx-auto px-3">
-          {/* 进度条 */}
+      <div className="fixed bottom-0 left-0 right-0 bg-cyber-bg-darker border-t-2 border-cyber-primary z-50">
+        {/* 移动端进度条 - 独立行 */}
+        <div className="block md:hidden px-4 pt-3">
           <div 
-            className="w-full h-1.5 bg-cyber-bg rounded-full mb-2.5 cursor-pointer relative overflow-hidden"
+            className="w-full h-2 bg-cyber-bg rounded-full cursor-pointer relative overflow-hidden"
             onClick={handleProgressClick}
           >
             <div 
               className="h-full bg-gradient-to-r from-cyber-primary to-cyber-secondary rounded-full relative"
               style={{ width: `${playerState.duration ? (playerState.currentTime / playerState.duration) * 100 : 0}%` }}
             >
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-0.1 h-0.1 bg-cyber-primary shadow-lg shadow-cyber-primary/50"></div>
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-cyber-primary rounded-full shadow-lg shadow-cyber-primary/50"></div>
+            </div>
+          </div>
+          {/* 移动端时间显示 */}
+          <div className="flex justify-between text-xs text-cyber-secondary mt-1">
+            <span>{formatTime(playerState.currentTime)}</span>
+            <span>{formatTime(playerState.duration)}</span>
+          </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto px-3 md:px-4">
+          {/* 桌面端进度条 */}
+          <div className="hidden md:block">
+            <div 
+              className="w-full h-1.5 bg-cyber-bg rounded-full mb-2.5 cursor-pointer relative overflow-hidden"
+              onClick={handleProgressClick}
+            >
+              <div 
+                className="h-full bg-gradient-to-r from-cyber-primary to-cyber-secondary rounded-full relative"
+                style={{ width: `${playerState.duration ? (playerState.currentTime / playerState.duration) * 100 : 0}%` }}
+              >
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 bg-cyber-primary rounded-full shadow-lg shadow-cyber-primary/50"></div>
+              </div>
             </div>
           </div>
           
-          <div className="flex items-center justify-between py-0.5">
-            {/* 当前播放信息 */}
-            <div className="flex items-center w-1/3">
+          {/* 主控制区域 */}
+          <div className="flex items-center justify-between py-3 md:py-2">
+            {/* 当前播放信息 - 移动端优化 */}
+            <div className="flex items-center flex-1 min-w-0 pr-3">
               {playerState.currentTrack ? (
                 <>
-                  <div className="w-10 h-10 bg-cyber-bg rounded mr-2 flex-shrink-0 overflow-hidden">
-                    {/* 直接使用 coverArtPath */}
+                  <div className="w-12 h-12 md:w-10 md:h-10 bg-cyber-bg rounded mr-3 md:mr-2 flex-shrink-0 overflow-hidden">
                     {playerState.currentTrack.coverArtPath ? (
                       <img 
                         src={playerState.currentTrack.coverArtPath}
@@ -351,62 +373,62 @@ const Player: React.FC = () => {
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <Music2 className="text-cyber-primary h-5 w-5" />
+                        <Music2 className="text-cyber-primary h-6 w-6 md:h-5 md:w-5" />
                       </div>
                     )}
                   </div>
-                  <div className="truncate">
-                    <div className="text-cyber-primary font-medium truncate text-xs">{playerState.currentTrack.title}</div>
-                    <div className="text-cyber-secondary text-xs truncate">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-cyber-primary font-medium truncate text-sm md:text-xs">{playerState.currentTrack.title}</div>
+                    <div className="text-cyber-secondary text-sm md:text-xs truncate">
                       {playerState.currentTrack.artist || 'Unknown Artist'}
                     </div>
                   </div>
                 </>
               ) : (
-                <div className="text-cyber-secondary text-xs">未选择歌曲</div>
+                <div className="text-cyber-secondary text-sm md:text-xs">未选择歌曲</div>
               )}
             </div>
             
-            {/* 播放控制 */}
-            <div className="flex items-center justify-center space-x-3">
+            {/* 播放控制 - 移动端增大按钮 */}
+            <div className="flex items-center justify-center space-x-4 md:space-x-3 px-2">
               <button 
                 onClick={handlePrevious} 
-                className="text-cyber-secondary hover:text-cyber-primary transition-colors"
+                className="text-cyber-secondary hover:text-cyber-primary transition-colors p-2 md:p-0"
                 disabled={playerState.playlist.length < 2}
               >
-                <SkipBack className="h-5 w-5" />
+                <SkipBack className="h-6 w-6 md:h-5 md:w-5" />
               </button>
               
               <button 
                 onClick={togglePlayPause}
-                className="bg-cyber-primary rounded-full p-1.5 text-cyber-bg-darker hover:bg-cyber-hover-primary transition-colors"
+                className="bg-cyber-primary rounded-full p-3 md:p-1.5 text-cyber-bg-darker hover:bg-cyber-hover-primary transition-colors"
               >
                 {playerState.isPlaying ? (
-                  <Pause className="h-5 w-5" />
+                  <Pause className="h-6 w-6 md:h-5 md:w-5" />
                 ) : (
-                  <Play className="h-5 w-5" />
+                  <Play className="h-6 w-6 md:h-5 md:w-5" />
                 )}
               </button>
               
               <button 
                 onClick={handleNext} 
-                className="text-cyber-secondary hover:text-cyber-primary transition-colors"
+                className="text-cyber-secondary hover:text-cyber-primary transition-colors p-2 md:p-0"
                 disabled={playerState.playlist.length < 2}
               >
-                <SkipForward className="h-5 w-5" />
+                <SkipForward className="h-6 w-6 md:h-5 md:w-5" />
               </button>
             </div>
             
-            {/* 额外控制：音量、播放模式、播放列表按钮 */}
-            <div className="flex items-center justify-end w-1/3 space-x-3">
-              {/* 时间显示 */}
-              <div className="text-xs text-cyber-secondary hidden sm:block">
+            {/* 额外控制 - 移动端简化 */}
+            <div className="flex items-center justify-end space-x-2 md:space-x-3 flex-1 min-w-0">
+              {/* 桌面端时间显示 */}
+              <div className="text-xs text-cyber-secondary hidden lg:block">
                 {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
               </div>
               
-              {/* 音量控制 */}
-              <div className="flex items-center space-x-1.5">
-                <button onClick={toggleMute} className="text-cyber-secondary hover:text-cyber-primary transition-colors">
+              {/* 音量控制 - 移动端隐藏滑块 */}
+              <div className="hidden md:flex items-center space-x-1.5">
+                <button onClick={toggleMute} className="text-cyber-secondary hover:text-cyber-primary transition-colors p-1">
                   {playerState.muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
                 </button>
                 <input 
@@ -416,131 +438,142 @@ const Player: React.FC = () => {
                   step="0.01" 
                   value={playerState.muted ? 0 : playerState.volume}
                   onChange={(e) => setVolume(parseFloat(e.target.value))}
-                  className="w-27.8 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-cyber-primary/50 [&::-moz-range-track]:h-0.5 [&::-moz-range-track]:rounded-full [&::-moz	range-track]:bg-cyber-bg/50 [&::-moz	range-thumb]:appearance-none [&::-moz	range-thumb]:w-2 [&::-moz	range-thumb]:h-2 [&::-moz	range-thumb]:bg-cyber-primary [&::-moz	range-thumb]:cursor-pointer [&::-moz	range-thumb]:border-0 [&::-moz	range-thumb]:shadow-lg [&::-moz	range-thumb]:shadow-cyber-primary/50"
+                  className="w-20 h-1 bg-cyber-bg rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-cyber-primary [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-cyber-primary/50"
                 />
               </div>
+
+              {/* 移动端音量按钮 */}
+              <button 
+                onClick={toggleMute} 
+                className="md:hidden text-cyber-secondary hover:text-cyber-primary transition-colors p-2"
+              >
+                {playerState.muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+              </button>
               
               {/* 播放模式 */}
               <button 
                 onClick={togglePlayMode} 
-                className="text-cyber-secondary hover:text-cyber-primary transition-colors" 
+                className="text-cyber-secondary hover:text-cyber-primary transition-colors p-2 md:p-1" 
                 title={playModeInfo.text}
               >
-                {playModeInfo.icon}
+                <div className="w-5 h-5 md:w-4 md:h-4">
+                  {playModeInfo.icon}
+                </div>
               </button>
               
               {/* 播放列表按钮 */}
               <button 
                 onClick={() => setShowPlaylist(!showPlaylist)} 
-                className={`text-cyber-secondary hover:text-cyber-primary transition-colors ${showPlaylist ? 'text-cyber-primary' : ''}`}
+                className={`text-cyber-secondary hover:text-cyber-primary transition-colors p-2 md:p-1 ${showPlaylist ? 'text-cyber-primary' : ''}`}
               >
-                <ListMusic className="h-5 w-5" />
+                <ListMusic className="h-5 w-5 md:h-4 md:w-4" />
               </button>
             </div>
           </div>
         </div>
       </div>
       
-      {/* 播放列表抽屉 */}
+      {/* 播放列表抽屉 - 移动端全屏优化 */}
       {showPlaylist && (
-        <div className="fixed bottom-[84px] right-4 w-full md:w-80 bg-cyber-bg-darker border-2 border-cyber-primary rounded-lg shadow-lg p-3 z-40">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-cyber-primary">播放列表 ({playerState.playlist.length})</h3>
-            <div className="flex space-x-2">
-              <button 
-                onClick={addAllTracksToPlaylist}
-                disabled={isLoadingPlaylist}
-                className="text-xs border border-cyber-secondary text-cyber-secondary px-2 py-1 rounded hover:bg-cyber-secondary hover:text-cyber-bg-darker transition-colors"
-              >
-                {isLoadingPlaylist ? <Loader2 className="h-3 w-3 animate-spin" /> : '添加全部'}
-              </button>
-              <button 
-                onClick={clearPlaylist}
-                disabled={playerState.playlist.length === 0}
-                className="text-xs border border-cyber-red text-cyber-red px-2 py-1 rounded hover:bg-cyber-red hover:text-cyber-bg-darker transition-colors"
-              >
-                清空
-              </button>
-              <button 
-                onClick={shufflePlaylist}
-                disabled={playerState.playlist.length < 2}
-                className="text-xs border border-cyber-secondary text-cyber-secondary px-2 py-1 rounded hover:bg-cyber-secondary hover:text-cyber-bg-darker transition-colors"
-              >
-                打乱
-              </button>
-              <button 
-                onClick={() => setShowPlaylist(false)} 
-                className="text-cyber-secondary hover:text-cyber-primary"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-          </div>
+        <>
+          {/* 移动端遮罩层 */}
+          <div 
+            className="fixed inset-0 bg-black/50 z-30 md:hidden"
+            onClick={() => setShowPlaylist(false)}
+          />
           
-          {isLoadingPlaylist ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-cyber-primary" />
+          <div className="fixed bottom-[100px] md:bottom-[84px] left-0 right-0 md:left-auto md:right-4 md:w-80 bg-cyber-bg-darker border-2 border-cyber-primary rounded-t-lg md:rounded-lg shadow-lg p-4 md:p-3 z-40 max-h-[70vh] md:max-h-none">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-cyber-primary">播放列表 ({playerState.playlist.length})</h3>
+              <div className="flex space-x-2">
+                <button 
+                  onClick={addAllTracksToPlaylist}
+                  disabled={isLoadingPlaylist}
+                  className="text-xs border border-cyber-secondary text-cyber-secondary px-3 py-2 md:px-2 md:py-1 rounded hover:bg-cyber-secondary hover:text-cyber-bg-darker transition-colors"
+                >
+                  {isLoadingPlaylist ? <Loader2 className="h-3 w-3 animate-spin" /> : '添加全部'}
+                </button>
+                <button 
+                  onClick={clearPlaylist}
+                  disabled={playerState.playlist.length === 0}
+                  className="text-xs border border-cyber-red text-cyber-red px-3 py-2 md:px-2 md:py-1 rounded hover:bg-cyber-red hover:text-cyber-bg-darker transition-colors"
+                >
+                  清空
+                </button>
+                <button 
+                  onClick={shufflePlaylist}
+                  disabled={playerState.playlist.length < 2}
+                  className="text-xs border border-cyber-secondary text-cyber-secondary px-3 py-2 md:px-2 md:py-1 rounded hover:bg-cyber-secondary hover:text-cyber-bg-darker transition-colors"
+                >
+                  打乱
+                </button>
+                <button 
+                  onClick={() => setShowPlaylist(false)} 
+                  className="text-cyber-secondary hover:text-cyber-primary p-1"
+                >
+                  <X className="h-6 w-6 md:h-5 md:w-5" />
+                </button>
+              </div>
             </div>
-          ) : playerState.playlist.length === 0 ? (
-            <div className="text-center py-8 text-cyber-secondary">
-              播放列表为空，请添加歌曲
-            </div>
-          ) : (
-            <div className="max-h-96 overflow-y-auto pr-2">
-              {playerState.playlist.map((item, index) => {
-                const trackId = getTrackId(item);
-                const isCurrent = isCurrentTrack(item);
-                
-                // 对于网易云歌曲，确保使用从 song detail 获取的封面
-                if (item.neteaseId) {
-                    // 这里不需要再次获取详情，详情应该在播放或添加到播放列表时获取
-                    // 确保使用 item 中已经更新的 coverArtPath
-                }
+            
+            {isLoadingPlaylist ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-cyber-primary" />
+              </div>
+            ) : playerState.playlist.length === 0 ? (
+              <div className="text-center py-8 text-cyber-secondary">
+                播放列表为空，请添加歌曲
+              </div>
+            ) : (
+              <div className="max-h-[50vh] md:max-h-96 overflow-y-auto pr-2">
+                {playerState.playlist.map((item, index) => {
+                  const trackId = getTrackId(item);
+                  const isCurrent = isCurrentTrack(item);
 
-                return (
-                  <div 
-                    key={`${trackId}-${index}`}
-                    className={`flex items-center justify-between p-2 mb-1 rounded hover:bg-cyber-bg transition-colors ${isCurrent ? 'bg-cyber-bg border border-cyber-primary' : ''}`}
-                  >
+                  return (
                     <div 
-                      className="flex items-center flex-grow overflow-hidden cursor-pointer"
-                      onClick={() => playTrack(item)}
+                      key={`${trackId}-${index}`}
+                      className={`flex items-center justify-between p-3 md:p-2 mb-2 md:mb-1 rounded hover:bg-cyber-bg transition-colors ${isCurrent ? 'bg-cyber-bg border border-cyber-primary' : ''}`}
                     >
-                      <div className="w-8 h-8 bg-cyber-bg flex-shrink-0 rounded overflow-hidden mr-2">
-                        {/* 直接使用 item.coverArtPath */}
-                        {item.coverArtPath ? (
-                          <img 
-                            src={item.coverArtPath}
-                            alt="Cover" 
-                            className="w-full h-full object-cover" 
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Music2 className="text-cyber-primary h-4 w-4" />
+                      <div 
+                        className="flex items-center flex-grow overflow-hidden cursor-pointer"
+                        onClick={() => playTrack(item)}
+                      >
+                        <div className="w-10 h-10 md:w-8 md:h-8 bg-cyber-bg flex-shrink-0 rounded overflow-hidden mr-3 md:mr-2">
+                          {item.coverArtPath ? (
+                            <img 
+                              src={item.coverArtPath}
+                              alt="Cover" 
+                              className="w-full h-full object-cover" 
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Music2 className="text-cyber-primary h-5 w-5 md:h-4 md:w-4" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="truncate">
+                          <div className={`truncate ${isCurrent ? 'text-cyber-primary font-medium' : 'text-cyber-text'}`}>
+                            {item.title}
                           </div>
-                        )}
-                      </div>
-                      <div className="truncate">
-                        <div className={`truncate text-sm ${isCurrent ? 'text-cyber-primary font-medium' : 'text-cyber-text'}`}>
-                          {item.title}
-                        </div>
-                        <div className="text-xs text-cyber-secondary truncate">
-                          {item.artist || 'Unknown Artist'}
+                          <div className="text-sm md:text-xs text-cyber-secondary truncate">
+                            {item.artist || 'Unknown Artist'}
+                          </div>
                         </div>
                       </div>
+                      <button 
+                        onClick={() => removeFromPlaylist(trackId)}
+                        className="text-cyber-secondary hover:text-cyber-red transition-colors ml-2 p-2 md:p-1"
+                      >
+                        <Trash2 className="h-4 w-4 md:h-3.5 md:w-3.5" />
+                      </button>
                     </div>
-                    <button 
-                      onClick={() => removeFromPlaylist(trackId)}
-                      className="text-cyber-secondary hover:text-cyber-red transition-colors ml-2"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
       )}
       <audio ref={audioRef} style={{ display: 'none' }} />
     </>

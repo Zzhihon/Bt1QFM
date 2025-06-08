@@ -113,6 +113,72 @@
   animation: fadeIn 0.3s ease-in-out, fadeOut 3s ease-in-out forwards;
 }
 
+/* 添加动画效果 */
+@keyframes fade-in {
+  from { 
+    opacity: 0; 
+    transform: translateY(10px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-in-out;
+}
+
+/* 禁用页面滚动，但不影响导航栏 */
+.no-scroll {
+  overflow: hidden;
+  height: 100vh;
+}
+
+/* 确保导航栏始终在最顶层 */
+nav {
+  position: relative;
+  z-index: 100;
+}
+
+/* BotView 容器样式 */
+.bot-view-container {
+  overflow: hidden;
+}
+
+/* 消息区域允许滚动，但固定高度 */
+.messages-scroll-area {
+  overflow-y: auto;
+  height: 100%;
+  scrollbar-width: thin;
+  scrollbar-color: var(--cyber-secondary) var(--cyber-bg-darker);
+}
+
+.messages-scroll-area::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages-scroll-area::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+
+.messages-scroll-area::-webkit-scrollbar-thumb {
+  background: var(--cyber-secondary);
+  border-radius: 3px;
+}
+
+.messages-scroll-area::-webkit-scrollbar-thumb:hover {
+  background: var(--cyber-primary);
+}
+
+/* 确保消息容器有最小高度 */
+.messages-container {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
 /* 动画效果 */
 @keyframes pulse {
   0%, 100% {

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePlayer } from '../../contexts/PlayerContext';
 import { useToast } from '../../contexts/ToastContext';
-import { Music2, Search, PlayCircle, Send, Bot, User, Hash, Plus, Settings, Headphones, Minus, Clock } from 'lucide-react';
+import { Music2, Search, PlayCircle, Send, Bot, User, Hash, Plus, Settings, Headphones, Minus, Clock, X } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -15,13 +15,13 @@ interface Message {
 interface NeteaseSong {
   id: number;
   name: string;
-  artists: string[]; // 修正：artists是字符串数组，包含艺术家名称
-  album: string; // 修正：album是字符串，包含专辑名称
+  artists: string[];
+  album: string;
   duration: number;
-  picUrl: string; // 专辑封面图片URL
-  videoUrl?: string; // 动态封面视频URL
+  picUrl: string;
+  videoUrl?: string;
   addedToPlaylist: boolean;
-  coverUrl?: string; // 添加静态封面URL字段
+  coverUrl?: string;
 }
 
 // 获取后端 URL，提供默认值
@@ -54,6 +54,7 @@ const BotView: React.FC = () => {
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const [processingSongs, setProcessingSongs] = useState<Set<number>>(new Set());
+  const [showMobileUserList, setShowMobileUserList] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // 获取后端 URL
@@ -68,6 +69,16 @@ const BotView: React.FC = () => {
     console.log('  - 当前页面URL:', window.location.href);
   }, [backendUrl]);
 
+  // 修改页面挂载时的滚动控制，确保不影响导航栏
+  useEffect(() => {
+    // 只禁用body的滚动，但保持导航栏可见
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, []);
+
+  // 自动滚动到底部
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -534,202 +545,297 @@ const BotView: React.FC = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // 显示所有消息，不再限制数量
+  const displayMessages = messages;
+
   return (
-    <div className="flex h-[calc(100vh-64px)] bg-cyber-bg">
-      {/* 左侧频道栏 */}
-      <div className="w-64 bg-cyber-bg-darker/50 backdrop-blur-sm border-r border-cyber-secondary/30 flex flex-col">
-        {/* 服务器信息 */}
-        <div className="p-4 border-b border-cyber-secondary/30">
-          <h2 className="text-xl font-bold text-cyber-primary flex items-center">
-            <Headphones className="w-6 h-6 mr-2" />
-            音乐频道
-          </h2>
+    <div className="bg-cyber-bg">
+      {/* 调整高度计算 - 64px导航栏 + 手机端播放栏约130px，桌面端84px */}
+      <div className="h-[calc(100vh-64px-114px)] md:h-[calc(100vh-64px-84px)] grid grid-cols-12 gap-0">
+        
+        {/* 左侧频道栏 - 在手机端隐藏 */}
+        <div className="hidden lg:flex lg:col-span-3 bg-cyber-bg-darker/50 backdrop-blur-sm border-r border-cyber-secondary/30 flex-col h-full">
+          {/* 服务器信息 */}
+          <div className="p-4 border-b border-cyber-secondary/30 flex-shrink-0">
+            <h2 className="text-xl font-bold text-cyber-primary flex items-center">
+              <Headphones className="w-6 h-6 mr-2" />
+              音乐频道
+            </h2>
+          </div>
+
+          {/* 频道列表 */}
+          <div className="flex-1 p-3">
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-cyber-secondary/70 px-2 py-1 flex items-center justify-between">
+                <span>音乐频道</span>
+                <Plus className="w-4 h-4 cursor-pointer hover:text-cyber-primary transition-colors" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center px-2 py-2 rounded-lg bg-cyber-primary/10 text-cyber-primary cursor-pointer hover:bg-cyber-primary/20 transition-colors">
+                  <Hash className="w-4 h-4 mr-2" />
+                  <span className="text-sm font-medium">音乐助手</span>
+                </div>
+                <div className="flex items-center px-2 py-2 rounded-lg hover:bg-cyber-bg/50 cursor-pointer text-cyber-secondary/70 transition-colors">
+                  <Hash className="w-4 h-4 mr-2" />
+                  <span className="text-sm">流行音乐</span>
+                </div>
+                <div className="flex items-center px-2 py-2 rounded-lg hover:bg-cyber-bg/50 cursor-pointer text-cyber-secondary/70 transition-colors">
+                  <Hash className="w-4 h-4 mr-2" />
+                  <span className="text-sm">经典老歌</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* 频道列表 */}
-        <div className="flex-1 overflow-y-auto p-3 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-cyber-bg/20 [&::-webkit-scrollbar-thumb]:bg-cyber-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyber-primary/50">
+        {/* 中间对话区域 - 手机端占满整个宽度 */}
+        <div className="col-span-12 lg:col-span-6 flex flex-col h-full">
+          {/* 频道标题 - 手机端优化 */}
+          <div className="h-12 md:h-14 border-b border-cyber-secondary/30 flex items-center px-3 md:px-6 bg-cyber-bg-darker/30 backdrop-blur-sm flex-shrink-0">
+            <Hash className="w-4 h-4 md:w-5 md:h-5 text-cyber-primary mr-2" />
+            <span className="font-semibold text-cyber-text text-sm md:text-base">音乐助手</span>
+            {/* 手机端显示在线用户按钮 */}
+            <button 
+              className="ml-auto lg:hidden text-cyber-secondary hover:text-cyber-primary transition-colors p-2 rounded-lg"
+              onClick={() => setShowMobileUserList(!showMobileUserList)}
+            >
+              <User className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* 消息显示区域 - 手机端优化间距 */}
+          <div className="flex-1 relative bg-cyber-bg">
+            <div className="absolute inset-0 overflow-y-auto messages-scroll-area">
+              <div className="p-2 md:p-4 space-y-3 md:space-y-4">
+                {displayMessages.map((message, index) => (
+                  <div
+                    key={message.id}
+                    className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'} items-start space-x-2 md:space-x-3 animate-fade-in`}
+                    style={{ animationDelay: `${index * 100}ms` }}
+                  >
+                    {message.type === 'bot' && (
+                      <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-cyber-primary/20 flex items-center justify-center flex-shrink-0">
+                        <Bot className="w-4 h-4 md:w-6 md:h-6 text-cyber-primary" />
+                      </div>
+                    )}
+                    
+                    <div
+                      className={`max-w-[85%] md:max-w-[75%] rounded-2xl p-3 md:p-4 shadow-lg ${
+                        message.type === 'user'
+                          ? 'bg-cyber-primary text-cyber-bg'
+                          : 'bg-cyber-bg-darker/50 backdrop-blur-sm text-cyber-text border border-cyber-secondary/20'
+                      }`}
+                    >
+                      <p className="text-xs md:text-sm mb-2">{message.content}</p>
+                      
+                      {message.song && (
+                        <div className="mt-2 md:mt-3 p-2 md:p-3 bg-cyber-bg/50 rounded-lg border border-cyber-secondary/30">
+                          <div className="flex items-center space-x-2 md:space-x-3">
+                            {/* 封面 - 手机端稍小 */}
+                            <div className="w-12 h-12 md:w-14 md:h-14 flex-shrink-0 rounded-lg overflow-hidden bg-cyber-bg">
+                              {message.song.coverUrl || message.song.picUrl ? (
+                                <img
+                                  src={message.song.coverUrl || message.song.picUrl}
+                                  alt={message.song.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <Music2 className="h-6 w-6 md:h-7 md:w-7 text-cyber-primary" />
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* 歌曲信息 - 手机端字体调整 */}
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-bold text-cyber-text truncate text-xs md:text-sm">{message.song.name}</h4>
+                              <p className="text-xs text-cyber-primary truncate">
+                                {Array.isArray(message.song.artists) ? message.song.artists.join(', ') : message.song.artists}
+                              </p>
+                              <p className="text-xs text-cyber-secondary/70 truncate">{message.song.album}</p>
+                              <span className="text-xs text-cyber-secondary/70">{formatDuration(message.song.duration)}</span>
+                            </div>
+                            
+                            {/* 操作按钮 - 手机端垂直布局 */}
+                            <div className="flex flex-col space-y-1">
+                              <button
+                                onClick={() => handlePlay(message.song!)}
+                                className="p-1.5 md:p-2 rounded-full bg-cyber-primary hover:bg-cyber-hover-primary transition-all duration-200 hover:scale-105"
+                                title="播放"
+                              >
+                                <PlayCircle className="h-3 w-3 md:h-4 md:w-4 text-cyber-bg" />
+                              </button>
+                              <button
+                                onClick={() => handleAddToPlaylist(message.song!)}
+                                className="p-1.5 md:p-2 rounded-full bg-cyber-primary/20 hover:bg-cyber-primary/40 transition-all duration-200"
+                                title="添加到播放列表"
+                              >
+                                <Plus className="h-3 w-3 md:h-4 md:w-4 text-cyber-primary" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      <span className="text-xs opacity-50 mt-1 md:mt-2 block">
+                        {message.timestamp.toLocaleTimeString()}
+                      </span>
+                    </div>
+                    
+                    {message.type === 'user' && (
+                      <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-cyber-secondary/20 flex items-center justify-center flex-shrink-0">
+                        <User className="w-4 h-4 md:w-6 md:h-6 text-cyber-secondary" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {/* 用于自动滚动到底部的参考元素 */}
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+          </div>
+
+          {/* 输入区域 - 手机端优化 */}
+          <div className="h-auto p-2 md:p-4 bg-cyber-bg-darker/80 backdrop-blur-md border-t border-cyber-secondary/20 flex-shrink-0">
+            <form onSubmit={handleCommand} className="w-full">
+              <div className="flex items-center space-x-2 md:space-x-3 bg-cyber-bg-darker/50 backdrop-blur-md p-2 md:p-3 rounded-xl border border-cyber-secondary/30 shadow-lg">
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    value={command}
+                    onChange={(e) => setCommand(e.target.value)}
+                    placeholder="输入 /netease [歌曲名称]..."
+                    className="w-full px-3 md:px-4 py-2 md:py-2.5 text-sm bg-transparent text-cyber-text placeholder:text-cyber-secondary/50 focus:outline-none focus:ring-2 focus:ring-cyber-primary/30 rounded-lg transition-all duration-300"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-3 md:px-5 py-2 md:py-2.5 bg-cyber-primary text-cyber-bg rounded-lg hover:bg-cyber-hover-primary hover:scale-105 active:scale-95 transition-all duration-300 disabled:opacity-50 disabled:hover:scale-100 disabled:hover:bg-cyber-primary shadow-lg"
+                >
+                  {isLoading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 md:h-5 md:w-5 border-2 border-cyber-bg border-t-transparent" />
+                  ) : (
+                    <Send className="h-4 w-4 md:h-5 md:w-5" />
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        {/* 右侧用户列表 - 在手机端隐藏 */}
+        <div className="hidden lg:flex lg:col-span-3 bg-cyber-bg-darker/50 backdrop-blur-sm border-l border-cyber-secondary/30 p-4 h-full overflow-hidden flex-col">
+          <div className="text-xs font-semibold text-cyber-secondary/70 mb-3 px-2">在线用户</div>
           <div className="space-y-2">
-            <div className="text-xs font-semibold text-cyber-secondary/70 px-2 py-1 flex items-center justify-between">
-              <span>音乐频道</span>
-              <Plus className="w-4 h-4 cursor-pointer hover:text-cyber-primary transition-colors" />
+            <div className="flex items-center p-3 rounded-lg hover:bg-cyber-bg/50 cursor-pointer transition-colors">
+              <div className="w-10 h-10 rounded-full bg-cyber-primary/20 flex items-center justify-center mr-3">
+                <Bot className="w-6 h-6 text-cyber-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-cyber-text truncate">音乐助手</div>
+                <div className="text-xs text-cyber-secondary/70">机器人</div>
+              </div>
             </div>
-            <div className="space-y-1">
-              <div className="flex items-center px-2 py-2 rounded-lg bg-cyber-primary/10 text-cyber-primary cursor-pointer hover:bg-cyber-primary/20 transition-colors">
-                <Hash className="w-4 h-4 mr-2" />
-                <span className="text-sm font-medium">音乐助手</span>
+            <div className="flex items-center p-3 rounded-lg hover:bg-cyber-bg/50 cursor-pointer transition-colors">
+              <div className="w-10 h-10 rounded-full bg-cyber-secondary/20 flex items-center justify-center mr-3">
+                <User className="w-6 h-6 text-cyber-secondary" />
               </div>
-              <div className="flex items-center px-2 py-2 rounded-lg hover:bg-cyber-bg/50 cursor-pointer text-cyber-secondary/70 transition-colors">
-                <Hash className="w-4 h-4 mr-2" />
-                <span className="text-sm">流行音乐</span>
-              </div>
-              <div className="flex items-center px-2 py-2 rounded-lg hover:bg-cyber-bg/50 cursor-pointer text-cyber-secondary/70 transition-colors">
-                <Hash className="w-4 h-4 mr-2" />
-                <span className="text-sm">经典老歌</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-cyber-text truncate">
+                  {currentUser?.username || '游客'}
+                </div>
+                <div className="text-xs text-cyber-secondary/70">在线</div>
               </div>
             </div>
           </div>
         </div>
-
-        {/* 用户信息 */}
-        {/* <div className="p-3 border-t border-cyber-secondary/30">
-          <div className="flex items-center p-2 rounded-lg bg-cyber-bg/30 hover:bg-cyber-bg/50 transition-colors">
-            <div className="w-9 h-9 rounded-full bg-cyber-primary flex items-center justify-center mr-2">
-              <User className="w-5 h-5 text-cyber-bg" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-cyber-text truncate">
-                {currentUser?.username || '游客'}
-              </div>
-            </div>
-            <Settings className="w-4 h-4 text-cyber-secondary/70 cursor-pointer hover:text-cyber-primary transition-colors" />
-          </div>
-        </div> */}
       </div>
 
-      {/* 中间聊天区域 */}
-      <div className="flex-1 flex flex-col">
-        {/* 频道标题 */}
-        <div className="h-14 border-b border-cyber-secondary/30 flex items-center px-6 bg-cyber-bg-darker/30 backdrop-blur-sm">
-          <Hash className="w-5 h-5 text-cyber-primary mr-2" />
-          <span className="font-semibold text-cyber-text">音乐助手</span>
-        </div>
-
-        {/* 消息列表 */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 pb-36 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-cyber-bg/20 [&::-webkit-scrollbar-thumb]:bg-cyber-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyber-primary/50">
-          <div className="min-h-[calc(100vh-300px)] flex flex-col justify-end">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'} items-end space-x-3 mb-4`}
+      {/* 移动端在线用户列表弹窗 */}
+      {showMobileUserList && (
+        <>
+          {/* 遮罩层 */}
+          <div 
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+            onClick={() => setShowMobileUserList(false)}
+          />
+          
+          {/* 右侧滑出用户列表 */}
+          <div className={`fixed top-0 right-0 h-full w-80 max-w-[85vw] bg-cyber-bg-darker border-l-2 border-cyber-primary shadow-xl z-50 lg:hidden transform transition-transform duration-300 ease-in-out ${
+            showMobileUserList ? 'translate-x-0' : 'translate-x-full'
+          }`}>
+            {/* 头部 */}
+            <div className="flex items-center justify-between p-4 border-b border-cyber-secondary/30 bg-cyber-bg-darker/80 backdrop-blur-sm">
+              <h3 className="text-lg font-semibold text-cyber-primary flex items-center">
+                <Headphones className="w-5 h-5 mr-2" />
+                在线用户
+              </h3>
+              <button 
+                onClick={() => setShowMobileUserList(false)}
+                className="text-cyber-secondary hover:text-cyber-primary transition-colors p-2 rounded-lg hover:bg-cyber-bg/50"
               >
-                {message.type === 'bot' && (
-                  <div className="w-10 h-10 rounded-full bg-cyber-primary/20 flex items-center justify-center flex-shrink-0">
-                    <Bot className="w-6 h-6 text-cyber-primary" />
-                  </div>
-                )}
-                <div
-                  className={`max-w-[70%] rounded-2xl p-4 ${
-                    message.type === 'user'
-                      ? 'bg-cyber-primary text-cyber-bg'
-                      : 'bg-cyber-bg-darker/50 backdrop-blur-sm text-cyber-text'
-                  }`}
-                >
-                  <p className="text-sm">{message.content}</p>
-                  {message.song && (
-                    <div className="flex items-center w-[340px] h-[72px] bg-cyber-bg rounded-lg shadow-sm overflow-hidden hover:bg-cyber-bg-darker/80 transition-all">
-                      {/* 封面 */}
-                      <div className="w-[56px] h-[56px] flex-shrink-0 m-3 rounded-md overflow-hidden bg-cyber-bg">
-                        {message.song.coverUrl || message.song.picUrl ? (
-                          <img
-                            src={message.song.coverUrl || message.song.picUrl}
-                            alt={message.song.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Music2 className="h-8 w-8 text-cyber-primary" />
-                          </div>
-                        )}
-                      </div>
-                      {/* 信息区 */}
-                      <div className="flex-1 flex flex-col justify-center min-w-0 px-2">
-                        <div className="flex items-center">
-                          <span className="font-bold text-base text-cyber-text truncate">{message.song.name}</span>
-                          <span className="ml-2 text-xs text-cyber-secondary/70">{formatDuration(message.song.duration)}</span>
-                        </div>
-                        <div className="text-sm text-cyber-primary truncate">{Array.isArray(message.song.artists) ? message.song.artists.join(', ') : message.song.artists}</div>
-                        <div className="text-xs text-cyber-secondary/70 truncate">{message.song.album}</div>
-                      </div>
-                      {/* 操作按钮区 */}
-                      <div className="flex flex-col items-center justify-center h-full pr-3 space-y-2">
-                        <button
-                          onClick={() => handlePlay(message.song!)}
-                          className="p-1 rounded-full bg-cyber-primary hover:bg-cyber-hover-primary transition"
-                          title="播放"
-                        >
-                          <PlayCircle className="h-5 w-5 text-cyber-bg" />
-                        </button>
-                        <button
-                          onClick={() => handleAddToPlaylist(message.song!)}
-                          className="p-1 rounded-full bg-cyber-primary/10 hover:bg-cyber-primary/30 transition"
-                          title="添加到播放列表"
-                        >
-                          <Plus className="h-5 w-5 text-cyber-primary" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  <span className="text-xs opacity-50 mt-2 block">
-                    {message.timestamp.toLocaleTimeString()}
-                  </span>
-                </div>
-                {message.type === 'user' && (
-                  <div className="w-10 h-10 rounded-full bg-cyber-secondary/20 flex items-center justify-center flex-shrink-0">
-                    <User className="w-6 h-6 text-cyber-secondary" />
-                  </div>
-                )}
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-        </div>
-
-        {/* 输入区域 */}
-        <div className="fixed bottom-[100px] left-0 right-0 px-4">
-          <form onSubmit={handleCommand} className="max-w-4xl mx-auto">
-            <div className="flex items-center space-x-1.5 bg-cyber-bg-darker/30 backdrop-blur-md p-1 rounded-lg border border-cyber-secondary/20 shadow-lg shadow-cyber-primary/5">
-              <div className="flex-1 relative">
-                <input
-                  type="text"
-                  value={command}
-                  onChange={(e) => setCommand(e.target.value)}
-                  placeholder="输入 /netease [歌曲名称] 搜索音乐..."
-                  className="w-full px-2 py-1.5 bg-transparent text-cyber-text text-sm focus:outline-none placeholder:text-cyber-secondary/50 transition-all duration-300"
-                />
-                <div className="absolute inset-0 rounded-md pointer-events-none transition-all duration-300 group-focus-within:ring-1 group-focus-within:ring-cyber-primary/30" />
-              </div>
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="p-1.5 bg-cyber-primary/60 text-cyber-bg rounded-md hover:bg-cyber-primary/80 hover:scale-105 active:scale-95 transition-all duration-300 disabled:opacity-50 disabled:hover:scale-100 disabled:hover:bg-cyber-primary/60 shadow-md shadow-cyber-primary/20"
-              >
-                {isLoading ? (
-                  <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-cyber-bg border-t-transparent" />
-                ) : (
-                  <Send className="h-3.5 w-3.5" />
-                )}
+                <X className="w-5 h-5" />
               </button>
             </div>
-          </form>
-        </div>
-      </div>
-
-      {/* 右侧用户列表 */}
-      <div className="w-64 bg-cyber-bg-darker/50 backdrop-blur-sm border-l border-cyber-secondary/30 p-4 overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-cyber-bg/20 [&::-webkit-scrollbar-thumb]:bg-cyber-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-cyber-primary/50">
-        <div className="text-xs font-semibold text-cyber-secondary/70 mb-3 px-2">在线用户</div>
-        <div className="space-y-2">
-          <div className="flex items-center p-2 rounded-lg hover:bg-cyber-bg/50 cursor-pointer transition-colors">
-            <div className="w-9 h-9 rounded-full bg-cyber-primary/20 flex items-center justify-center mr-2">
-              <Bot className="w-5 h-5 text-cyber-primary" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-cyber-text truncate">音乐助手</div>
-              <div className="text-xs text-cyber-secondary/70">机器人</div>
-            </div>
-          </div>
-          <div className="flex items-center p-2 rounded-lg hover:bg-cyber-bg/50 cursor-pointer transition-colors">
-            <div className="w-9 h-9 rounded-full bg-cyber-secondary/20 flex items-center justify-center mr-2">
-              <User className="w-5 h-5 text-cyber-secondary" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-cyber-text truncate">
-                {currentUser?.username || '游客'}
+            
+            {/* 用户列表内容 */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="space-y-3">
+                {/* 音乐助手 */}
+                <div className="flex items-center p-4 rounded-xl bg-cyber-bg/30 border border-cyber-primary/20 hover:bg-cyber-bg/50 transition-all duration-200">
+                  <div className="w-12 h-12 rounded-full bg-cyber-primary/20 flex items-center justify-center mr-3 border-2 border-cyber-primary/30">
+                    <Bot className="w-7 h-7 text-cyber-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-cyber-text">音乐助手</div>
+                    <div className="text-xs text-cyber-secondary/70">AI 机器人</div>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <div className="w-3 h-3 bg-green-500 rounded-full shadow-lg shadow-green-500/50"></div>
+                    <span className="text-xs text-green-500 mt-1">在线</span>
+                  </div>
+                </div>
+                
+                {/* 当前用户 */}
+                <div className="flex items-center p-4 rounded-xl bg-cyber-bg/30 border border-cyber-secondary/20 hover:bg-cyber-bg/50 transition-all duration-200">
+                  <div className="w-12 h-12 rounded-full bg-cyber-secondary/20 flex items-center justify-center mr-3 border-2 border-cyber-secondary/30">
+                    <User className="w-7 h-7 text-cyber-secondary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-cyber-text truncate">
+                      {currentUser?.username || '游客'}
+                    </div>
+                    <div className="text-xs text-cyber-secondary/70">用户</div>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <div className="w-3 h-3 bg-green-500 rounded-full shadow-lg shadow-green-500/50"></div>
+                    <span className="text-xs text-green-500 mt-1">在线</span>
+                  </div>
+                </div>
+                
+                {/* 频道信息 */}
+                <div className="mt-6 p-4 rounded-xl bg-cyber-primary/5 border border-cyber-primary/20">
+                  <div className="text-xs font-semibold text-cyber-primary mb-2 flex items-center">
+                    <Hash className="w-4 h-4 mr-1" />
+                    频道信息
+                  </div>
+                  <div className="space-y-2 text-xs text-cyber-secondary/70">
+                    <div className="flex justify-between">
+                      <span>在线用户:</span>
+                      <span className="text-cyber-primary font-medium">2</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>活跃频道:</span>
+                      <span className="text-cyber-primary font-medium">音乐助手</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="text-xs text-cyber-secondary/70">在线</div>
             </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 };
