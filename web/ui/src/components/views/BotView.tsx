@@ -446,13 +446,14 @@ const BotView: React.FC = () => {
             throw new Error(errorData.error || `HTTP error ${response.status}`);
         }
 
-        // 更新前端状态
+        // 更新前端状态 - 添加 neteaseId 字段和更完整的封面信息
         const trackData = {
             id: song.id,
+            neteaseId: song.id, // 关键：添加 neteaseId 字段
             title: song.name,
             artist: artistStr,
             album: song.album || '未知专辑',
-            coverArtPath: song.picUrl || '',
+            coverArtPath: song.coverUrl || song.picUrl || '', // 优先使用 coverUrl
             hlsPlaylistUrl: `/streams/netease/${song.id}/playlist.m3u8`,
             position: playerState.playlist.length,
         };

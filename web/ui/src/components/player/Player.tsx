@@ -62,8 +62,17 @@ const Player: React.FC = () => {
   const retryCountRef = useRef(0);
   const MAX_RETRIES = 3;
 
+  // 添加播放列表长度的ref，用于检测新增歌曲
+  const prevPlaylistLengthRef = useRef(playerState.playlist.length);
+  const processingDetailsRef = useRef<Set<string>>(new Set());
+
   // 获取歌曲详情的函数
   const fetchSongDetail = useCallback(async (neteaseId: string) => {
+    // 检查是否正在处理中，避免重复请求
+    if (processingDetailsRef.current.has(neteaseId)) {
+      return;
+    }
+
     // 检查缓存中是否已有数据
     const cachedDetail = songDetailCache.get(neteaseId);
     if (cachedDetail) {
@@ -73,6 +82,9 @@ const Player: React.FC = () => {
     }
 
     try {
+      // 添加到处理中集合
+      processingDetailsRef.current.add(neteaseId);
+      
       console.log(`Fetching song detail for Netease ID: ${neteaseId}`);
       const response = await fetch(`/api/netease/song/detail?ids=${neteaseId}`);
       const data = await response.json();
@@ -88,10 +100,13 @@ const Player: React.FC = () => {
       }
     } catch (error) {
       console.error('获取歌曲详情失败:', error);
+    } finally {
+      // 从处理中集合移除
+      processingDetailsRef.current.delete(neteaseId);
     }
   }, []);
 
-  // 更新歌曲信息的函数
+  // 更新歌曲信息的函数 - 支持同时更新当前播放和播放列表
   const updateTrackInfo = useCallback((detail: NeteaseSongDetail) => {
     if (detail.al && detail.al.picUrl) {
       const newCoverArtPath = detail.al.picUrl;
@@ -99,18 +114,122 @@ const Player: React.FC = () => {
 
       setPlayerState(prevState => ({
         ...prevState,
-        currentTrack: {
-          ...prevState.currentTrack!,
+        currentTrack: prevState.currentTrack && 
+          (prevState.currentTrack.neteaseId === detail.id || prevState.currentTrack.id === detail.id) ? {
+          ...prevState.currentTrack,
           coverArtPath: newCoverArtPath,
           artist: newArtist,
           album: detail.al.name,
-        },
+        } : prevState.currentTrack,
+        playlist: prevState.playlist.map(track => 
+          (track.neteaseId === detail.id || track.id === detail.id) ? {
+            ...track,
+            coverArtPath: newCoverArtPath,
+            artist: newArtist,
+            album: detail.al.name,
+          } : track
+        )
       }));
       console.log('更新后的 coverArtPath:', newCoverArtPath);
       console.log('更新后的 artist:', newArtist);
       console.log('更新后的 album:', detail.al.name);
     }
-  }, []);
+  }, [setPlayerState]);
+
+  // 批量获取播放列表中缺失详情的歌曲
+  const fetchMissingDetails = useCallback(async (tracks: any[]) => {
+    const needDetailTracks = tracks.filter(track => 
+      (track.neteaseId || (track.id && !track.trackId)) && 
+      (!track.coverArtPath || !track.artist || track.artist === 'Unknown Artist' || track.artist === '未知艺术家')
+    );
+
+    if (needDetailTracks.length === 0) return;
+
+    console.log('🔄 检测到需要更新详情的歌曲:', needDetailTracks.map(t => ({
+      id: t.neteaseId || t.id,
+      title: t.title,
+      hasArtist: !!t.artist,
+      hasCover: !!t.coverArtPath,
+      artistValue: t.artist
+    })));
+
+    // 并发获取所有歌曲详情，但限制并发数
+    const batchSize = 3; // 限制并发数量，避免请求过多
+    for (let i = 0; i < needDetailTracks.length; i += batchSize) {
+      const batch = needDetailTracks.slice(i, i + batchSize);
+      const promises = batch.map(track => 
+        fetchSongDetail((track.neteaseId || track.id).toString())
+      );
+      
+      try {
+        await Promise.all(promises);
+        // 小延迟，避免请求过于频繁
+        if (i + batchSize < needDetailTracks.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      } catch (error) {
+        console.error('批量获取歌曲详情失败:', error);
+      }
+    }
+  }, [fetchSongDetail]);
+
+  // 监听播放列表变化，检测新增歌曲并自动获取详情
+  useEffect(() => {
+    const currentLength = playerState.playlist.length;
+    const prevLength = prevPlaylistLengthRef.current;
+
+    // 检测到新增歌曲
+    if (currentLength > prevLength) {
+      console.log('🎵 检测到播放列表新增歌曲:', {
+        prevLength,
+        currentLength,
+        newSongs: currentLength - prevLength
+      });
+
+      // 获取新增的歌曲（最后几首）
+      const newTracks = playerState.playlist.slice(prevLength);
+      
+      console.log('🎵 新增的歌曲详情:', newTracks.map(t => ({
+        id: t.neteaseId || t.id,
+        title: t.title,
+        hasNeteaseId: !!t.neteaseId,
+        hasTrackId: !!t.trackId,
+        coverArtPath: t.coverArtPath,
+        artist: t.artist
+      })));
+      
+      // 立即获取新增歌曲的详情，不阻塞UI
+      setTimeout(() => {
+        fetchMissingDetails(newTracks);
+      }, 100); // 稍微延长延迟，确保UI更新完成
+    }
+
+    // 更新ref
+    prevPlaylistLengthRef.current = currentLength;
+  }, [playerState.playlist.length, fetchMissingDetails]);
+
+  // 也监听整个播放列表的变化，以防长度没变但内容有变化
+  useEffect(() => {
+    if (playerState.playlist.length > 0) {
+      // 延迟执行，避免频繁触发
+      const timeoutId = setTimeout(() => {
+        fetchMissingDetails(playerState.playlist);
+      }, 200);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [playerState.playlist, fetchMissingDetails]);
+
+  // 定期检查播放列表中缺失详情的歌曲（低频率，作为兜底）
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (playerState.playlist.length > 0) {
+        fetchMissingDetails(playerState.playlist);
+      }
+    }, 30000); // 30秒检查一次
+
+    return () => clearInterval(intervalId);
+  }, [playerState.playlist, fetchMissingDetails]);
 
   // 使用防抖处理获取歌曲详情
   const debouncedFetchSongDetail = useCallback(
@@ -127,11 +246,12 @@ const Player: React.FC = () => {
 
       // 如果是网易云歌曲，获取歌曲详情并更新封面和艺术家信息
       const currentTrack = playerState.currentTrack;
-      if (currentTrack.neteaseId) {
+      if (currentTrack.neteaseId || (currentTrack.id && !currentTrack.trackId)) {
         // 检查是否需要更新信息
         const needsUpdate = !currentTrack.coverArtPath || !currentTrack.artist || !currentTrack.album;
         if (needsUpdate) {
-          debouncedFetchSongDetail(currentTrack.neteaseId.toString());
+          const id = (currentTrack.neteaseId || currentTrack.id).toString();
+          debouncedFetchSongDetail(id);
         }
       }
     }
@@ -296,7 +416,7 @@ const Player: React.FC = () => {
                   step="0.01" 
                   value={playerState.muted ? 0 : playerState.volume}
                   onChange={(e) => setVolume(parseFloat(e.target.value))}
-                  className="w-27.8 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-cyber-primary/50 [&::-moz-range-track]:h-0.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-cyber-bg/50 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-2 [&::-moz-range-thumb]:h-2 [&::-moz-range-thumb]:bg-cyber-primary [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:shadow-lg [&::-moz-range-thumb]:shadow-cyber-primary/50"
+                  className="w-27.8 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-cyber-primary/50 [&::-moz-range-track]:h-0.5 [&::-moz-range-track]:rounded-full [&::-moz	range-track]:bg-cyber-bg/50 [&::-moz	range-thumb]:appearance-none [&::-moz	range-thumb]:w-2 [&::-moz	range-thumb]:h-2 [&::-moz	range-thumb]:bg-cyber-primary [&::-moz	range-thumb]:cursor-pointer [&::-moz	range-thumb]:border-0 [&::-moz	range-thumb]:shadow-lg [&::-moz	range-thumb]:shadow-cyber-primary/50"
                 />
               </div>
               
