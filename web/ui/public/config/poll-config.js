@@ -1,0 +1,18 @@
+(function(){
+  let currentText = '';
+  async function check(){
+    try {
+      const res = await fetch('/config/env-config.js?cache=' + Date.now());
+      const text = await res.text();
+      if(!currentText){
+        currentText = text;
+      } else if(text !== currentText){
+        location.reload();
+      }
+    } catch(e){
+      console.error('Failed to fetch env config', e);
+    }
+  }
+  check();
+  setInterval(check, 30000);
+})();

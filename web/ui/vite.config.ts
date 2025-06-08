@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
     base: '/1qfm/',
     plugins: [react()],
     define: {
-      __BACKEND_URL__: JSON.stringify(env.VITE_BACKEND_URL || 'http://localhost:8080')
+      __BACKEND_URL__: `window.__ENV__?.BACKEND_URL || '${env.VITE_BACKEND_URL || 'http://localhost:8080'}'`
     },
     build: {
       rollupOptions: {

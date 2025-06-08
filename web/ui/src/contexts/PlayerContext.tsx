@@ -52,13 +52,11 @@ interface PlayerContextType {
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
-// 声明全局变量类型
-declare const __BACKEND_URL__: string;
-
 // 获取后端 URL，提供默认值
 const getBackendUrl = () => {
-  if (typeof __BACKEND_URL__ !== 'undefined') {
-    return __BACKEND_URL__;
+  // 从全局变量读取
+  if (typeof window !== 'undefined' && (window as any).__ENV__?.BACKEND_URL) {
+    return (window as any).__ENV__.BACKEND_URL;
   }
   return import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
 };

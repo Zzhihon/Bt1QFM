@@ -24,13 +24,10 @@ interface NeteaseSong {
   coverUrl?: string; // 添加静态封面URL字段
 }
 
-// 声明全局变量类型
-declare const __BACKEND_URL__: string;
-
 // 获取后端 URL，提供默认值
 const getBackendUrl = () => {
-  if (typeof __BACKEND_URL__ !== 'undefined') {
-    return __BACKEND_URL__;
+  if (typeof window !== 'undefined' && (window as any).__ENV__?.BACKEND_URL) {
+    return (window as any).__ENV__.BACKEND_URL;
   }
   return import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
 };
@@ -66,7 +63,7 @@ const BotView: React.FC = () => {
   useEffect(() => {
     console.log('🔧 BotView 后端URL配置信息:');
     console.log('  - VITE_BACKEND_URL 环境变量:', import.meta.env.VITE_BACKEND_URL);
-    console.log('  - __BACKEND_URL__ 全局变量:', typeof __BACKEND_URL__ !== 'undefined' ? __BACKEND_URL__ : 'undefined');
+    console.log('  - window.__ENV__ 全局变量:', (window as any).__ENV__);
     console.log('  - 最终使用的后端URL:', backendUrl);
     console.log('  - 当前页面URL:', window.location.href);
   }, [backendUrl]);
