@@ -14,6 +14,7 @@
     "hls.js": "^1.5.8",
     "id3-parser": "^3.0.0",
     "jsmediatags": "^3.9.7",
+    "lodash": "^4.17.21",
     "lucide-react": "^0.395.0",
     "music-metadata-browser": "^2.5.11",
     "react": "^18.2.0",
@@ -36,5 +37,6 @@
     "tailwindcss": "^3.4.3",
     "typescript": "^5.2.2",
     "vite": "^5.2.0"
-  }
+  },
+  "packageManager": "yarn@4.1.1+sha512.ec40d0639bb307441b945d9467139cbb88d14394baac760b52eca038b330d16542d66fef61574271534ace5a200518dabf3b53a85f1f9e4bfa37141b538a9590"
 }

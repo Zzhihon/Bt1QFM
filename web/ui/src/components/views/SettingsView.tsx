@@ -74,7 +74,9 @@ const themes: Theme[] = [
 // 初始化主题
 const initializeTheme = () => {
   const savedTheme = localStorage.getItem('selectedTheme');
-  const theme = savedTheme ? JSON.parse(savedTheme) : themes[0];
+  // 默认使用极简主题，避免首次进入时切换为赛博朋克
+  const defaultTheme = themes.find((t) => t.className === 'theme-minimal')!;
+  const theme = savedTheme ? JSON.parse(savedTheme) : defaultTheme;
   applyTheme(theme);
   return theme;
 };
