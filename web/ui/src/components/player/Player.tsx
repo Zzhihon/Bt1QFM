@@ -321,7 +321,7 @@ const Player: React.FC = () => {
   return (
     <>
       {/* 主播放器控件 - 底部固定 */}
-      <div className="fixed bottom-0 left-0 right-0 bg-cyber-bg-darker border-t-2 border-cyber-primary p-2.5 z-50">
+      <div className="fixed bottom-0 left-0 right-0 bg-cyber-bg-darker border-t-2 border-cyber-primary p-2 sm:p-2.5 z-50">
         <div className="max-w-7xl mx-auto px-3">
           {/* 进度条 */}
           <div 
@@ -336,9 +336,9 @@ const Player: React.FC = () => {
             </div>
           </div>
           
-          <div className="flex items-center justify-between py-0.5">
+          <div className="flex flex-col sm:flex-row items-center justify-between py-0.5 space-y-2 sm:space-y-0">
             {/* 当前播放信息 */}
-            <div className="flex items-center w-1/3">
+            <div className="flex items-center w-full sm:w-1/3 mb-2 sm:mb-0">
               {playerState.currentTrack ? (
                 <>
                   <div className="w-10 h-10 bg-cyber-bg rounded mr-2 flex-shrink-0 overflow-hidden">
@@ -398,7 +398,7 @@ const Player: React.FC = () => {
             </div>
             
             {/* 额外控制：音量、播放模式、播放列表按钮 */}
-            <div className="flex items-center justify-end w-1/3 space-x-3">
+            <div className="flex items-center justify-end w-full sm:w-1/3 space-x-3 mt-2 sm:mt-0">
               {/* 时间显示 */}
               <div className="text-xs text-cyber-secondary hidden sm:block">
                 {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
