@@ -323,7 +323,7 @@ func (r *MySQLAlbumRepository) GetAlbumTracks(ctx context.Context, albumID int64
 	logger.Debug("Getting album tracks", logger.Int64("albumId", albumID))
 
 	query := `
-		SELECT t.id, t.user_id, t.title, t.artist, t.album, t.file_path, t.cover_art_path, 
+		SELECT t.id, t.user_id, t.title, t.artist, t.album, t.cover_art_path, 
 			   t.hls_playlist_path, t.duration, t.created_at, t.updated_at
 		FROM tracks t
 		JOIN album_tracks at ON t.id = at.track_id
@@ -350,7 +350,6 @@ func (r *MySQLAlbumRepository) GetAlbumTracks(ctx context.Context, albumID int64
 			&track.Title,
 			&track.Artist,
 			&track.Album,
-			&track.FilePath,
 			&track.CoverArtPath,
 			&track.HLSPlaylistPath,
 			&track.Duration,
