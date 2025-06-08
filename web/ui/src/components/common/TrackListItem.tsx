@@ -24,7 +24,7 @@ const TrackListItem: React.FC<TrackListItemProps> = ({ track, isActive, onDelete
 
   // 优化：点击时立即高亮，再异步 fetch m3u8
   const handlePlay = async () => {
-    const hlsUrl = track.hlsPlaylistUrl || `/stream/${track.id}/playlist.m3u8`;
+    const hlsUrl = track.hlsPlaylistUrl || `/streams/${track.id}/playlist.m3u8`;
     // 1. 立即高亮
     playTrack({ ...track, hlsPlaylistUrl: hlsUrl });
     // 2. 后台请求
