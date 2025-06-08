@@ -249,7 +249,7 @@ func Start() {
 			logger.String("ui_url", "http://localhost:8080/"),
 			logger.String("upload_url", "http://localhost:8080/api/upload"),
 			logger.String("tracks_url", "http://localhost:8080/api/tracks"),
-			logger.String("stream_url", "http://localhost:8080/stream/{track_id}/playlist.m3u8"),
+			logger.String("stream_url", "http://localhost:8080/streams/{track_id}/playlist.m3u8"),
 		)
 
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

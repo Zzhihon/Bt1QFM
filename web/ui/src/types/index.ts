@@ -15,7 +15,7 @@ export interface Track {
   album?: string;
   coverArtPath?: string; 
   filePath?: string; // Path to the original audio file if needed by backend
-  hlsPlaylistUrl?: string; // To construct `/stream/{id}/playlist.m3u8`
+  hlsPlaylistUrl?: string; // To construct `/streams/{id}/playlist.m3u8`
   url?: string; // Direct URL for external audio sources (e.g., Netease Music)
   userId?: number; // If tracks are user-specific
   neteaseId?: number; // Netease Music song ID

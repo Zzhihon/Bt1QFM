@@ -127,7 +127,7 @@ func (h *APIHandler) GetPlaylistHandler(ctx context.Context, userID int64, w htt
 				"album":          track.Album,
 				"position":       item.Position,
 				"coverArtPath":   track.CoverArtPath,
-				"hlsPlaylistUrl": fmt.Sprintf("/stream/%d/playlist.m3u8", track.ID),
+				"hlsPlaylistUrl": fmt.Sprintf("/streams/%d/playlist.m3u8", track.ID),
 			})
 		} else {
 			// 如果track为nil，使用播放列表项的基本信息
