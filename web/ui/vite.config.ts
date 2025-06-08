@@ -10,7 +10,10 @@ export default defineConfig(({ mode }) => {
     base: '/1qfm/',
     plugins: [react()],
     define: {
-      __BACKEND_URL__: `window.__ENV__?.BACKEND_URL || '${env.VITE_BACKEND_URL || 'http://localhost:8080'}'`
+      // Provide a default backend URL at build time. The actual URL can be
+      // overridden at runtime via the `window.__ENV__` object defined in
+      // `public/config/env-config.js`.
+      __BACKEND_URL__: JSON.stringify(env.VITE_BACKEND_URL || 'http://localhost:8080')
     },
     build: {
       rollupOptions: {
