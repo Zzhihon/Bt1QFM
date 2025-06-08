@@ -55,12 +55,22 @@ const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 // 声明全局变量类型
 declare const __BACKEND_URL__: string;
 
-// 获取后端 URL，提供默认值
+// 获取后端 URL，提供默认值并确保是绝对地址
 const getBackendUrl = () => {
+  let url: string;
+
   if (typeof __BACKEND_URL__ !== 'undefined') {
-    return __BACKEND_URL__;
+    url = __BACKEND_URL__;
+  } else {
+    url = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
   }
-  return import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
+
+  if (!/^https?:\/\//.test(url)) {
+    const { protocol } = window.location;
+    url = `${protocol}//${url}`;
+  }
+
+  return url;
 };
 
 export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
