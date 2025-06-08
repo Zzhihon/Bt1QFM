@@ -1,5 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import fs from 'fs'
+import path from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -8,7 +10,19 @@ export default defineConfig(({ mode }) => {
   
   return {
     base: '/1qfm/',
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        name: 'remove-config-folder-after-build',
+        closeBundle() {
+          const configPath = path.resolve(__dirname, 'dist/config')
+          if (fs.existsSync(configPath)) {
+            fs.rmSync(configPath, { recursive: true, force: true })
+            console.log('[vite] 已移除 dist/config 文件夹')
+          }
+        }
+      }
+    ],
     define: {
       // Provide a default backend URL at build time. The actual URL can be
       // overridden at runtime via the `window.__ENV__` object defined in
