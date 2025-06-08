@@ -1,10 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -14,7 +16,9 @@ import (
 	"strings"
 	"time"
 
+	"Bt1QFM/core/audio"
 	"Bt1QFM/logger"
+	"context"
 
 	"github.com/gorilla/mux"
 
@@ -78,20 +82,14 @@ func (h *APIHandler) UploadTracksToAlbumHandler(w http.ResponseWriter, r *http.R
 			Title:  originalName, // 使用原始文件名作为标题
 			Artist: album.Artist,
 			Album:  album.Name,
+			Status: "processing", // 添加状态字段
 		}
 
 		// 生成安全的文件名（与UploadTrackHandler保持完全一致）
-		safeBaseFilename := generateSafeFilenamePrefix(track.Title, track.Artist, track.Album)
 		fileExt := filepath.Ext(fileHeader.Filename)
 		if fileExt == "" {
 			fileExt = ".mp3" // 默认扩展名
 		}
-		trackStoreFileName := safeBaseFilename + fileExt
-
-		// MinIO路径：audio/文件名
-		minioTrackPath := "audio/" + trackStoreFileName
-		// 数据库存储路径（保持原格式）
-		track.FilePath = "/static/audio/" + trackStoreFileName
 
 		// 保存track到数据库
 		trackID, err := h.trackRepo.CreateTrack(track)
@@ -100,11 +98,30 @@ func (h *APIHandler) UploadTracksToAlbumHandler(w http.ResponseWriter, r *http.R
 			return
 		}
 
-		// 上传文件到MinIO
-		if err := h.uploadFileToMinio(file, minioTrackPath, "audio/mpeg"); err != nil {
-			http.Error(w, "Failed to upload file to MinIO", http.StatusInternalServerError)
-			return
+		// 将文件内容读取到缓冲区，避免文件关闭后无法读取
+		fileBuffer := &bytes.Buffer{}
+		if _, err := io.Copy(fileBuffer, file); err != nil {
+			logger.Error("读取文件到缓冲区失败",
+				logger.ErrorField(err),
+				logger.Int64("trackId", trackID))
+			h.trackRepo.UpdateTrackStatus(trackID, "failed")
+			continue
 		}
+
+		// 启动异步处理
+		go func(trackID int64, fileBuffer *bytes.Buffer, fileHeader *multipart.FileHeader, fileExt string, originalName string) {
+			// 处理音频文件流处理
+			if err := h.processTrackStreamAsync(trackID, fileBuffer, fileHeader, fileExt, originalName); err != nil {
+				logger.Error("异步流处理失败",
+					logger.ErrorField(err),
+					logger.Int64("trackId", trackID))
+				// 更新track状态为失败
+				h.trackRepo.UpdateTrackStatus(trackID, "failed")
+				return
+			}
+			// 更新track状态为完成
+			h.trackRepo.UpdateTrackStatus(trackID, "completed")
+		}(trackID, fileBuffer, fileHeader, fileExt, originalName)
 
 		trackIDs = append(trackIDs, trackID)
 	}
@@ -124,27 +141,7 @@ func (h *APIHandler) UploadTracksToAlbumHandler(w http.ResponseWriter, r *http.R
 	})
 }
 
-// saveUploadedFile 保存上传的文件并返回文件路径
-func (h *APIHandler) saveUploadedFile(file multipart.File, filename string, uploadDir string) (string, error) {
-	// 生成安全的文件名
-	safeFilename := generateSafeFilename(filename)
-	filePath := filepath.Join(uploadDir, safeFilename)
 
-	// 创建目标文件
-	dst, err := os.Create(filePath)
-	if err != nil {
-		return "", err
-	}
-	defer dst.Close()
-
-	// 复制文件内容
-	_, err = io.Copy(dst, file)
-	if err != nil {
-		return "", err
-	}
-
-	return filePath, nil
-}
 
 // generateSafeFilename 生成安全的文件名
 func generateSafeFilename(originalName string) string {
@@ -684,4 +681,70 @@ func (h *APIHandler) GetAlbumTracksHandler(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(tracks)
+}
+
+// processTrackStreamAsync 异步处理曲目的流处理
+func (h *APIHandler) processTrackStreamAsync(trackID int64, fileBuffer *bytes.Buffer, fileHeader *multipart.FileHeader, fileExt, originalName string) error {
+	// 创建临时文件
+	tempFile, err := os.CreateTemp("", "album-upload-*")
+	if err != nil {
+		return fmt.Errorf("创建临时文件失败: %v", err)
+	}
+	tempFilePath := tempFile.Name()
+
+	// 延迟删除临时文件（300秒后）
+	go func(filePath string) {
+		time.Sleep(300 * time.Second)
+		if err := os.Remove(filePath); err != nil {
+			logger.Warn("删除临时文件失败",
+				logger.String("path", filePath),
+				logger.ErrorField(err))
+		} else {
+			logger.Info("临时文件已清理", logger.String("path", filePath))
+		}
+	}(tempFilePath)
+
+	defer tempFile.Close()
+
+	// 将缓冲区内容写入临时文件
+	if _, err := io.Copy(tempFile, fileBuffer); err != nil {
+		return fmt.Errorf("写入缓冲区到临时文件失败: %v", err)
+	}
+
+	// 重置文件指针
+	if _, err := tempFile.Seek(0, 0); err != nil {
+		return fmt.Errorf("重置文件指针失败: %v", err)
+	}
+
+	// 使用流处理器处理音频
+	streamProcessor := audio.NewStreamProcessor(h.mp3Processor, h.cfg)
+	streamID := strconv.FormatInt(trackID, 10) // 只使用trackID数字，去掉"track_"前缀
+
+	// 启动流处理
+	if err := streamProcessor.StreamProcess(context.Background(), streamID, tempFilePath, false); err != nil {
+		logger.Error("流处理失败",
+			logger.Int64("trackId", trackID),
+			logger.ErrorField(err))
+		return fmt.Errorf("流处理失败: %v", err)
+	}
+
+	// 生成HLS流路径
+	safeBaseFilename := generateSafeFilenamePrefix(originalName, "", "")
+	hlsStreamDir := filepath.Join("streams", safeBaseFilename)
+	m3u8ServePath := "/static/" + strings.ReplaceAll(filepath.ToSlash(hlsStreamDir), "\\", "/") + "/playlist.m3u8"
+
+	// 更新数据库中的HLS路径
+	if err := h.trackRepo.UpdateTrackHLSPath(trackID, m3u8ServePath, 0); err != nil {
+		logger.Error("更新HLS路径失败",
+			logger.ErrorField(err),
+			logger.Int64("trackId", trackID),
+			logger.String("path", m3u8ServePath))
+		return fmt.Errorf("更新HLS路径失败: %v", err)
+	}
+
+	logger.Info("曲目流处理完成",
+		logger.Int64("trackId", trackID),
+		logger.String("hlsPath", m3u8ServePath))
+
+	return nil
 }
