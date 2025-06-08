@@ -121,10 +121,10 @@ func Start() {
 	router.HandleFunc("/ws/stream/{track_id}", apiHandler.WebSocketStreamHandler)
 
 	// Legacy compatibility: redirect old /stream path to /streams
-	router.PathPrefix("/stream/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		target := "/streams/" + strings.TrimPrefix(r.URL.Path, "/stream/")
-		http.Redirect(w, r, target, http.StatusMovedPermanently)
-	})
+	// router.PathPrefix("/stream/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// 	target := "/streams/" + strings.TrimPrefix(r.URL.Path, "/stream/")
+	// 	http.Redirect(w, r, target, http.StatusMovedPermanently)
+	// })
 
 	// 播放列表相关的API端点
 	router.HandleFunc("/api/playlist", apiHandler.AuthMiddleware(apiHandler.PlaylistHandler)).Methods(http.MethodGet, http.MethodPost, http.MethodDelete)
