@@ -2,7 +2,7 @@
   let currentText = '';
   async function check(){
     try {
-      const res = await fetch('/config/env-config.js?cache=' + Date.now());
+      const res = await fetch('/config/env-config.js');
       const text = await res.text();
       if(!currentText){
         currentText = text;
