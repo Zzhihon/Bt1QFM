@@ -13,6 +13,12 @@ const Navbar: React.FC = () => {
   const handleLogout = () => {
     logout();
     navigate('/login');
+    setMobileMenuOpen(false);
+  };
+
+  const handleNavigate = (path: string) => {
+    navigate(path);
+    setMobileMenuOpen(false);
   };
 
   const getStringValue = (value: any): string => {
@@ -31,37 +37,53 @@ const Navbar: React.FC = () => {
   const menuItems = currentUser ? (
     <>
       <button
-        onClick={() => navigate('/music-library')}
-        className={`text-cyber-secondary hover:text-cyber-primary px-3 py-2 rounded-md text-sm font-medium transition-colors duration-300 flex items-center ${location.pathname === '/music-library' ? 'text-cyber-primary' : ''}`}
+        onClick={() => handleNavigate('/music-library')}
+        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center border-2 ${
+          location.pathname === '/music-library' 
+            ? 'bg-cyber-primary text-cyber-bg-darker border-cyber-primary shadow-glow' 
+            : 'text-cyber-text hover:text-cyber-primary hover:bg-cyber-primary/10 border-transparent hover:border-cyber-primary/50'
+        }`}
       >
-        <ListMusic className="mr-1 h-5 w-5" /> Library
+        <ListMusic className="mr-2 h-5 w-5" /> Library
       </button>
       <button
-        onClick={() => navigate('/albums')}
-        className={`text-cyber-secondary hover:text-cyber-primary px-3 py-2 rounded-md text-sm font-medium transition-colors duration-300 flex items-center ${location.pathname === '/albums' ? 'text-cyber-primary' : ''}`}
+        onClick={() => handleNavigate('/albums')}
+        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center border-2 ${
+          location.pathname === '/albums' 
+            ? 'bg-cyber-primary text-cyber-bg-darker border-cyber-primary shadow-glow' 
+            : 'text-cyber-text hover:text-cyber-primary hover:bg-cyber-primary/10 border-transparent hover:border-cyber-primary/50'
+        }`}
       >
-        <Disc className="mr-1 h-5 w-5" /> Albums
+        <Disc className="mr-2 h-5 w-5" /> Albums
       </button>
       <button
-        onClick={() => navigate('/bot')}
-        className={`text-cyber-secondary hover:text-cyber-primary px-3 py-2 rounded-md text-sm font-medium transition-colors duration-300 flex items-center ${location.pathname === '/bot' ? 'text-cyber-primary' : ''}`}
+        onClick={() => handleNavigate('/bot')}
+        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center border-2 ${
+          location.pathname === '/bot' 
+            ? 'bg-cyber-primary text-cyber-bg-darker border-cyber-primary shadow-glow' 
+            : 'text-cyber-text hover:text-cyber-primary hover:bg-cyber-primary/10 border-transparent hover:border-cyber-primary/50'
+        }`}
       >
-        <Bot className="mr-1 h-5 w-5" /> Bot
+        <Bot className="mr-2 h-5 w-5" /> Bot
       </button>
 
       {/* 设置按钮 */}
       <div className="relative">
         <button
-          onClick={() => navigate('/settings')}
-          onMouseEnter={() => setShowProfile(true)}
+          onClick={() => handleNavigate('/settings')}
+          onMouseEnter={() => window.innerWidth >= 640 && setShowProfile(true)}
           onMouseLeave={() => setShowProfile(false)}
-          className={`text-cyber-secondary hover:text-cyber-primary px-3 py-2 rounded-md text-sm font-medium transition-colors duration-300 flex items-center ${location.pathname === '/settings' ? 'text-cyber-primary' : ''}`}
+          className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center border-2 ${
+            location.pathname === '/settings' 
+              ? 'bg-cyber-primary text-cyber-bg-darker border-cyber-primary shadow-glow' 
+              : 'text-cyber-text hover:text-cyber-primary hover:bg-cyber-primary/10 border-transparent hover:border-cyber-primary/50'
+          }`}
         >
-          <Settings className="mr-1 h-5 w-5" /> Settings
+          <Settings className="mr-2 h-5 w-5" /> Settings
         </button>
 
-        {/* 悬浮显示的个人档案 */}
-        {showProfile && (
+        {/* 悬浮显示的个人档案 - 只在桌面端显示 */}
+        {showProfile && window.innerWidth >= 768 && (
           <div className="absolute right-0 mt-2 w-64 bg-cyber-bg-darker border-2 border-cyber-primary rounded-lg shadow-xl p-4 z-50">
             <div className="flex items-center space-x-3 mb-4">
               <div className="w-12 h-12 rounded-full bg-cyber-primary flex items-center justify-center">
@@ -84,7 +106,7 @@ const Navbar: React.FC = () => {
             </div>
             <div className="mt-4 pt-4 border-t border-cyber-secondary/30">
               <button
-                onClick={() => navigate('/settings')}
+                onClick={() => handleNavigate('/settings')}
                 className="w-full text-center text-cyber-primary hover:text-cyber-hover-primary transition-colors duration-300"
               >
                 查看完整档案
@@ -96,22 +118,30 @@ const Navbar: React.FC = () => {
 
       <button
         onClick={handleLogout}
-        className="text-cyber-secondary hover:text-cyber-primary px-3 py-2 rounded-md text-sm font-medium transition-colors duration-300 flex items-center"
+        className="px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center border-2 border-transparent text-cyber-secondary hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/50"
       >
-        <LogOut className="mr-1 h-5 w-5" /> Logout
+        <LogOut className="mr-2 h-5 w-5" /> Logout
       </button>
     </>
   ) : (
     <>
       <button
-        onClick={() => navigate('/login')}
-        className={`text-cyber-secondary hover:text-cyber-primary px-3 py-2 rounded-md text-sm font-medium transition-colors duration-300 flex items-center ${location.pathname === '/login' ? 'text-cyber-primary' : ''}`}
+        onClick={() => handleNavigate('/login')}
+        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center border-2 ${
+          location.pathname === '/login' 
+            ? 'bg-cyber-primary text-cyber-bg-darker border-cyber-primary shadow-glow' 
+            : 'text-cyber-text hover:text-cyber-primary hover:bg-cyber-primary/10 border-transparent hover:border-cyber-primary/50'
+        }`}
       >
-        <LogIn className="mr-1 h-5 w-5" /> Login
+        <LogIn className="mr-2 h-5 w-5" /> Login
       </button>
       <button
-        onClick={() => navigate('/register')}
-        className={`text-cyber-secondary hover:text-cyber-primary px-3 py-2 rounded-md text-sm font-medium transition-colors duration-300 flex items-center ${location.pathname === '/register' ? 'text-cyber-primary' : ''}`}
+        onClick={() => handleNavigate('/register')}
+        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center border-2 ${
+          location.pathname === '/register' 
+            ? 'bg-cyber-primary text-cyber-bg-darker border-cyber-primary shadow-glow' 
+            : 'text-cyber-text hover:text-cyber-primary hover:bg-cyber-primary/10 border-transparent hover:border-cyber-primary/50'
+        }`}
       >
         Register
       </button>
@@ -119,26 +149,26 @@ const Navbar: React.FC = () => {
   );
 
   return (
-    <nav className="bg-cyber-bg-darker p-2 sm:p-4 shadow-lg border-b-2 border-cyber-primary">
-      <div className="container mx-auto flex justify-between items-center">
+    <nav className="bg-cyber-bg-darker shadow-lg border-b-2 border-cyber-primary h-[64px] flex items-center px-4">
+      <div className="container mx-auto flex justify-between items-center h-full">
         <button
-          onClick={() => navigate(currentUser ? '/music-library' : '/login')}
+          onClick={() => handleNavigate(currentUser ? '/music-library' : '/login')}
           className="text-2xl sm:text-3xl font-bold text-cyber-primary hover:text-cyber-hover-primary transition-colors duration-300 flex items-center"
         >
           <Music className="mr-2 h-8 w-8" /> Bt1QFM
         </button>
 
-        <div className="hidden sm:flex items-center space-x-4">{menuItems}</div>
+        <div className="hidden md:flex items-center space-x-3">{menuItems}</div>
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="sm:hidden text-cyber-primary"
+          className="md:hidden text-cyber-primary hover:bg-cyber-primary/20 p-2 rounded-lg transition-colors duration-300"
         >
           <Menu className="h-6 w-6" />
         </button>
       </div>
 
       {mobileMenuOpen && (
-        <div className="sm:hidden mobile-menu p-4 space-y-2 border-t border-cyber-primary">
+        <div className="md:hidden absolute top-[64px] left-0 right-0 bg-cyber-bg-darker border-t-2 border-cyber-primary p-4 space-y-3 z-50 shadow-xl">
           {menuItems}
         </div>
       )}
