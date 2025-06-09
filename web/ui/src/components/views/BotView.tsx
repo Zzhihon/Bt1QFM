@@ -553,8 +553,8 @@ const BotView: React.FC = () => {
       {/* 调整高度计算 - 64px导航栏 + 手机端播放栏约130px，桌面端84px */}
       <div className="h-[calc(100vh-64px-114px)] md:h-[calc(100vh-64px-84px)] grid grid-cols-12 gap-0">
         
-        {/* 左侧频道栏 - 在手机端隐藏 */}
-        <div className="hidden lg:flex lg:col-span-3 bg-cyber-bg-darker/50 backdrop-blur-sm border-r border-cyber-secondary/30 flex-col h-full">
+        {/* 左侧频道栏 - 在手机端隐藏，减少宽度 */}
+        <div className="hidden lg:flex lg:col-span-2 bg-cyber-bg-darker/50 backdrop-blur-sm border-r border-cyber-secondary/30 flex-col h-full">
           {/* 服务器信息 */}
           <div className="p-4 border-b border-cyber-secondary/30 flex-shrink-0">
             <h2 className="text-xl font-bold text-cyber-primary flex items-center">
@@ -588,8 +588,8 @@ const BotView: React.FC = () => {
           </div>
         </div>
 
-        {/* 中间对话区域 - 手机端占满整个宽度 */}
-        <div className="col-span-12 lg:col-span-6 flex flex-col h-full">
+        {/* 中间对话区域 - 手机端占满整个宽度，桌面端增加宽度 */}
+        <div className="col-span-12 lg:col-span-8 flex flex-col h-full">
           {/* 频道标题 - 手机端优化 */}
           <div className="h-12 md:h-14 border-b border-cyber-secondary/30 flex items-center px-3 md:px-6 bg-cyber-bg-darker/30 backdrop-blur-sm flex-shrink-0">
             <Hash className="w-4 h-4 md:w-5 md:h-5 text-cyber-primary mr-2" />
@@ -606,7 +606,7 @@ const BotView: React.FC = () => {
           {/* 消息显示区域 - 手机端优化间距 */}
           <div className="flex-1 relative bg-cyber-bg">
             <div className="absolute inset-0 overflow-y-auto messages-scroll-area">
-              <div className="p-2 md:p-4 space-y-3 md:space-y-4">
+              <div className="p-2 md:p-6 max-w-5xl mx-auto space-y-3 md:space-y-4">
                 {displayMessages.map((message, index) => (
                   <div
                     key={message.id}
@@ -620,7 +620,7 @@ const BotView: React.FC = () => {
                     )}
                     
                     <div
-                      className={`max-w-[85%] md:max-w-[75%] rounded-2xl p-3 md:p-4 shadow-lg ${
+                      className={`max-w-[90%] md:max-w-[80%] rounded-2xl p-3 md:p-4 shadow-lg ${
                         message.type === 'user'
                           ? 'bg-cyber-primary text-cyber-bg'
                           : 'bg-cyber-bg-darker/50 backdrop-blur-sm text-cyber-text border border-cyber-secondary/20'
@@ -696,36 +696,38 @@ const BotView: React.FC = () => {
           </div>
 
           {/* 输入区域 - 手机端优化 */}
-          <div className="h-auto p-2 md:p-4 bg-cyber-bg-darker/80 backdrop-blur-md border-t border-cyber-secondary/20 flex-shrink-0">
-            <form onSubmit={handleCommand} className="w-full">
-              <div className="flex items-center space-x-2 md:space-x-3 bg-cyber-bg-darker/50 backdrop-blur-md p-2 md:p-3 rounded-xl border border-cyber-secondary/30 shadow-lg">
-                <div className="flex-1 relative">
-                  <input
-                    type="text"
-                    value={command}
-                    onChange={(e) => setCommand(e.target.value)}
-                    placeholder="输入 /netease [歌曲名称]..."
-                    className="w-full px-3 md:px-4 py-2 md:py-2.5 text-sm bg-transparent text-cyber-text placeholder:text-cyber-secondary/50 focus:outline-none focus:ring-2 focus:ring-cyber-primary/30 rounded-lg transition-all duration-300"
-                  />
+          <div className="h-auto p-2 md:p-6 bg-cyber-bg-darker/80 backdrop-blur-md border-t border-cyber-secondary/20 flex-shrink-0">
+            <div className="max-w-5xl mx-auto">
+              <form onSubmit={handleCommand} className="w-full">
+                <div className="flex items-center space-x-2 md:space-x-3 bg-cyber-bg-darker/50 backdrop-blur-md p-2 md:p-3 rounded-xl border border-cyber-secondary/30 shadow-lg">
+                  <div className="flex-1 relative">
+                    <input
+                      type="text"
+                      value={command}
+                      onChange={(e) => setCommand(e.target.value)}
+                      placeholder="输入 /netease [歌曲名称]..."
+                      className="w-full px-3 md:px-4 py-2 md:py-2.5 text-sm bg-transparent text-cyber-text placeholder:text-cyber-secondary/50 focus:outline-none focus:ring-2 focus:ring-cyber-primary/30 rounded-lg transition-all duration-300"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="px-3 md:px-5 py-2 md:py-2.5 bg-cyber-primary text-cyber-bg rounded-lg hover:bg-cyber-hover-primary hover:scale-105 active:scale-95 transition-all duration-300 disabled:opacity-50 disabled:hover:scale-100 disabled:hover:bg-cyber-primary shadow-lg"
+                  >
+                    {isLoading ? (
+                      <div className="animate-spin rounded-full h-4 w-4 md:h-5 md:w-5 border-2 border-cyber-bg border-t-transparent" />
+                    ) : (
+                      <Send className="h-4 w-4 md:h-5 md:w-5" />
+                    )}
+                  </button>
                 </div>
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="px-3 md:px-5 py-2 md:py-2.5 bg-cyber-primary text-cyber-bg rounded-lg hover:bg-cyber-hover-primary hover:scale-105 active:scale-95 transition-all duration-300 disabled:opacity-50 disabled:hover:scale-100 disabled:hover:bg-cyber-primary shadow-lg"
-                >
-                  {isLoading ? (
-                    <div className="animate-spin rounded-full h-4 w-4 md:h-5 md:w-5 border-2 border-cyber-bg border-t-transparent" />
-                  ) : (
-                    <Send className="h-4 w-4 md:h-5 md:w-5" />
-                  )}
-                </button>
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
         </div>
 
-        {/* 右侧用户列表 - 在手机端隐藏 */}
-        <div className="hidden lg:flex lg:col-span-3 bg-cyber-bg-darker/50 backdrop-blur-sm border-l border-cyber-secondary/30 p-4 h-full overflow-hidden flex-col">
+        {/* 右侧用户列表 - 在手机端隐藏，减少宽度 */}
+        <div className="hidden lg:flex lg:col-span-2 bg-cyber-bg-darker/50 backdrop-blur-sm border-l border-cyber-secondary/30 p-4 h-full overflow-hidden flex-col">
           <div className="text-xs font-semibold text-cyber-secondary/70 mb-3 px-2">在线用户</div>
           <div className="space-y-2">
             <div className="flex items-center p-3 rounded-lg hover:bg-cyber-bg/50 cursor-pointer transition-colors">
