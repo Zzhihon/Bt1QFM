@@ -85,6 +85,7 @@ func Start() {
 	// 初始化处理器
 	apiHandler := NewAPIHandler(trackRepo, userRepo, albumRepo, audioProcessor, cfg)
 	neteaseHandler := netease.NewNeteaseHandler(cfg.NeteaseAPIURL, cfg)
+	userHandler := NewUserHandler(userRepo)
 
 	// 使用 gorilla/mux 创建路由器
 	router := mux.NewRouter()
@@ -111,6 +112,11 @@ func Start() {
 	router.HandleFunc("/api/netease/search", neteaseHandler.HandleSearch).Methods(http.MethodGet)
 	router.HandleFunc("/api/netease/song/detail", neteaseHandler.HandleSongDetail).Methods(http.MethodGet)
 	router.HandleFunc("/api/netease/song/dynamic/cover", neteaseHandler.HandleDynamicCover).Methods(http.MethodGet)
+	// 新增网易云收藏相关接口
+	router.HandleFunc("/api/netease/user/playlist", neteaseHandler.HandleUserPlaylists).Methods(http.MethodGet)
+	router.HandleFunc("/api/netease/get/userids", neteaseHandler.HandleGetUserIDs).Methods(http.MethodGet)
+	router.HandleFunc("/api/netease/playlist/detail", neteaseHandler.HandlePlaylistDetail).Methods(http.MethodGet)
+	router.HandleFunc("/api/netease/update/info", apiHandler.AuthMiddleware(neteaseHandler.HandleUpdateNeteaseInfo(userRepo))).Methods(http.MethodPost)
 
 	// API Endpoints
 	router.HandleFunc("/api/tracks", apiHandler.AuthMiddleware(apiHandler.GetTracksHandler)).Methods(http.MethodGet)
@@ -146,6 +152,8 @@ func Start() {
 	// 用户认证相关的API端点
 	router.HandleFunc("/api/auth/login", apiHandler.LoginHandler).Methods(http.MethodPost)
 	router.HandleFunc("/api/auth/register", apiHandler.RegisterHandler).Methods(http.MethodPost)
+	router.HandleFunc("/api/user/profile", apiHandler.AuthMiddleware(userHandler.GetUserProfileHandler)).Methods(http.MethodGet)
+	router.HandleFunc("/api/user/netease/update", apiHandler.AuthMiddleware(userHandler.UpdateNeteaseInfoHandler)).Methods(http.MethodPost)
 
 	// 添加MinIO文件服务路由
 	router.PathPrefix("/streams/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

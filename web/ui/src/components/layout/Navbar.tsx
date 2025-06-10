@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { LogIn, LogOut, Music, UserCircle, ListMusic, Disc, Bot, Settings, Mail, Phone, CalendarDays, Menu } from 'lucide-react';
+import { LogIn, LogOut, Music, UserCircle, ListMusic, Disc, Bot, Settings, Mail, Phone, CalendarDays, Menu, Heart } from 'lucide-react';
 
 const Navbar: React.FC = () => {
   const { currentUser, logout } = useAuth();
@@ -55,6 +55,16 @@ const Navbar: React.FC = () => {
         }`}
       >
         <Disc className="mr-2 h-5 w-5" /> Albums
+      </button>
+      <button
+        onClick={() => handleNavigate('/collections')}
+        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center border-2 ${
+          location.pathname === '/collections' 
+            ? 'bg-cyber-primary text-cyber-bg-darker border-cyber-primary shadow-glow' 
+            : 'text-cyber-text hover:text-cyber-primary hover:bg-cyber-primary/10 border-transparent hover:border-cyber-primary/50'
+        }`}
+      >
+        <Heart className="mr-2 h-5 w-5" /> Collections
       </button>
       <button
         onClick={() => handleNavigate('/bot')}

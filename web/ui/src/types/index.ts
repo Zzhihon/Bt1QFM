@@ -3,6 +3,8 @@ export interface User {
   username: string;
   email: string;
   phone?: string;
+  neteaseUsername?: string;  // 网易云用户名
+  neteaseUID?: string;       // 网易云用户UID
   createdAt?: string;
 }
 
@@ -104,4 +106,4 @@ export interface AlbumResponse {
 // 专辑列表响应
 export interface AlbumsResponse {
   albums: Album[];
-} 
+}
