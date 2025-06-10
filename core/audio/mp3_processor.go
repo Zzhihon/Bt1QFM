@@ -427,7 +427,7 @@ func (p *MP3Processor) CleanupExpiredProcessing(maxAge time.Duration) {
 
 // ProcessToHLS 将 MP3 文件转换为 HLS 格式
 func (p *MP3Processor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hlsBaseURL, audioBitrate, hlsSegmentTime string) (float32, error) {
-	logger.Info("Processing MP3 to HLS",
+	logger.Info("开始MP3到HLS转换",
 		logger.String("inputFile", inputFile),
 		logger.String("outputM3U8", outputM3U8),
 		logger.String("baseURL", hlsBaseURL))
@@ -452,7 +452,9 @@ func (p *MP3Processor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hlsBa
 	// 获取音频时长
 	duration, err := p.GetAudioDuration(inputFile)
 	if err != nil {
-		logger.Warn("Could not get audio duration, proceeding without", logger.String("file", inputFile), logger.ErrorField(err))
+		logger.Warn("无法获取音频时长，继续处理",
+			logger.String("file", inputFile),
+			logger.ErrorField(err))
 	}
 
 	// 构建 FFmpeg 参数
@@ -477,7 +479,7 @@ func (p *MP3Processor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hlsBa
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	logger.Debug("Executing FFmpeg command",
+	logger.Debug("执行FFmpeg命令",
 		logger.String("path", p.ffmpegPath),
 		logger.String("args", strings.Join(args, " ")))
 
@@ -494,9 +496,25 @@ func (p *MP3Processor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hlsBa
 		return 0, fmt.Errorf("ffmpeg execution failed for %s: %w\nFFmpeg Error: %s", inputFile, err, stderr.String())
 	}
 
-	logger.Info("Successfully transcoded MP3 to HLS",
-		logger.String("inputFile", inputFile),
-		logger.String("outputM3U8", outputM3U8))
+	// 验证输出文件是否生成成功
+	if _, err := os.Stat(outputM3U8); err != nil {
+		return 0, fmt.Errorf("playlist.m3u8文件未生成 %s: %w", outputM3U8, err)
+	}
+
+	// 验证是否有分片文件生成
+	segmentFiles, err := filepath.Glob(strings.Replace(segmentPattern, "%03d", "*", 1))
+	if err != nil {
+		logger.Warn("检查分片文件失败", logger.ErrorField(err))
+	} else if len(segmentFiles) == 0 {
+		return 0, fmt.Errorf("没有生成分片文件")
+	} else {
+		logger.Info("FFmpeg处理完成，分片文件已生成",
+			logger.String("inputFile", inputFile),
+			logger.String("outputM3U8", outputM3U8),
+			logger.Int("segmentCount", len(segmentFiles)),
+			logger.Float64("duration", float64(duration)))
+	}
+
 	return duration, nil
 }
 

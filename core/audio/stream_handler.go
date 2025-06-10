@@ -206,48 +206,65 @@ func (sp *StreamProcessor) processStream(ctx context.Context, streamID, inputPat
 		return fmt.Errorf("FFmpeg处理失败: %w", err)
 	}
 
-	// 更新进度
+	logger.Info("FFmpeg处理完成，temp分片已就绪",
+		logger.String("streamId", streamID),
+		logger.Float64("duration", float64(duration)))
+
+	// 更新进度 - FFmpeg处理完成，temp文件可用
 	sp.processingMu.Lock()
 	if state, exists := sp.processing[streamID]; exists {
-		state.Progress = 0.5 // FFmpeg处理完成50%
+		state.Progress = 0.7 // temp分片完成70%，可以开始提供服务
 	}
 	sp.processingMu.Unlock()
 
-	// 阶段3：将处理完的分片存储到Redis
-	logger.Info("开始存储分片到Redis", logger.String("streamId", streamID))
-	if err := sp.storeSegmentsToRedis(streamID, tempDir, isNetease); err != nil {
-		logger.Warn("存储到Redis失败",
-			logger.String("streamId", streamID),
-			logger.ErrorField(err))
-	}
-
-	// 更新进度
-	sp.processingMu.Lock()
-	if state, exists := sp.processing[streamID]; exists {
-		state.Progress = 0.8 // Redis存储完成80%
-	}
-	sp.processingMu.Unlock()
-
-	// 阶段4：异步上传到MinIO作为最终备份
+	// 阶段3：异步存储分片到Redis（不阻塞主流程）
 	go func() {
-		logger.Info("开始上传到MinIO", logger.String("streamId", streamID))
-		if err := sp.uploadToMinIO(streamID, tempDir, isNetease); err != nil {
-			logger.Warn("上传到MinIO失败",
+		logger.Info("开始异步存储分片到Redis",
+			logger.String("streamId", streamID))
+
+		if err := sp.storeSegmentsToRedis(streamID, tempDir, isNetease); err != nil {
+			logger.Warn("异步存储到Redis失败",
 				logger.String("streamId", streamID),
 				logger.ErrorField(err))
 		} else {
-			logger.Info("MinIO上传完成", logger.String("streamId", streamID))
-		}
+			logger.Info("异步Redis存储完成",
+				logger.String("streamId", streamID))
 
-		// 最终完成
-		sp.processingMu.Lock()
-		if state, exists := sp.processing[streamID]; exists {
-			state.Progress = 1.0
+			// 更新进度 - Redis存储完成
+			sp.processingMu.Lock()
+			if state, exists := sp.processing[streamID]; exists {
+				state.Progress = 0.9 // Redis存储完成90%
+			}
+			sp.processingMu.Unlock()
 		}
-		sp.processingMu.Unlock()
 	}()
 
-	logger.Info("流处理阶段完成",
+	// 阶段4：异步上传到MinIO作为最终备份（不阻塞主流程）
+	go func() {
+		// 稍微延迟启动MinIO上传，优先处理Redis
+		time.Sleep(2 * time.Second)
+
+		logger.Info("开始异步上传到MinIO",
+			logger.String("streamId", streamID))
+
+		if err := sp.uploadToMinIO(streamID, tempDir, isNetease); err != nil {
+			logger.Warn("异步上传到MinIO失败",
+				logger.String("streamId", streamID),
+				logger.ErrorField(err))
+		} else {
+			logger.Info("异步MinIO上传完成",
+				logger.String("streamId", streamID))
+
+			// 最终完成
+			sp.processingMu.Lock()
+			if state, exists := sp.processing[streamID]; exists {
+				state.Progress = 1.0
+			}
+			sp.processingMu.Unlock()
+		}
+	}()
+
+	logger.Info("主流程处理完成，temp分片已可用",
 		logger.String("streamId", streamID),
 		logger.Float64("duration", float64(duration)))
 
@@ -351,23 +368,33 @@ func (sp *StreamProcessor) uploadToMinIO(streamID, tempDir string, isNetease boo
 	})
 }
 
-// StreamGet 获取音频分片，实现三级缓存策略：temp -> Redis -> MinIO
+// StreamGet 获取音频分片，优化缓存策略：temp -> Redis -> MinIO
 func (sp *StreamProcessor) StreamGet(streamID, fileName string, isNetease bool) ([]byte, string, error) {
 	logger.Debug("获取流分片",
 		logger.String("streamId", streamID),
-		logger.String("fileName", fileName))
+		logger.String("fileName", fileName),
+		logger.Bool("isNetease", isNetease))
 
-	// 第一级：从temp目录获取
+	// 第一级：从temp目录获取（最快，优先级最高）
 	tempPath := filepath.Join(sp.cfg.StaticDir, "temp", "streams", streamID, fileName)
 	if data, contentType, err := sp.getFromTemp(tempPath, fileName); err == nil {
-		logger.Debug("从temp获取成功", logger.String("streamId", streamID))
+		logger.Debug("从temp获取成功，立即返回",
+			logger.String("streamId", streamID),
+			logger.String("fileName", fileName))
 		return data, contentType, nil
 	}
+
+	logger.Debug("temp目录未找到文件，尝试从缓存获取",
+		logger.String("streamId", streamID),
+		logger.String("fileName", fileName),
+		logger.String("tempPath", tempPath))
 
 	// 第二级：从Redis缓存获取
 	cacheKey := fmt.Sprintf("segment:%s:%s", streamID, fileName)
 	if data, err := cache.GetSegmentCache(cacheKey); err == nil && len(data) > 0 {
-		logger.Debug("从Redis获取成功", logger.String("streamId", streamID))
+		logger.Debug("从Redis缓存获取成功",
+			logger.String("streamId", streamID),
+			logger.String("fileName", fileName))
 		contentType := sp.getContentType(fileName)
 		return data, contentType, nil
 	}
@@ -381,27 +408,36 @@ func (sp *StreamProcessor) StreamGet(streamID, fileName string, isNetease bool) 
 	var minioPath string
 	if isNetease {
 		minioPath = fmt.Sprintf("streams/netease/%s/%s", streamID, fileName)
-		logger.Debug("MinIO路径获取分片", logger.String("minioPath", minioPath))
 	} else {
 		minioPath = fmt.Sprintf("streams/%s/%s", streamID, fileName)
-		logger.Debug("MinIO路径获取分片", logger.String("minioPath", minioPath))
 	}
 
 	if data, contentType, err := sp.getFromMinIO(minioPath, fileName); err == nil {
-		logger.Debug("从MinIO获取成功", logger.String("streamId", streamID))
+		logger.Debug("从MinIO获取成功",
+			logger.String("streamId", streamID),
+			logger.String("fileName", fileName))
 
 		// 异步回填到Redis缓存（仅在Redis可用时）
 		go func() {
 			if setErr := cache.SetSegmentCache(cacheKey, data, 1800*time.Second); setErr != nil {
-				logger.Warn("回填Redis缓存失败",
+				logger.Warn("异步回填Redis缓存失败",
 					logger.String("streamId", streamID),
 					logger.String("fileName", fileName),
 					logger.ErrorField(setErr))
+			} else {
+				logger.Debug("异步回填Redis缓存成功",
+					logger.String("streamId", streamID),
+					logger.String("fileName", fileName))
 			}
 		}()
 
 		return data, contentType, nil
 	}
+
+	logger.Warn("所有存储层都未找到分片文件",
+		logger.String("streamId", streamID),
+		logger.String("fileName", fileName),
+		logger.Bool("isNetease", isNetease))
 
 	return nil, "", fmt.Errorf("未找到分片文件: %s", fileName)
 }
