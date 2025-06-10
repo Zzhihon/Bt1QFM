@@ -7,6 +7,14 @@ import { usePlayer } from '../contexts/PlayerContext';
 import { authInterceptor } from '../utils/authInterceptor';
 import { retryWithDelay } from '../utils/retry';
 
+// 获取后端 URL，提供默认值
+const getBackendUrl = () => {
+  if (typeof window !== 'undefined' && (window as any).__ENV__?.BACKEND_URL) {
+    return (window as any).__ENV__.BACKEND_URL;
+  }
+  return import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
+};
+
 interface NeteasePlaylist {
   id: number;
   name: string;
@@ -87,7 +95,7 @@ const Collections: React.FC = () => {
       }
 
       console.log('正在获取用户资料...');
-      const response = await fetch('/api/user/profile', {
+      const response = await fetch(`${getBackendUrl()}/api/user/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -136,7 +144,7 @@ const Collections: React.FC = () => {
   // 通过用户名获取UID
   const getUserIdByNickname = useCallback(async (nickname: string): Promise<string | null> => {
     try {
-      const response = await fetch(`/api/netease/get/userids?nicknames=${encodeURIComponent(nickname)}`);
+      const response = await fetch(`${getBackendUrl()}/api/netease/get/userids?nicknames=${encodeURIComponent(nickname)}`);
       const data = await response.json();
       
       if (data.success && data.data && data.data[nickname]) {
@@ -173,7 +181,7 @@ const Collections: React.FC = () => {
         }
       }
 
-      const response = await fetch(`/api/netease/user/playlist?uid=${uid}`);
+      const response = await fetch(`${getBackendUrl()}/api/netease/user/playlist?uid=${uid}`);
       
       // 检查401响应
       if (response.status === 401) {
@@ -204,7 +212,7 @@ const Collections: React.FC = () => {
 
     try {
       console.log('正在获取歌单详情，ID:', playlistId);
-      const response = await fetch(`/api/netease/playlist/detail?id=${playlistId}`);
+      const response = await fetch(`${getBackendUrl()}/api/netease/playlist/detail?id=${playlistId}`);
       
       // 检查401响应
       if (response.status === 401) {
@@ -283,7 +291,7 @@ const Collections: React.FC = () => {
       duration: Math.floor((song.dt || 0) / 1000),
       source: 'netease' as const,
       hlsPlaylistPath: `/streams/netease/${song.id}/playlist.m3u8`,
-      url: `http://localhost:8080/streams/netease/${song.id}/playlist.m3u8`
+      url: `${getBackendUrl()}/streams/netease/${song.id}/playlist.m3u8`
     };
     
     console.log('添加歌曲到播放列表:', track);
@@ -329,7 +337,7 @@ const Collections: React.FC = () => {
       duration: Math.floor((song.dt || 0) / 1000),
       source: 'netease' as const,
       hlsPlaylistPath: `/streams/netease/${song.id}/playlist.m3u8`,
-      url: `http://localhost:8080/streams/netease/${song.id}/playlist.m3u8`
+      url: `${getBackendUrl()}/streams/netease/${song.id}/playlist.m3u8`
     };
     
     console.log('🎵 开始播放歌曲，启用重试机制:', {
@@ -382,7 +390,7 @@ const Collections: React.FC = () => {
         duration: Math.floor((song.dt || 0) / 1000),
         source: 'netease' as const,
         hlsPlaylistPath: `/streams/netease/${song.id}/playlist.m3u8`,
-        url: `http://localhost:8080/streams/netease/${song.id}/playlist.m3u8`
+        url: `${getBackendUrl()}/streams/netease/${song.id}/playlist.m3u8`
       };
     });
 
