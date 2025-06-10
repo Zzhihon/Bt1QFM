@@ -12,6 +12,7 @@ const ProfileView: React.FC = () => {
   const [profileData, setProfileData] = useState<any>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateMessage, setUpdateMessage] = useState('');
+  const [validationErrors, setValidationErrors] = useState<{[key: string]: string}>({});
   
   // 编辑模式状态
   const [isEditing, setIsEditing] = useState(false);
@@ -91,7 +92,39 @@ const ProfileView: React.FC = () => {
     }
   };
 
+  // 表单验证函数
+  const validateForm = () => {
+    const errors: {[key: string]: string} = {};
+    
+    if (!editForm.username.trim()) {
+      errors.username = '用户名不能为空';
+    }
+    
+    if (!editForm.email.trim()) {
+      errors.email = '邮箱地址不能为空';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editForm.email)) {
+      errors.email = '请输入有效的邮箱地址';
+    }
+    
+    if (editForm.neteaseUsername.trim() && !editForm.neteaseUID.trim()) {
+      errors.neteaseUID = '为了账户安全，绑定网易云账号时UID为必填项';
+    }
+    
+    if (editForm.neteaseUID.trim() && !editForm.neteaseUsername.trim()) {
+      errors.neteaseUsername = '请同时填写网易云用户名';
+    }
+    
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleUpdateProfile = async () => {
+    // 验证表单
+    if (!validateForm()) {
+      setUpdateMessage('请检查表单信息并修正错误');
+      return;
+    }
+
     setIsUpdating(true);
     setUpdateMessage('');
 
@@ -151,6 +184,13 @@ const ProfileView: React.FC = () => {
 
   // 只更新网易云信息的函数（保持向后兼容）
   const handleUpdateNeteaseInfo = async () => {
+    // 验证网易云信息
+    if (editForm.neteaseUsername.trim() && !editForm.neteaseUID.trim()) {
+      setValidationErrors({neteaseUID: '为了账户安全，绑定网易云账号时UID为必填项'});
+      setUpdateMessage('请填写完整的网易云信息');
+      return;
+    }
+
     setIsUpdating(true);
     setUpdateMessage('');
 
@@ -353,36 +393,58 @@ const ProfileView: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-cyber-accent mb-2">
-                  网易云用户名
+                  网易云用户名 <span className="text-cyber-red">*</span>
                 </label>
                 <input
                   type="text"
                   value={editForm.neteaseUsername}
-                  onChange={(e) => setEditForm({...editForm, neteaseUsername: e.target.value})}
+                  onChange={(e) => {
+                    setEditForm({...editForm, neteaseUsername: e.target.value});
+                    setValidationErrors({...validationErrors, neteaseUsername: ''});
+                  }}
                   placeholder="输入您的网易云用户名"
                   disabled={!isEditing}
-                  className="w-full px-3 py-2 bg-cyber-bg border border-cyber-secondary rounded-md text-cyber-text placeholder-cyber-secondary/50 focus:outline-none focus:border-cyber-primary focus:ring-1 focus:ring-cyber-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                  className={`w-full px-3 py-2 bg-cyber-bg border rounded-md text-cyber-text placeholder-cyber-secondary/50 focus:outline-none focus:ring-1 disabled:opacity-60 disabled:cursor-not-allowed ${
+                    validationErrors.neteaseUsername 
+                      ? 'border-cyber-red focus:border-cyber-red focus:ring-cyber-red' 
+                      : 'border-cyber-secondary focus:border-cyber-primary focus:ring-cyber-primary'
+                  }`}
                 />
+                {validationErrors.neteaseUsername && (
+                  <p className="mt-1 text-xs text-cyber-red">{validationErrors.neteaseUsername}</p>
+                )}
               </div>
               
               <div>
                 <label className="block text-sm font-medium text-cyber-accent mb-2">
-                  网易云UID
+                  网易云UID <span className="text-cyber-red">*</span>
                 </label>
                 <input
                   type="text"
                   value={editForm.neteaseUID}
-                  onChange={(e) => setEditForm({...editForm, neteaseUID: e.target.value})}
-                  placeholder="输入您的网易云UID（可选）"
+                  onChange={(e) => {
+                    setEditForm({...editForm, neteaseUID: e.target.value});
+                    setValidationErrors({...validationErrors, neteaseUID: ''});
+                  }}
+                  placeholder="输入您的网易云UID（必填）"
                   disabled={!isEditing}
-                  className="w-full px-3 py-2 bg-cyber-bg border border-cyber-secondary rounded-md text-cyber-text placeholder-cyber-secondary/50 focus:outline-none focus:border-cyber-primary focus:ring-1 focus:ring-cyber-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                  className={`w-full px-3 py-2 bg-cyber-bg border rounded-md text-cyber-text placeholder-cyber-secondary/50 focus:outline-none focus:ring-1 disabled:opacity-60 disabled:cursor-not-allowed ${
+                    validationErrors.neteaseUID 
+                      ? 'border-cyber-red focus:border-cyber-red focus:ring-cyber-red' 
+                      : 'border-cyber-secondary focus:border-cyber-primary focus:ring-cyber-primary'
+                  }`}
                 />
+                {validationErrors.neteaseUID && (
+                  <p className="mt-1 text-xs text-cyber-red">{validationErrors.neteaseUID}</p>
+                )}
               </div>
             </div>
             
             <div className="mt-4 text-xs text-cyber-secondary">
-              <p>绑定网易云账号后，您可以在"收藏"页面查看您的网易云歌单。</p>
-              <p className="mt-1">如果不知道UID，只填写用户名即可，系统会自动获取。</p>
+              <p className="text-cyber-red font-medium mb-2">安全提醒：</p>
+              <p>为了保护您的账户安全，绑定网易云账号时必须提供准确的UID。</p>
+              <p className="mt-1">UID可在网易云个人设置的账户与安全中心查找<span className="text-cyber-primary"></span></p>
+              <p className="mt-1">绑定后可在"收藏"页面查看您的网易云歌单。</p>
             </div>
           </div>
         </div>
@@ -580,7 +642,7 @@ const ProfileView: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-cyber-accent mb-2">
                     网易云用户名
-                    <span className="text-cyber-secondary text-xs ml-2">(必填)</span>
+                    <span className="text-cyber-red ml-1">*</span>
                   </label>
                   <input
                     type="text"
@@ -588,12 +650,23 @@ const ProfileView: React.FC = () => {
                     onChange={(e) => {
                       if (isEditing) {
                         setEditForm({...editForm, neteaseUsername: e.target.value});
+                        setValidationErrors({...validationErrors, neteaseUsername: ''});
                       }
                     }}
                     placeholder="输入您的网易云用户名"
                     disabled={!isEditing}
-                    className="w-full px-4 py-3 bg-cyber-bg border border-cyber-secondary rounded-lg text-cyber-text placeholder-cyber-secondary/50 focus:outline-none focus:border-cyber-primary focus:ring-2 focus:ring-cyber-primary/20 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+                    className={`w-full px-4 py-3 bg-cyber-bg border rounded-lg text-cyber-text placeholder-cyber-secondary/50 focus:outline-none focus:ring-2 disabled:opacity-60 disabled:cursor-not-allowed transition-all ${
+                      validationErrors.neteaseUsername 
+                        ? 'border-cyber-red focus:border-cyber-red focus:ring-cyber-red/20' 
+                        : 'border-cyber-secondary focus:border-cyber-primary focus:ring-cyber-primary/20'
+                    }`}
                   />
+                  {validationErrors.neteaseUsername && (
+                    <p className="mt-2 text-sm text-cyber-red flex items-center">
+                      <X className="h-4 w-4 mr-1" />
+                      {validationErrors.neteaseUsername}
+                    </p>
+                  )}
                   {!isEditing && profileData?.neteaseUsername && (
                     <div className="mt-2 text-xs text-green-400 flex items-center">
                       <Check className="h-3 w-3 mr-1" />
@@ -605,7 +678,7 @@ const ProfileView: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-cyber-accent mb-2">
                     网易云UID
-                    <span className="text-cyber-secondary text-xs ml-2">(可选)</span>
+                    <span className="text-cyber-red ml-1">*</span>
                   </label>
                   <input
                     type="text"
@@ -613,23 +686,40 @@ const ProfileView: React.FC = () => {
                     onChange={(e) => {
                       if (isEditing) {
                         setEditForm({...editForm, neteaseUID: e.target.value});
+                        setValidationErrors({...validationErrors, neteaseUID: ''});
                       }
                     }}
-                    placeholder="输入您的网易云UID（可选）"
+                    placeholder="输入您的网易云UID（必填）"
                     disabled={!isEditing}
-                    className="w-full px-4 py-3 bg-cyber-bg border border-cyber-secondary rounded-lg text-cyber-text placeholder-cyber-secondary/50 focus:outline-none focus:border-cyber-primary focus:ring-2 focus:ring-cyber-primary/20 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+                    className={`w-full px-4 py-3 bg-cyber-bg border rounded-lg text-cyber-text placeholder-cyber-secondary/50 focus:outline-none focus:ring-2 disabled:opacity-60 disabled:cursor-not-allowed transition-all ${
+                      validationErrors.neteaseUID 
+                        ? 'border-cyber-red focus:border-cyber-red focus:ring-cyber-red/20' 
+                        : 'border-cyber-secondary focus:border-cyber-primary focus:ring-cyber-primary/20'
+                    }`}
                   />
+                  {validationErrors.neteaseUID && (
+                    <p className="mt-2 text-sm text-cyber-red flex items-center">
+                      <X className="h-4 w-4 mr-1" />
+                      {validationErrors.neteaseUID}
+                    </p>
+                  )}
                 </div>
 
-                <div className="bg-gradient-to-r from-cyber-primary/10 to-cyber-accent/10 p-4 rounded-lg border border-cyber-primary/20">
+                <div className="bg-gradient-to-r from-cyber-red/10 to-cyber-accent/10 p-4 rounded-lg border border-cyber-red/20">
                   <div className="text-sm text-cyber-text space-y-2">
+                    <div className="flex items-center mb-2">
+                      <div className="w-4 h-4 bg-cyber-red rounded-full mr-2 flex items-center justify-center">
+                        <span className="text-white text-xs font-bold">!</span>
+                      </div>
+                      <p className="font-medium text-cyber-red">安全提醒</p>
+                    </div>
                     <div className="flex items-start">
-                      <div className="w-2 h-2 bg-cyber-primary rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                      <p>绑定网易云账号后，您可以在"收藏"页面查看网易云歌单</p>
+                      <div className="w-2 h-2 bg-cyber-red rounded-full mt-2 mr-3 flex-shrink-0"></div>
+                      <p>为保护账户安全，绑定网易云时用户名和UID均为必填项</p>
                     </div>
                     <div className="flex items-start">
                       <div className="w-2 h-2 bg-cyber-accent rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                      <p>如果不知道UID，只填写用户名即可，系统会自动获取</p>
+                      <p>UID可在网易云个人设置的账户与安全中心查找<span className="text-cyber-primary font-mono">您的UID</span></p>
                     </div>
                     <div className="flex items-start">
                       <div className="w-2 h-2 bg-cyber-secondary rounded-full mt-2 mr-3 flex-shrink-0"></div>
