@@ -14,6 +14,7 @@ type UserRepository interface {
 	GetUserByUsername(username string) (*model.User, error)
 	GetUserByEmail(email string) (*model.User, error)
 	UpdateNeteaseInfo(userID int64, neteaseUsername, neteaseUID string) error
+	UpdateUserProfile(userID int64, username, email, phone string) error
 }
 
 // mysqlUserRepository implements UserRepository for MySQL.
@@ -112,6 +113,27 @@ func (r *mysqlUserRepository) UpdateNeteaseInfo(userID int64, neteaseUsername, n
 	_, err = stmt.Exec(neteaseUsernameNull, neteaseUIDNull, userID)
 	if err != nil {
 		return fmt.Errorf("failed to execute update netease info statement: %w", err)
+	}
+	return nil
+}
+
+// UpdateUserProfile updates user's basic profile information.
+func (r *mysqlUserRepository) UpdateUserProfile(userID int64, username, email, phone string) error {
+	query := "UPDATE users SET username = ?, email = ?, phone = ?, updated_at = NOW() WHERE id = ?"
+	stmt, err := r.db.Prepare(query)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update user profile statement: %w", err)
+	}
+	defer stmt.Close()
+
+	var phoneNull sql.NullString
+	if phone != "" {
+		phoneNull = sql.NullString{String: phone, Valid: true}
+	}
+
+	_, err = stmt.Exec(username, email, phoneNull, userID)
+	if err != nil {
+		return fmt.Errorf("failed to execute update user profile statement: %w", err)
 	}
 	return nil
 }

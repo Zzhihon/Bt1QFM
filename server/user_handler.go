@@ -125,3 +125,58 @@ func (h *UserHandler) UpdateNeteaseInfoHandler(w http.ResponseWriter, r *http.Re
 		logger.Error("编码更新网易云信息响应失败", logger.ErrorField(err))
 	}
 }
+
+// UpdateUserProfileHandler 更新用户资料
+func (h *UserHandler) UpdateUserProfileHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 解析请求体
+	var req struct {
+		Username        string `json:"username"`
+		Email           string `json:"email"`
+		Phone           string `json:"phone"`
+		NeteaseUsername string `json:"neteaseUsername"`
+		NeteaseUID      string `json:"neteaseUID"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// 从上下文中获取用户ID
+	userID, ok := r.Context().Value("userID").(int64)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// 更新用户基本信息
+	if err := h.userRepo.UpdateUserProfile(userID, req.Username, req.Email, req.Phone); err != nil {
+		logger.Error("更新用户基本信息失败", logger.ErrorField(err))
+		http.Error(w, "Failed to update user profile", http.StatusInternalServerError)
+		return
+	}
+
+	// 更新用户网易云信息
+	if err := h.userRepo.UpdateNeteaseInfo(userID, req.NeteaseUsername, req.NeteaseUID); err != nil {
+		logger.Error("更新用户网易云信息失败", logger.ErrorField(err))
+		http.Error(w, "Failed to update netease info", http.StatusInternalServerError)
+		return
+	}
+
+	// 设置响应头
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// 返回成功响应
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Profile updated successfully",
+	}); err != nil {
+		logger.Error("编码更新用户资料响应失败", logger.ErrorField(err))
+	}
+}

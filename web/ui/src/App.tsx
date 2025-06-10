@@ -4,6 +4,7 @@ import Navbar from './components/layout/Navbar';
 import LoginForm from './components/auth/LoginForm';
 import RegisterForm from './components/auth/RegisterForm';
 import SettingsView from './components/views/SettingsView';
+import ProfileView from './components/views/ProfileView';
 import MusicLibraryView from './components/views/MusicLibraryView';
 import AlbumsView from './components/views/AlbumsView';
 import AlbumDetailView from './components/views/AlbumDetailView';
@@ -36,6 +37,7 @@ function App() {
             <Route path="/login" element={!currentUser ? <LoginForm /> : <Navigate to="/music-library" />} />
             <Route path="/register" element={!currentUser ? <RegisterForm /> : <Navigate to="/music-library" />} />
             <Route path="/settings" element={currentUser ? <SettingsView /> : <Navigate to="/login" />} />
+            <Route path="/profile" element={currentUser ? <ProfileView /> : <Navigate to="/login" />} />
             <Route path="/music-library" element={currentUser ? <MusicLibraryView /> : <Navigate to="/login" />} />
             <Route path="/albums" element={currentUser ? <AlbumsView /> : <Navigate to="/login" />} />
             <Route path="/album/:id" element={currentUser ? <AlbumDetailView /> : <Navigate to="/login" />} />

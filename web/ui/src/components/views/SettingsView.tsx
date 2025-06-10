@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { UserCircle, Mail, Phone, CalendarDays, Palette, Moon, Sun, Monitor } from 'lucide-react';
+import { UserCircle, Mail, Phone, CalendarDays, Palette, Moon, Sun, Monitor, ExternalLink, Music, Check } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface Theme {
   name: string;
@@ -102,8 +103,39 @@ const applyTheme = (theme: Theme) => {
 
 const SettingsView: React.FC = () => {
   const { currentUser } = useAuth();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'profile' | 'theme'>('profile');
   const [selectedTheme, setSelectedTheme] = useState<Theme>(initializeTheme);
+  const [profileData, setProfileData] = useState<any>(null);
+
+  // 获取用户完整资料信息
+  const fetchUserProfile = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch('/api/user/profile', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data) {
+          setProfileData(result.data);
+        }
+      }
+    } catch (error) {
+      console.error('获取用户资料失败:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (currentUser && activeTab === 'profile') {
+      fetchUserProfile();
+    }
+  }, [currentUser, activeTab]);
 
   const getStringValue = (value: any): string => {
     if (value === null || value === undefined) return 'N/A';
@@ -152,22 +184,125 @@ const SettingsView: React.FC = () => {
         </div>
 
         {activeTab === 'profile' ? (
-          <div className="space-y-4 text-cyber-text">
-            <div className="flex items-center space-x-3 p-3 bg-cyber-bg rounded-md">
-              <UserCircle className="h-6 w-6 text-cyber-secondary" />
-              <p><strong className="text-cyber-accent">用户名:</strong> {getStringValue(currentUser?.username)}</p>
+          <div className="space-y-6">
+            {/* 添加跳转按钮 */}
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-semibold text-cyber-primary">个人信息预览</h3>
+              <button
+                onClick={() => navigate('/profile')}
+                className="flex items-center px-4 py-2 bg-cyber-primary text-cyber-bg-darker rounded-lg hover:bg-cyber-hover-primary transition-colors font-medium shadow-lg"
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />
+                查看完整档案
+              </button>
             </div>
-            <div className="flex items-center space-x-3 p-3 bg-cyber-bg rounded-md">
-              <Mail className="h-6 w-6 text-cyber-secondary" />
-              <p><strong className="text-cyber-accent">邮箱:</strong> {getStringValue(currentUser?.email)}</p>
+
+            {/* 基本信息 */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* 用户基本信息卡片 */}
+              <div className="bg-cyber-bg p-4 rounded-lg border border-cyber-secondary/30">
+                <h4 className="text-lg font-medium text-cyber-accent mb-4 flex items-center">
+                  <UserCircle className="h-5 w-5 mr-2" />
+                  基本信息
+                </h4>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3 p-2 bg-cyber-bg-darker rounded-md">
+                    <UserCircle className="h-5 w-5 text-cyber-secondary" />
+                    <div className="flex-1">
+                      <span className="text-cyber-accent text-sm">用户名:</span>
+                      <span className="ml-2 text-cyber-text">{getStringValue(profileData?.username || currentUser?.username)}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-3 p-2 bg-cyber-bg-darker rounded-md">
+                    <Mail className="h-5 w-5 text-cyber-secondary" />
+                    <div className="flex-1">
+                      <span className="text-cyber-accent text-sm">邮箱:</span>
+                      <span className="ml-2 text-cyber-text">{getStringValue(profileData?.email || currentUser?.email)}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-3 p-2 bg-cyber-bg-darker rounded-md">
+                    <Phone className="h-5 w-5 text-cyber-secondary" />
+                    <div className="flex-1">
+                      <span className="text-cyber-accent text-sm">电话:</span>
+                      <span className="ml-2 text-cyber-text">{getStringValue(profileData?.phone || currentUser?.phone)}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-3 p-2 bg-cyber-bg-darker rounded-md">
+                    <CalendarDays className="h-5 w-5 text-cyber-secondary" />
+                    <div className="flex-1">
+                      <span className="text-cyber-accent text-sm">注册时间:</span>
+                      <span className="ml-2 text-cyber-text">{formatDate(getStringValue(profileData?.createdAt || currentUser?.createdAt))}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 网易云音乐信息卡片 */}
+              <div className="bg-cyber-bg p-4 rounded-lg border border-cyber-secondary/30">
+                <h4 className="text-lg font-medium text-cyber-accent mb-4 flex items-center">
+                  <Music className="h-5 w-5 mr-2" />
+                  网易云音乐
+                </h4>
+                <div className="space-y-3">
+                  <div className="p-3 bg-cyber-bg-darker rounded-md">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-cyber-accent text-sm">用户名:</span>
+                      {profileData?.neteaseUsername && (
+                        <div className="flex items-center text-xs text-green-400">
+                          <Check className="h-3 w-3 mr-1" />
+                          已绑定
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-cyber-text">
+                      {profileData?.neteaseUsername || '未设置'}
+                    </div>
+                  </div>
+                  
+                  <div className="p-3 bg-cyber-bg-darker rounded-md">
+                    <div className="mb-2">
+                      <span className="text-cyber-accent text-sm">UID:</span>
+                    </div>
+                    <div className="text-cyber-text">
+                      {profileData?.neteaseUID || '未设置'}
+                    </div>
+                  </div>
+
+                  {profileData?.neteaseUsername ? (
+                    <div className="bg-gradient-to-r from-green-900/30 to-green-800/30 p-3 rounded-md border border-green-500/30">
+                      <div className="text-sm text-green-300 flex items-center">
+                        <Check className="h-4 w-4 mr-2" />
+                        网易云账号已绑定，可以在收藏页面查看您的歌单
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-gradient-to-r from-cyber-primary/10 to-cyber-accent/10 p-3 rounded-md border border-cyber-primary/20">
+                      <div className="text-sm text-cyber-text">
+                        <p>还未绑定网易云账号</p>
+                        <p className="mt-1 text-cyber-secondary">点击"查看完整档案"进行绑定</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="flex items-center space-x-3 p-3 bg-cyber-bg rounded-md">
-              <Phone className="h-6 w-6 text-cyber-secondary" />
-              <p><strong className="text-cyber-accent">电话:</strong> {getStringValue(currentUser?.phone)}</p>
-            </div>
-            <div className="flex items-center space-x-3 p-3 bg-cyber-bg rounded-md">
-              <CalendarDays className="h-6 w-6 text-cyber-secondary" />
-              <p><strong className="text-cyber-accent">注册时间:</strong> {formatDate(getStringValue(currentUser?.createdAt))}</p>
+
+            {/* 功能说明 */}
+            <div className="bg-gradient-to-r from-cyber-primary/10 to-cyber-accent/10 p-4 rounded-lg border border-cyber-primary/20 mt-4">
+              <div className="space-y-2">
+                <div className="text-sm text-cyber-text">
+                  <p className="flex items-center font-medium mb-2">
+                    <ExternalLink className="h-4 w-4 mr-2 text-cyber-primary" />
+                    在完整档案页面您可以：
+                  </p>
+                  <ul className="ml-6 space-y-1 text-cyber-secondary">
+                    <li>• 编辑用户名、邮箱地址和手机号码</li>
+                    <li>• 绑定或更新网易云音乐账号信息</li>
+                    <li>• 查看详细的账户统计信息</li>
+                    <li>• 管理账户安全设置</li>
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
         ) : (
@@ -202,4 +337,4 @@ const SettingsView: React.FC = () => {
   );
 };
 
-export default SettingsView; 
+export default SettingsView;

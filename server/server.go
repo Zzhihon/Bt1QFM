@@ -154,6 +154,7 @@ func Start() {
 	router.HandleFunc("/api/auth/login", apiHandler.LoginHandler).Methods(http.MethodPost)
 	router.HandleFunc("/api/auth/register", apiHandler.RegisterHandler).Methods(http.MethodPost)
 	router.HandleFunc("/api/user/profile", apiHandler.AuthMiddleware(userHandler.GetUserProfileHandler)).Methods(http.MethodGet)
+	router.HandleFunc("/api/user/profile", apiHandler.AuthMiddleware(userHandler.UpdateUserProfileHandler)).Methods(http.MethodPut)
 	router.HandleFunc("/api/user/netease/update", apiHandler.AuthMiddleware(userHandler.UpdateNeteaseInfoHandler)).Methods(http.MethodPost)
 
 	// 添加MinIO文件服务路由
