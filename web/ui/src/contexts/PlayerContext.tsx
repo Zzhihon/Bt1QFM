@@ -317,6 +317,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       // 确定播放URL
       let playUrl = '';
       
+      // 统一获取 track ID，支持不同的 ID 字段
+      const trackId = track.id || track.trackId || (track as any).neteaseId;
+      
       // 优先使用HLS路径（适用于网易云歌曲）
       if (track.hlsPlaylistPath) {
         playUrl = track.hlsPlaylistPath;
@@ -324,15 +327,17 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       } else if (track.url) {
         playUrl = track.url;
         console.log('🎵 使用直接URL播放:', playUrl);
-      } else if (track.neteaseId || (track.source === 'netease' && track.id)) {
+      } else if (track.neteaseId || (track.source === 'netease' && trackId)) {
         // 构建网易云HLS路径
-        const songId = track.neteaseId || track.id;
+        const songId = track.neteaseId || trackId;
         playUrl = `/streams/netease/${songId}/playlist.m3u8`;
         console.log('🎵 构建网易云HLS路径:', playUrl);
-      } else {
+      } else if (trackId) {
         // 本地上传的歌曲
-        playUrl = `/streams/${track.id}/playlist.m3u8`;
+        playUrl = `/streams/${trackId}/playlist.m3u8`;
         console.log('🎵 构建本地HLS路径:', playUrl);
+      } else {
+        throw new Error('无法确定播放URL：缺少有效的track ID');
       }
 
       console.log('🔗 最终播放URL:', playUrl);
