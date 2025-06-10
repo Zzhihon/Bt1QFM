@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePlayer } from '../../contexts/PlayerContext';
 import { useToast } from '../../contexts/ToastContext';
+import { retryWithDelay } from '../../utils/retry';
 import { Music2, Search, PlayCircle, Send, Bot, User, Hash, Plus, Settings, Headphones, Minus, Clock, X } from 'lucide-react';
 
 interface Message {
@@ -246,108 +247,58 @@ const BotView: React.FC = () => {
         songId: song.id
       });
 
-      // 检查HLS流是否可用，带重试机制
-      console.log('🔍 检查HLS流可用性...');
+      // 显示处理开始提示
+      addToast({
+        type: 'info',
+        message: `正在准备播放: ${song.name}`,
+        duration: 3000,
+      });
+
+      // 使用 retryWithDelay 重试机制检查HLS流是否可用
+      console.log('🔍 使用重试机制检查HLS流可用性...');
       
-      const checkStreamWithRetry = async (maxRetries = 3, retryDelay = 8888): Promise<string> => {
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
-            console.log(`🔄 第 ${attempt}/${maxRetries} 次尝试获取HLS流...`);
-            console.log(`📡 请求URL: ${hlsUrl}`);
-            
-            // 只使用 cache: 'no-cache' 避免缓存，不设置自定义头以避免 OPTIONS 预检请求
-            const streamCheck = await fetch(hlsUrl, {
-              cache: 'no-cache'
-            });
-            
-            console.log('📊 HLS流检查结果:', {
-              attempt,
-              requestUrl: hlsUrl,
-              status: streamCheck.status,
-              statusText: streamCheck.statusText,
-              headers: Object.fromEntries(streamCheck.headers.entries())
-            });
-            
-            if (streamCheck.ok) {
-              const content = await streamCheck.text();
-              console.log('📄 playlist.m3u8 内容长度:', content.length);
-              
-              if (content.length === 0) {
-                console.warn(`⚠️ 第 ${attempt} 次尝试: playlist.m3u8 文件为空`);
-                
-                if (attempt < maxRetries) {
-                  // 显示重试提示
-                  addToast({
-                    type: 'info',
-                    message: `正在准备播放流... (${attempt}/${maxRetries})`,
-                    duration: 1500,
-                  });
-                  
-                  console.log(`⏳ 等待 ${retryDelay}ms 后重试...`);
-                  await new Promise(resolve => setTimeout(resolve, retryDelay));
-                  continue;
-                } else {
-                  throw new Error('播放列表文件为空，音频流可能还在准备中，请稍后再试');
-                }
-              }
-              
-              if (!content.includes('#EXTM3U')) {
-                console.error('❌ playlist.m3u8 格式无效:', content.substring(0, 100));
-                throw new Error('播放列表格式无效');
-              }
-              
-              console.log('✅ HLS流验证成功');
-              console.log('📄 playlist.m3u8 前100字符:', content.substring(0, 100));
-              return content;
-            } else {
-              console.error(`❌ 第 ${attempt} 次尝试失败:`, streamCheck.status, streamCheck.statusText);
-              
-              if (attempt < maxRetries) {
-                // 显示重试提示
-                addToast({
-                  type: 'info',
-                  message: `正在准备播放流... (${attempt}/${maxRetries})`,
-                  duration: 5000,
-                });
-                
-                console.log(`⏳ 等待 ${retryDelay}ms 后重试...`);
-                await new Promise(resolve => setTimeout(resolve, retryDelay));
-                continue;
-              } else {
-                throw new Error(`正在处理播放流，请稍后再试 (${streamCheck.status})`);
-              }
-            }
-          } catch (error) {
-            console.error(`❌ 第 ${attempt} 次尝试出错:`, {
-              requestUrl: hlsUrl,
-              error: error instanceof Error ? error.message : error,
-              attempt
-            });
-            
-            if (attempt < maxRetries) {
-              // 显示重试提示
-              addToast({
-                type: 'info',
-                message: `正在准备播放流... (${attempt}/${maxRetries})`,
-                duration: 1500,
-              });
-              
-              console.log(`⏳ 等待 ${retryDelay}ms 后重试...`);
-              await new Promise(resolve => setTimeout(resolve, retryDelay));
-              continue;
-            } else {
-              throw error;
-            }
+      await retryWithDelay(async () => {
+        console.log(`🔄 检查HLS流: ${hlsUrl}`);
+        
+        const streamCheck = await fetch(hlsUrl, {
+          cache: 'no-cache'
+        });
+        
+        console.log('📊 HLS流检查结果:', {
+          requestUrl: hlsUrl,
+          status: streamCheck.status,
+          statusText: streamCheck.statusText,
+          headers: Object.fromEntries(streamCheck.headers.entries())
+        });
+        
+        if (!streamCheck.ok) {
+          // 根据不同的状态码提供不同的错误信息
+          if (streamCheck.status === 408) {
+            throw new Error('音频流处理超时，正在重试...');
+          } else if (streamCheck.status === 404) {
+            throw new Error('音频流还在准备中，正在重试...');
+          } else {
+            throw new Error(`音频流不可用 (${streamCheck.status})，正在重试...`);
           }
         }
         
-        throw new Error('所有重试尝试都失败了');
-      };
+        const content = await streamCheck.text();
+        console.log('📄 playlist.m3u8 内容长度:', content.length);
+        
+        if (content.length === 0) {
+          throw new Error('播放列表文件为空，音频流还在处理中...');
+        }
+        
+        if (!content.includes('#EXTM3U')) {
+          throw new Error('播放列表格式无效，正在重试...');
+        }
+        
+        console.log('✅ HLS流验证成功');
+        console.log('📄 playlist.m3u8 前100字符:', content.substring(0, 100));
+        return content;
+      }, 30, 50); // 最多重试30次，每次间隔50ms
 
-      // 执行带重试的流检查
-      await checkStreamWithRetry();
-
-      // 构建播放轨道数据
+      // HLS流验证成功，构建播放轨道数据
       const trackData = {
         id: song.id,
         neteaseId: song.id,
@@ -368,6 +319,7 @@ const BotView: React.FC = () => {
       playTrack(trackData);
       console.log('✅ playTrack 调用完成');
 
+      // 添加播放成功消息
       const botMessage: Message = {
         id: Date.now().toString(),
         type: 'bot',
@@ -376,6 +328,13 @@ const BotView: React.FC = () => {
       };
       setMessages(prev => [...prev, botMessage]);
       console.log('💬 已添加播放消息到聊天');
+
+      // 显示播放成功提示
+      addToast({
+        type: 'success',
+        message: `开始播放: ${song.name}`,
+        duration: 2000,
+      });
 
     } catch (error: any) {
       console.error('❌ 播放失败:', {
@@ -387,20 +346,32 @@ const BotView: React.FC = () => {
         hlsUrl: `${backendUrl}/streams/netease/${song.id}/playlist.m3u8`
       });
       
+      // 根据错误类型提供不同的提示
+      let errorMessage = '播放失败';
+      if (error.message.includes('重试')) {
+        errorMessage = '歌曲处理时间过长，请稍后再试';
+      } else if (error.message.includes('超时')) {
+        errorMessage = '歌曲处理超时，请重新尝试';
+      } else if (error.message.includes('处理中')) {
+        errorMessage = '歌曲正在处理中，请稍等片刻';
+      } else {
+        errorMessage = error.message || '播放失败';
+      }
+      
       addToast({
         type: 'error',
-        message: error.message || '播放失败',
-        duration: 3000,
+        message: errorMessage,
+        duration: 4000,
       });
       
       // 添加错误消息到聊天
-      const errorMessage: Message = {
+      const errorMessage_chat: Message = {
         id: Date.now().toString(),
         type: 'bot',
-        content: `播放失败: ${error.message || '未知错误'}`,
+        content: `播放失败: ${errorMessage}`,
         timestamp: new Date(),
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => [...prev, errorMessage_chat]);
     } finally {
       // 从处理中集合中移除
       setProcessingSongs(prev => {
@@ -430,6 +401,13 @@ const BotView: React.FC = () => {
             return;
         }
 
+        // 显示添加开始提示
+        addToast({
+            type: 'info',
+            message: `正在添加: ${song.name}`,
+            duration: 2000,
+        });
+
         // 确保艺术家是数组格式，正确处理
         const artistStr = Array.isArray(song.artists) ? song.artists.join(', ') : (song.artists || '未知艺术家');
 
@@ -442,20 +420,32 @@ const BotView: React.FC = () => {
         
         console.log('Adding to playlist:', requestData);
 
-        const response = await fetch('/api/playlist', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`,
-            },
-            body: JSON.stringify(requestData),
-        });
+        // 使用重试机制来处理添加到播放列表的请求
+        await retryWithDelay(async () => {
+            const response = await fetch('/api/playlist', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${authToken}`,
+                },
+                body: JSON.stringify(requestData),
+            });
 
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-            console.error('Server response:', errorData);
-            throw new Error(errorData.error || `HTTP error ${response.status}`);
-        }
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                console.error('Server response:', errorData);
+                
+                // 如果是临时错误，抛出错误以便重试
+                if (response.status >= 500 || response.status === 408) {
+                    throw new Error(`服务器繁忙 (${response.status})，正在重试...`);
+                }
+                
+                // 其他错误不重试
+                throw new Error(errorData.error || `HTTP error ${response.status}`);
+            }
+
+            return response;
+        }, 5, 50); // 最多重试5次，每次间隔50ms
 
         // 更新前端状态 - 添加 neteaseId 字段和更完整的封面信息
         const trackData = {
@@ -485,9 +475,17 @@ const BotView: React.FC = () => {
         });
     } catch (error) {
         console.error('Error adding to playlist:', error);
+        
+        let errorMessage = '添加到播放列表失败';
+        if (error instanceof Error && error.message.includes('重试')) {
+            errorMessage = '网络繁忙，添加失败，请重试';
+        } else if (error instanceof Error) {
+            errorMessage = error.message;
+        }
+        
         addToast({
             type: 'error',
-            message: error instanceof Error ? error.message : '添加到播放列表失败',
+            message: errorMessage,
             duration: 3000,
         });
     }

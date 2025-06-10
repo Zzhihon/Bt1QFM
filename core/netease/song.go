@@ -2,7 +2,7 @@ package netease
 
 import (
 	"bytes"
-	"context"
+	// "context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"Bt1QFM/config"
+	// "Bt1QFM/config"
 	"Bt1QFM/core/audio"
 	"Bt1QFM/logger"
 	"Bt1QFM/model"
@@ -324,119 +324,119 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 		}
 
 		// 获取第一首歌的URL并预处理
-		if i == 0 && mp3Processor != nil && staticDir != "" {
-			// 异步预处理第一首歌
-			go func(songID int64, songName string) {
-				streamID := fmt.Sprintf("%d", songID)
+		// if i == 0 && mp3Processor != nil && staticDir != "" {
+		// 	// 异步预处理第一首歌
+		// 	go func(songID int64, songName string) {
+		// 		streamID := fmt.Sprintf("%d", songID)
 
-				// 检查是否正在处理中
-				if mp3Processor.IsProcessing(streamID) {
-					logger.Info("[SearchSongs] 歌曲正在处理中，跳过预处理",
-						logger.Int64("song_id", songID),
-						logger.String("name", songName))
-					return
-				}
+		// 		// 检查是否正在处理中
+		// 		if mp3Processor.IsProcessing(streamID) {
+		// 			logger.Info("[SearchSongs] 歌曲正在处理中，跳过预处理",
+		// 				logger.Int64("song_id", songID),
+		// 				logger.String("name", songName))
+		// 			return
+		// 		}
 
-				// 尝试获取处理锁
-				_, acquired := mp3Processor.TryLockProcessing(streamID, true)
-				if !acquired {
-					logger.Info("[SearchSongs] 无法获取处理锁，歌曲正在被其他进程处理",
-						logger.Int64("song_id", songID),
-						logger.String("name", songName))
-					return
-				}
+		// 		// 尝试获取处理锁
+		// 		_, acquired := mp3Processor.TryLockProcessing(streamID, true)
+		// 		if !acquired {
+		// 			logger.Info("[SearchSongs] 无法获取处理锁，歌曲正在被其他进程处理",
+		// 				logger.Int64("song_id", songID),
+		// 				logger.String("name", songName))
+		// 			return
+		// 		}
 
-				// 确保释放锁
-				defer func() {
-					mp3Processor.ReleaseProcessing(streamID)
-					logger.Info("[SearchSongs] 已释放处理锁",
-						logger.Int64("song_id", songID),
-						logger.String("name", songName))
-				}()
+		// 		// 确保释放锁
+		// 		defer func() {
+		// 			mp3Processor.ReleaseProcessing(streamID)
+		// 			logger.Info("[SearchSongs] 已释放处理锁",
+		// 				logger.Int64("song_id", songID),
+		// 				logger.String("name", songName))
+		// 		}()
 
-				logger.Info("[SearchSongs] 开始预处理歌曲",
-					logger.Int64("song_id", songID),
-					logger.String("name", songName))
+		// 		logger.Info("[SearchSongs] 开始预处理歌曲",
+		// 			logger.Int64("song_id", songID),
+		// 			logger.String("name", songName))
 
-				// 获取歌曲URL
-				songURL, err := c.GetSongURL(streamID)
-				if err != nil {
-					logger.Error("[SearchSongs] 获取歌曲URL失败",
-						logger.Int64("song_id", songID),
-						logger.String("name", songName),
-						logger.ErrorField(err))
-					return
-				}
+		// 		// 获取歌曲URL
+		// 		songURL, err := c.GetSongURL(streamID)
+		// 		if err != nil {
+		// 			logger.Error("[SearchSongs] 获取歌曲URL失败",
+		// 				logger.Int64("song_id", songID),
+		// 				logger.String("name", songName),
+		// 				logger.ErrorField(err))
+		// 			return
+		// 		}
 
-				// 创建一个持久的临时文件，用于流处理
-				tempFile, err := os.CreateTemp("", fmt.Sprintf("netease_%d_*.mp3", songID))
-				if err != nil {
-					logger.Error("[SearchSongs] 创建临时文件失败",
-						logger.Int64("song_id", songID),
-						logger.ErrorField(err))
-					return
-				}
-				tempFilePath := tempFile.Name()
-				tempFile.Close() // 关闭文件句柄但不删除文件
+		// 		// 创建一个持久的临时文件，用于流处理
+		// 		tempFile, err := os.CreateTemp("", fmt.Sprintf("netease_%d_*.mp3", songID))
+		// 		if err != nil {
+		// 			logger.Error("[SearchSongs] 创建临时文件失败",
+		// 				logger.Int64("song_id", songID),
+		// 				logger.ErrorField(err))
+		// 			return
+		// 		}
+		// 		tempFilePath := tempFile.Name()
+		// 		tempFile.Close() // 关闭文件句柄但不删除文件
 
-				// 下载文件
-				if err := downloadFile(songURL, tempFilePath); err != nil {
-					logger.Error("[SearchSongs] 下载音频文件失败",
-						logger.Int64("song_id", songID),
-						logger.String("name", songName),
-						logger.ErrorField(err))
-					os.Remove(tempFilePath) // 下载失败时清理文件
-					return
-				}
+		// 		// 下载文件
+		// 		if err := downloadFile(songURL, tempFilePath); err != nil {
+		// 			logger.Error("[SearchSongs] 下载音频文件失败",
+		// 				logger.Int64("song_id", songID),
+		// 				logger.String("name", songName),
+		// 				logger.ErrorField(err))
+		// 			os.Remove(tempFilePath) // 下载失败时清理文件
+		// 			return
+		// 		}
 
-				// 验证文件是否存在且大小合理
-				if fileInfo, err := os.Stat(tempFilePath); err != nil {
-					logger.Error("[SearchSongs] 临时文件不存在",
-						logger.Int64("song_id", songID),
-						logger.String("tempFile", tempFilePath),
-						logger.ErrorField(err))
-					return
-				} else if fileInfo.Size() == 0 {
-					logger.Error("[SearchSongs] 临时文件为空",
-						logger.Int64("song_id", songID),
-						logger.String("tempFile", tempFilePath))
-					os.Remove(tempFilePath)
-					return
-				} else {
-					logger.Info("[SearchSongs] 文件下载完成",
-						logger.Int64("song_id", songID),
-						logger.String("tempFile", tempFilePath),
-						logger.Int64("fileSize", fileInfo.Size()))
-				}
+		// 		// 验证文件是否存在且大小合理
+		// 		if fileInfo, err := os.Stat(tempFilePath); err != nil {
+		// 			logger.Error("[SearchSongs] 临时文件不存在",
+		// 				logger.Int64("song_id", songID),
+		// 				logger.String("tempFile", tempFilePath),
+		// 				logger.ErrorField(err))
+		// 			return
+		// 		} else if fileInfo.Size() == 0 {
+		// 			logger.Error("[SearchSongs] 临时文件为空",
+		// 				logger.Int64("song_id", songID),
+		// 				logger.String("tempFile", tempFilePath))
+		// 			os.Remove(tempFilePath)
+		// 			return
+		// 		} else {
+		// 			logger.Info("[SearchSongs] 文件下载完成",
+		// 				logger.Int64("song_id", songID),
+		// 				logger.String("tempFile", tempFilePath),
+		// 				logger.Int64("fileSize", fileInfo.Size()))
+		// 		}
 
-				// 使用流处理器处理音频
-				cfg := config.Load()
-				streamProcessor := audio.NewStreamProcessor(mp3Processor, cfg)
+		// 		// 使用流处理器处理音频
+		// 		cfg := config.Load()
+		// 		streamProcessor := audio.NewStreamProcessor(mp3Processor, cfg)
 
-				// 使用同步方式处理流，等待处理完成后再删除临时文件
-				if err := streamProcessor.StreamProcessSync(context.Background(), streamID, tempFilePath, true); err != nil {
-					logger.Error("[SearchSongs] 流处理失败",
-						logger.Int64("song_id", songID),
-						logger.String("name", songName),
-						logger.String("tempFile", tempFilePath),
-						logger.ErrorField(err))
-				} else {
-					logger.Info("[SearchSongs] 歌曲预处理完成",
-						logger.Int64("song_id", songID),
-						logger.String("name", songName))
-				}
+		// 		// 使用同步方式处理流，等待处理完成后再删除临时文件
+		// 		if err := streamProcessor.StreamProcessSync(context.Background(), streamID, tempFilePath, true); err != nil {
+		// 			logger.Error("[SearchSongs] 流处理失败",
+		// 				logger.Int64("song_id", songID),
+		// 				logger.String("name", songName),
+		// 				logger.String("tempFile", tempFilePath),
+		// 				logger.ErrorField(err))
+		// 		} else {
+		// 			logger.Info("[SearchSongs] 歌曲预处理完成",
+		// 				logger.Int64("song_id", songID),
+		// 				logger.String("name", songName))
+		// 		}
 
-				// 处理完成后删除临时文件
-				if err := os.Remove(tempFilePath); err != nil {
-					logger.Warn("[SearchSongs] 清理临时文件失败",
-						logger.String("tempFile", tempFilePath),
-						logger.ErrorField(err))
-				} else {
-					logger.Debug("[SearchSongs] 临时文件已清理",
-						logger.String("tempFile", tempFilePath))
-				}
-			}(song.ID, song.Name)
-		}
+		// 		// 处理完成后删除临时文件
+		// 		if err := os.Remove(tempFilePath); err != nil {
+		// 			logger.Warn("[SearchSongs] 清理临时文件失败",
+		// 				logger.String("tempFile", tempFilePath),
+		// 				logger.ErrorField(err))
+		// 		} else {
+		// 			logger.Debug("[SearchSongs] 临时文件已清理",
+		// 				logger.String("tempFile", tempFilePath))
+		// 		}
+		// 	}(song.ID, song.Name)
+		// }
 	}
 
 	return searchResult, nil
