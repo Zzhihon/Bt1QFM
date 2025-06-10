@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { LogIn, LogOut, Music, UserCircle, ListMusic, Disc, Bot, Settings, Mail, Phone, CalendarDays, Menu, Heart } from 'lucide-react';
+import AnnouncementBell from '../announcement/AnnouncementBell';
+import AnnouncementModal from '../announcement/AnnouncementModal';
+import type { Announcement } from '../../types/announcement';
 
 const Navbar: React.FC = () => {
   const { currentUser, logout } = useAuth();
@@ -9,6 +12,8 @@ const Navbar: React.FC = () => {
   const location = useLocation();
   const [showProfile, setShowProfile] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -19,6 +24,16 @@ const Navbar: React.FC = () => {
   const handleNavigate = (path: string) => {
     navigate(path);
     setMobileMenuOpen(false);
+  };
+
+  const handleShowAnnouncement = (announcement: Announcement) => {
+    setSelectedAnnouncement(announcement);
+    setShowAnnouncementModal(true);
+  };
+
+  const handleAnnouncementRead = (id: string) => {
+    // 可以在这里更新本地状态或重新加载数据
+    console.log('公告已读:', id);
   };
 
   const getStringValue = (value: any): string => {
@@ -77,6 +92,8 @@ const Navbar: React.FC = () => {
         <Bot className="mr-2 h-5 w-5" /> Bot
       </button>
 
+
+
       {/* 设置按钮 */}
       <div className="relative">
         <button
@@ -125,6 +142,8 @@ const Navbar: React.FC = () => {
           </div>
         )}
       </div>
+            {/* 公告通知铃铛 */}
+      <AnnouncementBell onShowAnnouncement={handleShowAnnouncement} />
 
       <button
         onClick={handleLogout}
@@ -159,30 +178,42 @@ const Navbar: React.FC = () => {
   );
 
   return (
-    <nav className="bg-cyber-bg-darker shadow-lg border-b-2 border-cyber-primary h-[64px] flex items-center px-4">
-      <div className="container mx-auto flex justify-between items-center h-full">
-        <button
-          onClick={() => handleNavigate(currentUser ? '/music-library' : '/login')}
-          className="text-2xl sm:text-3xl font-bold text-cyber-primary hover:text-cyber-hover-primary transition-colors duration-300 flex items-center"
-        >
-          <Music className="mr-2 h-8 w-8" /> Bt1QFM
-        </button>
+    <>
+      <nav className="bg-cyber-bg-darker shadow-lg border-b-2 border-cyber-primary h-[64px] flex items-center px-4">
+        <div className="container mx-auto flex justify-between items-center h-full">
+          <button
+            onClick={() => handleNavigate(currentUser ? '/music-library' : '/login')}
+            className="text-2xl sm:text-3xl font-bold text-cyber-primary hover:text-cyber-hover-primary transition-colors duration-300 flex items-center"
+          >
+            <Music className="mr-2 h-8 w-8" /> Bt1QFM
+          </button>
 
-        <div className="hidden md:flex items-center space-x-3">{menuItems}</div>
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden text-cyber-primary hover:bg-cyber-primary/20 p-2 rounded-lg transition-colors duration-300"
-        >
-          <Menu className="h-6 w-6" />
-        </button>
-      </div>
-
-      {mobileMenuOpen && (
-        <div className="md:hidden absolute top-[64px] left-0 right-0 bg-cyber-bg-darker border-t-2 border-cyber-primary p-4 space-y-3 z-50 shadow-xl">
-          {menuItems}
+          <div className="hidden md:flex items-center space-x-3">{menuItems}</div>
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden text-cyber-primary hover:bg-cyber-primary/20 p-2 rounded-lg transition-colors duration-300"
+          >
+            <Menu className="h-6 w-6" />
+          </button>
         </div>
+
+        {mobileMenuOpen && (
+          <div className="md:hidden absolute top-[64px] left-0 right-0 bg-cyber-bg-darker border-t-2 border-cyber-primary p-4 space-y-3 z-50 shadow-xl">
+            {menuItems}
+          </div>
+        )}
+      </nav>
+
+      {/* 公告弹窗 */}
+      {selectedAnnouncement && (
+        <AnnouncementModal
+          visible={showAnnouncementModal}
+          announcement={selectedAnnouncement}
+          onClose={() => setShowAnnouncementModal(false)}
+          onRead={handleAnnouncementRead}
+        />
       )}
-    </nav>
+    </>
   );
 };
 

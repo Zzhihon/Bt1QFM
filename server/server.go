@@ -82,11 +82,13 @@ func Start() {
 	trackRepo := repository.NewMySQLTrackRepository()
 	userRepo := repository.NewMySQLUserRepository(db.DB)
 	albumRepo := repository.NewMySQLAlbumRepository(db.DB)
+	announcementRepo := repository.NewAnnouncementRepository()
 
 	// 初始化处理器
 	apiHandler := NewAPIHandler(trackRepo, userRepo, albumRepo, audioProcessor, cfg)
 	neteaseHandler := netease.NewNeteaseHandler(cfg.NeteaseAPIURL, cfg)
 	userHandler := NewUserHandler(userRepo)
+	announcementHandler := NewAnnouncementHandler(announcementRepo, userRepo)
 
 	// 使用 gorilla/mux 创建路由器
 	router := mux.NewRouter()
@@ -127,12 +129,6 @@ func Start() {
 
 	router.HandleFunc("/ws/stream/{track_id}", apiHandler.WebSocketStreamHandler)
 
-	// Legacy compatibility: redirect old /stream path to /streams
-	// router.PathPrefix("/stream/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	// 	target := "/streams/" + strings.TrimPrefix(r.URL.Path, "/stream/")
-	// 	http.Redirect(w, r, target, http.StatusMovedPermanently)
-	// })
-
 	// 播放列表相关的API端点
 	router.HandleFunc("/api/playlist", apiHandler.AuthMiddleware(apiHandler.PlaylistHandler)).Methods(http.MethodGet, http.MethodPost, http.MethodDelete)
 	router.HandleFunc("/api/playlist/all", apiHandler.AuthMiddleware(apiHandler.AddAllTracksToPlaylistHandler)).Methods(http.MethodPost)
@@ -156,6 +152,12 @@ func Start() {
 	router.HandleFunc("/api/user/profile", apiHandler.AuthMiddleware(userHandler.GetUserProfileHandler)).Methods(http.MethodGet)
 	router.HandleFunc("/api/user/profile", apiHandler.AuthMiddleware(userHandler.UpdateUserProfileHandler)).Methods(http.MethodPut)
 	router.HandleFunc("/api/user/netease/update", apiHandler.AuthMiddleware(userHandler.UpdateNeteaseInfoHandler)).Methods(http.MethodPost)
+
+	// 🎉 公告相关的API端点 - 正式上线
+	logger.Info("注册公告系统API端点...")
+	RegisterAnnouncementRoutes(router, announcementHandler, apiHandler.AuthMiddleware)
+	logger.Info("公告系统API端点注册完成", 
+		logger.String("endpoints", "GET /api/announcements, GET /api/announcements/unread, PUT /api/announcements/{id}/read, POST /api/announcements, DELETE /api/announcements/{id}, GET /api/announcements/stats"))
 
 	// 添加MinIO文件服务路由
 	router.PathPrefix("/streams/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -361,9 +363,11 @@ func Start() {
 
 	// 在goroutine中启动服务器
 	go func() {
-		logger.Info("服务器启动中...",
+		logger.Info("🚀 Bt1QFM 服务器启动中...",
 			logger.String("port", "8080"),
 			logger.String("ui_url", "http://localhost:8080/"),
+			logger.String("api_base", "http://localhost:8080/api/"),
+			logger.String("announcements_api", "http://localhost:8080/api/announcements"),
 			logger.String("upload_url", "http://localhost:8080/api/upload"),
 			logger.String("tracks_url", "http://localhost:8080/api/tracks"),
 			logger.String("stream_url", "http://localhost:8080/streams/{track_id}/playlist.m3u8"),
