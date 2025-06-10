@@ -210,94 +210,91 @@ func Start() {
 		streamProcessor := audio.NewStreamProcessor(mp3Processor, cfg)
 		data, contentType, err := streamProcessor.StreamGet(streamID, fileName, isNetease)
 		if err != nil {
-			// 重试一次
-			time.Sleep(100 * time.Millisecond)
-			data, contentType, err = streamProcessor.StreamGet(streamID, fileName, isNetease)
-			if err != nil {
-				// 如果是网易云歌曲且获取playlist.m3u8失败，触发重新处理
-				if isNetease && fileName == "playlist.m3u8" {
-					logger.Info("网易云歌曲资源未找到，触发重新处理",
+
+			// 如果是网易云歌曲且获取playlist.m3u8失败，触发重新处理
+			if isNetease && fileName == "playlist.m3u8" {
+				logger.Info("网易云歌曲资源未找到，触发重新处理",
+					logger.String("streamId", streamID),
+					logger.String("fileName", fileName))
+
+				// 尝试获取处理锁
+				_, acquired := mp3Processor.TryLockProcessing(streamID, isNetease)
+				if acquired {
+					logger.Info("成功获取处理锁，开始异步重新处理",
 						logger.String("streamId", streamID),
-						logger.String("fileName", fileName))
+						logger.Bool("isNetease", isNetease))
 
-					// 尝试获取处理锁
-					_, acquired := mp3Processor.TryLockProcessing(streamID, isNetease)
-					if acquired {
-						logger.Info("成功获取处理锁，开始异步重新处理",
-							logger.String("streamId", streamID),
-							logger.Bool("isNetease", isNetease))
-
-						// 异步触发重新处理
-						go func() {
-							defer func() {
-								logger.Info("释放处理锁",
-									logger.String("streamId", streamID))
-								mp3Processor.ReleaseProcessing(streamID)
-							}()
-
-							ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-							defer cancel()
-
-							// 调用网易云处理逻辑重新下载和处理歌曲
-							neteaseClient := netease.NewClient()
-							if err := handleNeteaseReprocessing(ctx, streamID, neteaseClient, streamProcessor); err != nil {
-								logger.Error("网易云歌曲重新处理失败",
-									logger.String("streamId", streamID),
-									logger.ErrorField(err))
-							} else {
-								logger.Info("网易云歌曲重新处理完成",
-									logger.String("streamId", streamID))
-							}
+					// 异步触发重新处理
+					go func() {
+						defer func() {
+							logger.Info("释放处理锁",
+								logger.String("streamId", streamID))
+							mp3Processor.ReleaseProcessing(streamID)
 						}()
 
-						// 等待处理完成或超时
-						logger.Info("等待重新处理完成",
-							logger.String("streamId", streamID),
-							logger.Duration("waitTimeout", 2*time.Minute))
+						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+						defer cancel()
 
-						if mp3Processor.WaitForProcessing(streamID, 2*time.Minute) {
-							logger.Info("重新处理完成，尝试获取文件",
+						// 调用网易云处理逻辑重新下载和处理歌曲
+						neteaseClient := netease.NewClient()
+						if err := handleNeteaseReprocessing(ctx, streamID, neteaseClient, streamProcessor); err != nil {
+							logger.Error("网易云歌曲重新处理失败",
 								logger.String("streamId", streamID),
-								logger.String("fileName", fileName))
-							// 重新尝试获取文件
-							data, contentType, err = streamProcessor.StreamGet(streamID, fileName, isNetease)
-							if err == nil {
-								goto serveFile
-							}
+								logger.ErrorField(err))
 						} else {
-							logger.Warn("等待重新处理超时",
-								logger.String("streamId", streamID),
-								logger.Duration("waitTimeout", 2*time.Minute))
+							logger.Info("网易云歌曲重新处理完成",
+								logger.String("streamId", streamID))
+						}
+					}()
+
+					// 等待处理完成或超时
+					logger.Info("等待重新处理完成",
+						logger.String("streamId", streamID),
+						logger.Duration("waitTimeout", 2*time.Minute))
+
+					if mp3Processor.WaitForProcessing(streamID, 2*time.Minute) {
+						logger.Info("重新处理完成，尝试获取文件",
+							logger.String("streamId", streamID),
+							logger.String("fileName", fileName))
+						// 重新尝试获取文件
+						data, contentType, err = streamProcessor.StreamGet(streamID, fileName, isNetease)
+						if err == nil {
+							goto serveFile
 						}
 					} else {
-						logger.Info("无法获取处理锁，歌曲正在被其他进程处理，等待处理完成",
+						logger.Warn("等待重新处理超时",
 							logger.String("streamId", streamID),
-							logger.Bool("isNetease", isNetease))
+							logger.Duration("waitTimeout", 2*time.Minute))
+					}
+				} else {
+					logger.Info("无法获取处理锁，歌曲正在被其他进程处理，等待处理完成",
+						logger.String("streamId", streamID),
+						logger.Bool("isNetease", isNetease))
 
-						// 其他进程正在处理，等待
-						if mp3Processor.WaitForProcessing(streamID, 2*time.Minute) {
-							logger.Info("其他进程处理完成，尝试获取文件",
-								logger.String("streamId", streamID),
-								logger.String("fileName", fileName))
-							data, contentType, err = streamProcessor.StreamGet(streamID, fileName, isNetease)
-							if err == nil {
-								goto serveFile
-							}
-						} else {
-							logger.Warn("等待其他进程处理超时",
-								logger.String("streamId", streamID),
-								logger.Duration("waitTimeout", 2*time.Minute))
+					// 其他进程正在处理，等待
+					if mp3Processor.WaitForProcessing(streamID, 2*time.Minute) {
+						logger.Info("其他进程处理完成，尝试获取文件",
+							logger.String("streamId", streamID),
+							logger.String("fileName", fileName))
+						data, contentType, err = streamProcessor.StreamGet(streamID, fileName, isNetease)
+						if err == nil {
+							goto serveFile
 						}
+					} else {
+						logger.Warn("等待其他进程处理超时",
+							logger.String("streamId", streamID),
+							logger.Duration("waitTimeout", 2*time.Minute))
 					}
 				}
-
-				logger.Warn("获取流分片失败",
-					logger.String("streamId", streamID),
-					logger.String("fileName", fileName),
-					logger.ErrorField(err))
-				http.Error(w, "File not found", http.StatusNotFound)
-				return
 			}
+
+			logger.Warn("获取流分片失败",
+				logger.String("streamId", streamID),
+				logger.String("fileName", fileName),
+				logger.ErrorField(err))
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+			
 		}
 
 	serveFile:

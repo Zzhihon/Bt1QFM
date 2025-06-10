@@ -525,15 +525,7 @@ const Collections: React.FC = () => {
                     <div className="text-cyber-secondary text-sm mr-4">
                       {formatDuration(song.dt || 0)}
                     </div>
-                    {/* 显示歌曲热度和VIP标识 */}
-                    <div className="flex items-center space-x-2 mr-2">
-                      {(song.fee === 1 || song.fee === 8) && (
-                        <span className="text-xs bg-yellow-600 text-white px-1 py-0.5 rounded">VIP</span>
-                      )}
-                      {song.mv && song.mv > 0 && (
-                        <span className="text-xs bg-red-600 text-white px-1 py-0.5 rounded">MV</span>
-                      )}
-                    </div>
+
                     <div className="flex items-center space-x-2">
                       <button 
                         onClick={() => handlePlaySong(song)}
