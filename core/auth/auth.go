@@ -54,7 +54,7 @@ func GenerateToken(userID int64, username string) (string, error) {
 		UserID:   userID,
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour * 7)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
@@ -65,17 +65,37 @@ func GenerateToken(userID int64, username string) (string, error) {
 
 // ParseToken parses and validates a JWT token
 func ParseToken(tokenString string) (*Claims, error) {
+	if tokenString == "" {
+		return nil, fmt.Errorf("token is empty")
+	}
+
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		// 确保签名方法是我们期望的
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
 		return jwtSecret, nil
 	})
 
 	if err != nil {
-		return nil, err
+		logger.Warn("[Auth] Token解析失败", logger.ErrorField(err))
+		return nil, fmt.Errorf("invalid token: %w", err)
 	}
 
 	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+		// 检查token是否过期
+		if claims.ExpiresAt != nil && claims.ExpiresAt.Before(time.Now()) {
+			logger.Warn("[Auth] Token已过期")
+			return nil, fmt.Errorf("token expired")
+		}
 		return claims, nil
 	}
 
-	return nil, fmt.Errorf("invalid token")
+	return nil, fmt.Errorf("invalid token claims")
+}
+
+// IsTokenExpired 检查token是否过期
+func IsTokenExpired(err error) bool {
+	return err != nil && (err.Error() == "token expired" ||
+		jwt.ErrTokenExpired.Error() == err.Error())
 }

@@ -5,6 +5,7 @@ import { Track } from '../../types';
 import { AlertTriangle, UploadCloud, Music2, PlayCircle, PauseCircle, ListMusic, Plus } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import UploadForm from '../upload/UploadForm';
+import { authInterceptor } from '../../utils/authInterceptor';
 
 // 声明全局jsmediatags类型
 declare global {
@@ -19,7 +20,7 @@ declare global {
 }
 
 const MusicLibraryView: React.FC = () => {
-  const { currentUser, authToken } = useAuth();
+  const { currentUser, authToken, logout } = useAuth();
   const { 
     playerState, 
     playTrack, 
@@ -85,6 +86,13 @@ const MusicLibraryView: React.FC = () => {
           'Content-Type': 'application/json'
         }
       });
+
+      // 检查401响应
+      if (response.status === 401) {
+        console.log('收到401响应，触发登录重定向');
+        authInterceptor.triggerUnauthorized();
+        return;
+      }
 
       if (!response.ok) {
         let errorData;

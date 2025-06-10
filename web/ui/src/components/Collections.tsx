@@ -4,6 +4,7 @@ import {
   AlertCircle, Heart, Clock, Calendar, Users
 } from 'lucide-react';
 import { usePlayer } from '../contexts/PlayerContext';
+import { authInterceptor } from '../utils/authInterceptor';
 
 interface NeteasePlaylist {
   id: number;
@@ -83,6 +84,13 @@ const Collections: React.FC = () => {
 
       console.log('用户资料API响应状态:', response.status);
 
+      // 检查401响应
+      if (response.status === 401) {
+        console.log('获取用户资料收到401响应，触发登录重定向');
+        authInterceptor.triggerUnauthorized();
+        return;
+      }
+
       if (response.ok) {
         const result = await response.json();
         console.log('用户资料API响应数据:', result);
@@ -155,6 +163,14 @@ const Collections: React.FC = () => {
       }
 
       const response = await fetch(`/api/netease/user/playlist?uid=${uid}`);
+      
+      // 检查401响应
+      if (response.status === 401) {
+        console.log('获取歌单收到401响应，触发登录重定向');
+        authInterceptor.triggerUnauthorized();
+        return;
+      }
+
       const data = await response.json();
 
       if (data.success && data.data.playlist) {
@@ -177,6 +193,14 @@ const Collections: React.FC = () => {
 
     try {
       const response = await fetch(`/api/netease/playlist/detail?id=${playlistId}`);
+      
+      // 检查401响应
+      if (response.status === 401) {
+        console.log('获取歌单详情收到401响应，触发登录重定向');
+        authInterceptor.triggerUnauthorized();
+        return;
+      }
+
       const data = await response.json();
 
       if (data.success && data.data.playlist) {

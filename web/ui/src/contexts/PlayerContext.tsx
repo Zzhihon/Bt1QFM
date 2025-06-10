@@ -3,6 +3,7 @@ import { Track, PlaylistItem, PlayMode, PlayerState } from '../types';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import Hls from 'hls.js';
+import { authInterceptor } from '../utils/authInterceptor';
 
 // 添加网易云音乐详情的接口定义
 interface NeteaseArtist {
@@ -62,7 +63,7 @@ const getBackendUrl = () => {
 };
 
 export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const { currentUser, authToken } = useAuth();
+  const { currentUser, authToken, logout } = useAuth();
   const { addToast } = useToast();
   const audioRef = React.useRef<HTMLAudioElement>(new Audio());
   const hlsInstanceRef = React.useRef<Hls | null>(null);
@@ -194,6 +195,13 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           ...(authToken && { 'Authorization': `Bearer ${authToken}` })
         }
       });
+      
+      // 检查401响应
+      if (response.status === 401) {
+        console.log('获取播放列表收到401响应，触发登录重定向');
+        authInterceptor.triggerUnauthorized();
+        return;
+      }
       
       if (!response.ok) {
         throw new Error(`HTTP error ${response.status}`);
@@ -878,6 +886,13 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         body: JSON.stringify(requestData),
       });
 
+      // 检查401响应
+      if (response.status === 401) {
+        console.log('添加到播放列表收到401响应，触发登录重定向');
+        authInterceptor.triggerUnauthorized();
+        return;
+      }
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
         console.error('Server response:', errorData);
@@ -982,6 +997,13 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           ...(authToken && { 'Authorization': `Bearer ${authToken}` })
         }
       });
+      
+      // 检查401响应
+      if (response.status === 401) {
+        console.log('移除播放列表收到401响应，触发登录重定向');
+        authInterceptor.triggerUnauthorized();
+        return;
+      }
       
       if (!response.ok) {
         throw new Error(`HTTP error ${response.status}`);
