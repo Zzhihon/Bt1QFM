@@ -441,8 +441,8 @@ const ProfileView: React.FC = () => {
             </div>
             
             <div className="mt-4 text-xs text-cyber-secondary">
-              <p className="text-cyber-red font-medium mb-2">安全提醒：</p>
-              <p>为了保护您的账户安全，绑定网易云账号时必须提供准确的UID。</p>
+              <p className="text-cyber-red font-medium mb-2">tip:</p>
+              <p>为了保护用户的账户隐私，绑定网易云账号时必须提供准确的UID。</p>
               <p className="mt-1">UID可在网易云个人设置的账户与安全中心查找<span className="text-cyber-primary"></span></p>
               <p className="mt-1">绑定后可在"收藏"页面查看您的网易云歌单。</p>
             </div>
