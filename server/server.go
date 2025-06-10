@@ -19,6 +19,7 @@ import (
 	"Bt1QFM/logger"
 	"Bt1QFM/repository"
 	"Bt1QFM/storage"
+	"fmt"
 
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7"
@@ -187,6 +188,30 @@ func Start() {
 			time.Sleep(100 * time.Millisecond)
 			data, contentType, err = streamProcessor.StreamGet(streamID, fileName, isNetease)
 			if err != nil {
+				// 如果是网易云歌曲且获取playlist.m3u8失败，触发重新处理
+				if isNetease && fileName == "playlist.m3u8" {
+					logger.Info("网易云歌曲资源未找到，触发重新处理",
+						logger.String("streamId", streamID),
+						logger.String("fileName", fileName))
+
+					// 异步触发重新处理
+					go func() {
+						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+						defer cancel()
+
+						// 调用网易云处理逻辑重新下载和处理歌曲
+						neteaseClient := netease.NewClient()
+						if err := handleNeteaseReprocessing(ctx, streamID, neteaseClient, streamProcessor); err != nil {
+							logger.Error("网易云歌曲重新处理失败",
+								logger.String("streamId", streamID),
+								logger.ErrorField(err))
+						} else {
+							logger.Info("网易云歌曲重新处理完成",
+								logger.String("streamId", streamID))
+						}
+					}()
+				}
+
 				logger.Warn("获取流分片失败",
 					logger.String("streamId", streamID),
 					logger.String("fileName", fileName),
@@ -301,4 +326,81 @@ func ensureDirExists(path string) {
 			logger.String("path", path),
 			logger.ErrorField(err))
 	}
+}
+
+// handleNeteaseReprocessing 处理网易云歌曲的重新处理逻辑
+func handleNeteaseReprocessing(ctx context.Context, songID string, neteaseClient *netease.Client, streamProcessor *audio.StreamProcessor) error {
+	logger.Info("开始重新处理网易云歌曲", logger.String("songId", songID))
+
+	// 1. 获取歌曲URL
+	songURL, err := neteaseClient.GetSongURL(songID)
+	if err != nil {
+		return fmt.Errorf("获取歌曲URL失败: %w", err)
+	}
+
+	if songURL == "" {
+		return fmt.Errorf("歌曲URL为空")
+	}
+
+	// 2. 创建临时文件下载歌曲
+	tempFile, err := os.CreateTemp("", fmt.Sprintf("netease_%s_*.mp3", songID))
+	if err != nil {
+		return fmt.Errorf("创建临时文件失败: %w", err)
+	}
+	tempFilePath := tempFile.Name()
+	tempFile.Close()
+
+	// 确保清理临时文件
+	defer func() {
+		if err := os.Remove(tempFilePath); err != nil {
+			logger.Warn("清理临时文件失败",
+				logger.String("tempFile", tempFilePath),
+				logger.ErrorField(err))
+		}
+	}()
+
+	// 3. 下载歌曲文件
+	if err := downloadNeteaseFile(songURL, tempFilePath); err != nil {
+		return fmt.Errorf("下载歌曲文件失败: %w", err)
+	}
+
+	// 4. 验证下载的文件
+	if fileInfo, err := os.Stat(tempFilePath); err != nil {
+		return fmt.Errorf("临时文件不存在: %w", err)
+	} else if fileInfo.Size() == 0 {
+		return fmt.Errorf("下载的文件为空")
+	}
+
+	// 5. 使用流处理器处理音频文件
+	if err := streamProcessor.StreamProcessSync(ctx, songID, tempFilePath, true); err != nil {
+		return fmt.Errorf("流处理失败: %w", err)
+	}
+
+	return nil
+}
+
+// downloadNeteaseFile 下载网易云文件的辅助函数
+func downloadNeteaseFile(url, filepath string) error {
+	client := &http.Client{
+		Timeout: 5 * time.Minute,
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("下载请求失败，状态码: %d", resp.StatusCode)
+	}
+
+	out, err := os.Create(filepath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
 }

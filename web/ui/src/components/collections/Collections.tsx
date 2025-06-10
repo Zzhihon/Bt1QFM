@@ -33,6 +33,13 @@ interface NeteaseSong {
     picUrl: string;
   };
   dt: number; // 歌曲时长（毫秒）
+  // 添加新的字段以支持完整的API响应
+  mainTitle?: string | null;
+  additionalTitle?: string | null;
+  alia?: string[];
+  pop?: number;
+  fee?: number;
+  mv?: number;
 }
 
 interface PlaylistDetail {

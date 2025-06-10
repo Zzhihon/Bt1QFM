@@ -34,6 +34,13 @@ interface NeteaseSong {
     picUrl: string;
   };
   dt: number; // 歌曲时长（毫秒）
+  // 添加新的字段以支持完整的API响应
+  mainTitle?: string | null;
+  additionalTitle?: string | null;
+  alia?: string[];
+  pop?: number;
+  fee?: number;
+  mv?: number;
 }
 
 interface PlaylistDetail {
@@ -47,6 +54,8 @@ interface PlaylistDetail {
       nickname: string;
       avatarUrl: string;
     };
+    createTime?: number;
+    updateTime?: number;
     tracks: NeteaseSong[];
   };
 }
@@ -192,6 +201,7 @@ const Collections: React.FC = () => {
     setError(null);
 
     try {
+      console.log('正在获取歌单详情，ID:', playlistId);
       const response = await fetch(`/api/netease/playlist/detail?id=${playlistId}`);
       
       // 检查401响应
@@ -202,11 +212,28 @@ const Collections: React.FC = () => {
       }
 
       const data = await response.json();
+      console.log('歌单详情API响应:', data);
 
-      if (data.success && data.data.playlist) {
+      if (data.success && data.data && data.data.playlist) {
+        const playlistData = data.data.playlist;
+        
+        // 确保tracks字段存在且为数组
+        if (!playlistData.tracks) {
+          playlistData.tracks = [];
+        }
+        
+        console.log('歌单歌曲数量:', playlistData.tracks.length);
+        console.log('前5首歌曲:', playlistData.tracks.slice(0, 5).map((song: NeteaseSong) => ({
+          id: song.id,
+          name: song.name,
+          artist: song.ar?.map(a => a.name).join(', '),
+          album: song.al?.name
+        })));
+        
         setSelectedPlaylist(data.data);
       } else {
-        setError('获取歌单详情失败');
+        console.error('歌单详情API返回格式异常:', data);
+        setError('获取歌单详情失败：数据格式异常');
       }
     } catch (error) {
       console.error('获取歌单详情失败:', error);
@@ -240,31 +267,47 @@ const Collections: React.FC = () => {
 
   // 添加单首歌曲到播放列表
   const handleAddSong = useCallback((song: NeteaseSong) => {
+    // 处理歌曲名称，优先使用主标题
+    const songTitle = song.mainTitle || song.name;
+    const fullTitle = song.additionalTitle ? `${songTitle} ${song.additionalTitle}` : songTitle;
+    
     const track = {
       id: song.id,
       neteaseId: song.id,
-      title: song.name,
-      artist: song.ar.map(a => a.name).join(', '),
-      album: song.al.name,
-      coverArtPath: song.al.picUrl,
-      duration: Math.floor(song.dt / 1000)
+      title: fullTitle,
+      artist: song.ar?.map(a => a.name).join(', ') || 'Unknown Artist',
+      album: song.al?.name || 'Unknown Album',
+      coverArtPath: song.al?.picUrl || '',
+      duration: Math.floor((song.dt || 0) / 1000),
+      source: 'netease' as const,
+      hlsPlaylistPath: `/streams/netease/${song.id}/playlist.m3u8`,
+      url: `http://localhost:8080/streams/netease/${song.id}/playlist.m3u8`
     };
     
+    console.log('添加歌曲到播放列表:', track);
     addToPlaylist(track);
   }, [addToPlaylist]);
 
   // 播放单首歌曲
   const handlePlaySong = useCallback((song: NeteaseSong) => {
+    // 处理歌曲名称，优先使用主标题
+    const songTitle = song.mainTitle || song.name;
+    const fullTitle = song.additionalTitle ? `${songTitle} ${song.additionalTitle}` : songTitle;
+    
     const track = {
       id: song.id,
       neteaseId: song.id,
-      title: song.name,
-      artist: song.ar.map(a => a.name).join(', '),
-      album: song.al.name,
-      coverArtPath: song.al.picUrl,
-      duration: Math.floor(song.dt / 1000)
+      title: fullTitle,
+      artist: song.ar?.map(a => a.name).join(', ') || 'Unknown Artist',
+      album: song.al?.name || 'Unknown Album',
+      coverArtPath: song.al?.picUrl || '',
+      duration: Math.floor((song.dt || 0) / 1000),
+      source: 'netease' as const,
+      hlsPlaylistPath: `/streams/netease/${song.id}/playlist.m3u8`,
+      url: `http://localhost:8080/streams/netease/${song.id}/playlist.m3u8`
     };
     
+    console.log('播放歌曲:', track);
     playTrack(track);
   }, [playTrack]);
 
@@ -272,16 +315,26 @@ const Collections: React.FC = () => {
   const handleAddPlaylistToQueue = useCallback(() => {
     if (!selectedPlaylist) return;
 
-    const tracks = selectedPlaylist.playlist.tracks.map(song => ({
-      id: song.id,
-      neteaseId: song.id,
-      title: song.name,
-      artist: song.ar.map(a => a.name).join(', '),
-      album: song.al.name,
-      coverArtPath: song.al.picUrl,
-      duration: Math.floor(song.dt / 1000)
-    }));
+    const tracks = selectedPlaylist.playlist.tracks.map(song => {
+      // 处理歌曲名称，优先使用主标题
+      const songTitle = song.mainTitle || song.name;
+      const fullTitle = song.additionalTitle ? `${songTitle} ${song.additionalTitle}` : songTitle;
+      
+      return {
+        id: song.id,
+        neteaseId: song.id,
+        title: fullTitle,
+        artist: song.ar?.map(a => a.name).join(', ') || 'Unknown Artist',
+        album: song.al?.name || 'Unknown Album',
+        coverArtPath: song.al?.picUrl || '',
+        duration: Math.floor((song.dt || 0) / 1000),
+        source: 'netease' as const,
+        hlsPlaylistPath: `/streams/netease/${song.id}/playlist.m3u8`,
+        url: `http://localhost:8080/streams/netease/${song.id}/playlist.m3u8`
+      };
+    });
 
+    console.log('添加整个歌单到播放列表，歌曲数量:', tracks.length);
     tracks.forEach(track => addToPlaylist(track));
   }, [selectedPlaylist, addToPlaylist]);
 
@@ -373,53 +426,86 @@ const Collections: React.FC = () => {
         {/* 歌曲列表 */}
         <div className="bg-cyber-bg-darker rounded-lg overflow-hidden">
           <div className="p-4 border-b border-cyber-primary">
-            <h2 className="text-lg font-semibold text-cyber-primary">歌曲列表</h2>
+            <h2 className="text-lg font-semibold text-cyber-primary">
+              歌曲列表 ({selectedPlaylist.playlist.tracks?.length || 0}首)
+            </h2>
           </div>
           <div className="max-h-96 overflow-y-auto">
-            {selectedPlaylist.playlist.tracks.map((song, index) => (
-              <div 
-                key={song.id} 
-                className="flex items-center p-4 hover:bg-cyber-bg transition-colors border-b border-cyber-bg last:border-b-0"
-              >
-                <div className="w-8 text-center text-cyber-secondary text-sm mr-4">
-                  {index + 1}
-                </div>
-                <div className="w-12 h-12 rounded mr-4 overflow-hidden flex-shrink-0">
-                  <img 
-                    src={song.al.picUrl}
-                    alt={song.al.name}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-cyber-primary font-medium truncate">
-                    {song.name}
-                  </div>
-                  <div className="text-cyber-secondary text-sm truncate">
-                    {song.ar.map(a => a.name).join(', ')} · {song.al.name}
-                  </div>
-                </div>
-                <div className="text-cyber-secondary text-sm mr-4">
-                  {formatDuration(song.dt)}
-                </div>
-                <div className="flex items-center space-x-2">
-                  <button 
-                    onClick={() => handlePlaySong(song)}
-                    className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors"
-                    title="播放"
+            {selectedPlaylist.playlist.tracks && selectedPlaylist.playlist.tracks.length > 0 ? (
+              selectedPlaylist.playlist.tracks.map((song, index) => {
+                // 处理歌曲名称显示
+                const songTitle = song.mainTitle || song.name;
+                const fullTitle = song.additionalTitle ? `${songTitle} ${song.additionalTitle}` : songTitle;
+                
+                return (
+                  <div 
+                    key={song.id} 
+                    className="flex items-center p-4 hover:bg-cyber-bg transition-colors border-b border-cyber-bg last:border-b-0"
                   >
-                    <Play className="h-4 w-4" />
-                  </button>
-                  <button 
-                    onClick={() => handleAddSong(song)}
-                    className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors"
-                    title="添加到播放列表"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                </div>
+                    <div className="w-8 text-center text-cyber-secondary text-sm mr-4">
+                      {index + 1}
+                    </div>
+                    <div className="w-12 h-12 rounded mr-4 overflow-hidden flex-shrink-0">
+                      <img 
+                        src={song.al?.picUrl || ''}
+                        alt={song.al?.name || 'Unknown Album'}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          // 图片加载失败时显示默认占位符
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-cyber-primary font-medium truncate">
+                        {fullTitle}
+                      </div>
+                      <div className="text-cyber-secondary text-sm truncate">
+                        {song.ar?.map(a => a.name).join(', ') || 'Unknown Artist'} · {song.al?.name || 'Unknown Album'}
+                      </div>
+                      {/* 显示别名信息 */}
+                      {song.alia && song.alia.length > 0 && (
+                        <div className="text-cyber-secondary text-xs truncate mt-1">
+                          {song.alia.join(' · ')}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-cyber-secondary text-sm mr-4">
+                      {formatDuration(song.dt || 0)}
+                    </div>
+                    {/* 显示歌曲热度和VIP标识 */}
+                    <div className="flex items-center space-x-2 mr-2">
+                      {(song.fee === 1 || song.fee === 8) && (
+                        <span className="text-xs bg-yellow-600 text-white px-1 py-0.5 rounded">VIP</span>
+                      )}
+                      {song.mv && song.mv > 0 && (
+                        <span className="text-xs bg-red-600 text-white px-1 py-0.5 rounded">MV</span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button 
+                        onClick={() => handlePlaySong(song)}
+                        className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors"
+                        title="播放"
+                      >
+                        <Play className="h-4 w-4" />
+                      </button>
+                      <button 
+                        onClick={() => handleAddSong(song)}
+                        className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors"
+                        title="添加到播放列表"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="p-8 text-center text-cyber-secondary">
+                该歌单暂无歌曲
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>
