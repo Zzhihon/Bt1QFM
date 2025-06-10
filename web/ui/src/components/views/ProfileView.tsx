@@ -74,14 +74,16 @@ const ProfileView: React.FC = () => {
           const data = result.data;
           setProfileData(data);
           
-          // 初始化编辑表单
-          setEditForm({
-            username: getStringValue(data.username),
-            email: getStringValue(data.email),
-            phone: getStringValue(data.phone),
+          // 确保正确初始化编辑表单，处理所有可能的数据格式
+          const initializeFormData = {
+            username: data.username || '',
+            email: data.email || '',
+            phone: data.phone || '',
             neteaseUsername: data.neteaseUsername || '',
             neteaseUID: data.neteaseUID || ''
-          });
+          };
+          
+          setEditForm(initializeFormData);
         }
       }
     } catch (error) {
@@ -134,12 +136,12 @@ const ProfileView: React.FC = () => {
 
   const handleCancelEdit = () => {
     setIsEditing(false);
-    // 重置表单数据
+    // 重置表单数据 - 确保使用最新的 profileData
     if (profileData) {
       setEditForm({
-        username: getStringValue(profileData.username),
-        email: getStringValue(profileData.email),
-        phone: getStringValue(profileData.phone),
+        username: profileData.username || '',
+        email: profileData.email || '',
+        phone: profileData.phone || '',
         neteaseUsername: profileData.neteaseUsername || '',
         neteaseUID: profileData.neteaseUID || ''
       });
@@ -288,7 +290,7 @@ const ProfileView: React.FC = () => {
               ) : (
                 <div className="flex items-center space-x-3 p-3 bg-cyber-bg rounded-md">
                   <UserCircle className="h-6 w-6 text-cyber-secondary" />
-                  <span>{getStringValue(profileData?.username || currentUser?.username)}</span>
+                  <span>{profileData?.username || '未设置'}</span>
                 </div>
               )}
             </div>
@@ -307,7 +309,7 @@ const ProfileView: React.FC = () => {
               ) : (
                 <div className="flex items-center space-x-3 p-3 bg-cyber-bg rounded-md">
                   <Mail className="h-6 w-6 text-cyber-secondary" />
-                  <span>{getStringValue(profileData?.email || currentUser?.email)}</span>
+                  <span>{profileData?.email || '未设置'}</span>
                 </div>
               )}
             </div>
@@ -326,7 +328,7 @@ const ProfileView: React.FC = () => {
               ) : (
                 <div className="flex items-center space-x-3 p-3 bg-cyber-bg rounded-md">
                   <Phone className="h-6 w-6 text-cyber-secondary" />
-                  <span>{getStringValue(profileData?.phone || currentUser?.phone)}</span>
+                  <span>{profileData?.phone || '未设置'}</span>
                 </div>
               )}
             </div>
@@ -336,7 +338,7 @@ const ProfileView: React.FC = () => {
               <label className="block text-sm font-medium text-cyber-accent">注册时间</label>
               <div className="flex items-center space-x-3 p-3 bg-cyber-bg rounded-md">
                 <CalendarDays className="h-6 w-6 text-cyber-secondary" />
-                <span>{formatDate(getStringValue(profileData?.createdAt || currentUser?.createdAt))}</span>
+                <span>{formatDate(profileData?.createdAt)}</span>
               </div>
             </div>
           </div>
@@ -518,7 +520,7 @@ const ProfileView: React.FC = () => {
                     />
                   ) : (
                     <div className="px-4 py-3 bg-cyber-bg/50 border border-cyber-secondary/50 rounded-lg text-cyber-text">
-                      {profileData ? getStringValue(profileData.username) || '未设置' : '加载中...'}
+                      {profileData?.username || '未设置'}
                     </div>
                   )}
                 </div>
@@ -535,7 +537,7 @@ const ProfileView: React.FC = () => {
                     />
                   ) : (
                     <div className="px-4 py-3 bg-cyber-bg/50 border border-cyber-secondary/50 rounded-lg text-cyber-text">
-                      {profileData ? getStringValue(profileData.email) || '未设置' : '加载中...'}
+                      {profileData?.email || '未设置'}
                     </div>
                   )}
                 </div>
@@ -552,7 +554,7 @@ const ProfileView: React.FC = () => {
                     />
                   ) : (
                     <div className="px-4 py-3 bg-cyber-bg/50 border border-cyber-secondary/50 rounded-lg text-cyber-text">
-                      {profileData ? getStringValue(profileData.phone) || '未设置' : '加载中...'}
+                      {profileData?.phone || '未设置'}
                     </div>
                   )}
                 </div>
