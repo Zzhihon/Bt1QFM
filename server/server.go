@@ -183,10 +183,23 @@ func Start() {
 
 		// 检查是否正在处理中
 		if mp3Processor.IsProcessing(streamID) {
+			logger.Info("检测到歌曲正在处理中，等待处理完成",
+				logger.String("streamId", streamID),
+				logger.String("fileName", fileName),
+				logger.Bool("isNetease", isNetease),
+				logger.String("requestPath", r.URL.Path))
+
 			// 如果正在处理中，等待一段时间
 			if mp3Processor.WaitForProcessing(streamID, 30*time.Second) {
+				logger.Info("歌曲处理完成，继续获取文件",
+					logger.String("streamId", streamID),
+					logger.String("fileName", fileName))
 				// 处理完成，继续获取文件
 			} else {
+				logger.Warn("等待歌曲处理超时",
+					logger.String("streamId", streamID),
+					logger.String("fileName", fileName),
+					logger.Duration("waitTimeout", 30*time.Second))
 				// 等待超时
 				http.Error(w, "Processing timeout", http.StatusRequestTimeout)
 				return
@@ -210,9 +223,17 @@ func Start() {
 					// 尝试获取处理锁
 					_, acquired := mp3Processor.TryLockProcessing(streamID, isNetease)
 					if acquired {
+						logger.Info("成功获取处理锁，开始异步重新处理",
+							logger.String("streamId", streamID),
+							logger.Bool("isNetease", isNetease))
+
 						// 异步触发重新处理
 						go func() {
-							defer mp3Processor.ReleaseProcessing(streamID)
+							defer func() {
+								logger.Info("释放处理锁",
+									logger.String("streamId", streamID))
+								mp3Processor.ReleaseProcessing(streamID)
+							}()
 
 							ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 							defer cancel()
@@ -230,20 +251,42 @@ func Start() {
 						}()
 
 						// 等待处理完成或超时
+						logger.Info("等待重新处理完成",
+							logger.String("streamId", streamID),
+							logger.Duration("waitTimeout", 2*time.Minute))
+
 						if mp3Processor.WaitForProcessing(streamID, 2*time.Minute) {
+							logger.Info("重新处理完成，尝试获取文件",
+								logger.String("streamId", streamID),
+								logger.String("fileName", fileName))
 							// 重新尝试获取文件
 							data, contentType, err = streamProcessor.StreamGet(streamID, fileName, isNetease)
 							if err == nil {
 								goto serveFile
 							}
+						} else {
+							logger.Warn("等待重新处理超时",
+								logger.String("streamId", streamID),
+								logger.Duration("waitTimeout", 2*time.Minute))
 						}
 					} else {
+						logger.Info("无法获取处理锁，歌曲正在被其他进程处理，等待处理完成",
+							logger.String("streamId", streamID),
+							logger.Bool("isNetease", isNetease))
+
 						// 其他进程正在处理，等待
 						if mp3Processor.WaitForProcessing(streamID, 2*time.Minute) {
+							logger.Info("其他进程处理完成，尝试获取文件",
+								logger.String("streamId", streamID),
+								logger.String("fileName", fileName))
 							data, contentType, err = streamProcessor.StreamGet(streamID, fileName, isNetease)
 							if err == nil {
 								goto serveFile
 							}
+						} else {
+							logger.Warn("等待其他进程处理超时",
+								logger.String("streamId", streamID),
+								logger.Duration("waitTimeout", 2*time.Minute))
 						}
 					}
 				}

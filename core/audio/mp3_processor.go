@@ -271,11 +271,17 @@ func (p *MP3Processor) TryLockProcessing(songID string, isNetease bool) (*Proces
 	p.statusMutex.Lock()
 	defer p.statusMutex.Unlock()
 
+	logger.Debug("尝试获取歌曲处理锁",
+		logger.String("songId", songID),
+		logger.Bool("isNetease", isNetease))
+
 	// 检查是否已经在处理中
 	if status, exists := p.processingStatus[songID]; exists && status.IsProcessing {
-		logger.Info("歌曲正在处理中，跳过重复处理",
+		logger.Info("歌曲正在处理中，无法获取锁",
 			logger.String("songId", songID),
-			logger.Bool("isNetease", isNetease))
+			logger.Bool("isNetease", isNetease),
+			logger.Duration("processingDuration", time.Since(status.StartTime)),
+			logger.Int("retryCount", status.RetryCount))
 		return status, false
 	}
 
@@ -291,9 +297,10 @@ func (p *MP3Processor) TryLockProcessing(songID string, isNetease bool) (*Proces
 
 	p.processingStatus[songID] = status
 
-	logger.Info("获取歌曲处理锁成功",
+	logger.Info("成功获取歌曲处理锁",
 		logger.String("songId", songID),
-		logger.Bool("isNetease", isNetease))
+		logger.Bool("isNetease", isNetease),
+		logger.String("startTime", status.StartTime.Format("2006-01-02 15:04:05")))
 
 	return status, true
 }
@@ -304,6 +311,8 @@ func (p *MP3Processor) ReleaseProcessing(songID string) {
 	defer p.statusMutex.Unlock()
 
 	if status, exists := p.processingStatus[songID]; exists {
+		processingDuration := time.Since(status.StartTime)
+
 		if status.IsProcessing {
 			status.IsProcessing = false
 			close(status.done)
@@ -311,9 +320,15 @@ func (p *MP3Processor) ReleaseProcessing(songID string) {
 
 		delete(p.processingStatus, songID)
 
-		logger.Info("释放歌曲处理锁",
+		logger.Info("成功释放歌曲处理锁",
 			logger.String("songId", songID),
-			logger.Duration("processingTime", time.Since(status.StartTime)))
+			logger.Bool("isNetease", status.IsNetease),
+			logger.Duration("processingTime", processingDuration),
+			logger.Int("retryCount", status.RetryCount),
+			logger.Bool("hasError", status.Error != nil))
+	} else {
+		logger.Warn("尝试释放不存在的处理锁",
+			logger.String("songId", songID))
 	}
 }
 
@@ -323,17 +338,35 @@ func (p *MP3Processor) WaitForProcessing(songID string, timeout time.Duration) b
 	status, exists := p.processingStatus[songID]
 	p.statusMutex.RUnlock()
 
-	if !exists || !status.IsProcessing {
+	if !exists {
+		logger.Debug("歌曲不在处理队列中，直接返回",
+			logger.String("songId", songID))
 		return true // 没有在处理中，直接返回
 	}
 
+	if !status.IsProcessing {
+		logger.Debug("歌曲处理已完成，直接返回",
+			logger.String("songId", songID),
+			logger.Duration("totalProcessingTime", time.Since(status.StartTime)))
+		return true
+	}
+
+	logger.Info("开始等待歌曲处理完成",
+		logger.String("songId", songID),
+		logger.Duration("timeout", timeout),
+		logger.Duration("alreadyProcessing", time.Since(status.StartTime)))
+
 	select {
 	case <-status.done:
+		logger.Info("歌曲处理完成",
+			logger.String("songId", songID),
+			logger.Duration("totalProcessingTime", time.Since(status.StartTime)))
 		return true
 	case <-time.After(timeout):
 		logger.Warn("等待歌曲处理超时",
 			logger.String("songId", songID),
-			logger.Duration("timeout", timeout))
+			logger.Duration("timeout", timeout),
+			logger.Duration("alreadyProcessing", time.Since(status.StartTime)))
 		return false
 	}
 }
@@ -344,7 +377,17 @@ func (p *MP3Processor) IsProcessing(songID string) bool {
 	defer p.statusMutex.RUnlock()
 
 	status, exists := p.processingStatus[songID]
-	return exists && status.IsProcessing
+	isProcessing := exists && status.IsProcessing
+
+	if isProcessing {
+		logger.Debug("检测到歌曲正在处理中",
+			logger.String("songId", songID),
+			logger.Duration("processingDuration", time.Since(status.StartTime)),
+			logger.Int("retryCount", status.RetryCount),
+			logger.Bool("isNetease", status.IsNetease))
+	}
+
+	return isProcessing
 }
 
 // CleanupExpiredProcessing 清理过期的处理状态
@@ -353,19 +396,32 @@ func (p *MP3Processor) CleanupExpiredProcessing(maxAge time.Duration) {
 	defer p.statusMutex.Unlock()
 
 	now := time.Now()
+	cleanedCount := 0
+
 	for songID, status := range p.processingStatus {
-		if now.Sub(status.StartTime) > maxAge {
+		age := now.Sub(status.StartTime)
+		if age > maxAge {
 			if status.IsProcessing {
 				status.IsProcessing = false
 				close(status.done)
 			}
 
 			delete(p.processingStatus, songID)
+			cleanedCount++
 
 			logger.Warn("清理过期的处理状态",
 				logger.String("songId", songID),
-				logger.Duration("age", now.Sub(status.StartTime)))
+				logger.Duration("age", age),
+				logger.Duration("maxAge", maxAge),
+				logger.Bool("isNetease", status.IsNetease),
+				logger.Int("retryCount", status.RetryCount))
 		}
+	}
+
+	if cleanedCount > 0 {
+		logger.Info("处理状态清理完成",
+			logger.Int("cleanedCount", cleanedCount),
+			logger.Int("remainingCount", len(p.processingStatus)))
 	}
 }
 

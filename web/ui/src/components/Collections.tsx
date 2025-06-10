@@ -290,6 +290,29 @@ const Collections: React.FC = () => {
     addToPlaylist(track);
   }, [addToPlaylist]);
 
+  // 检查音频流是否可用
+  const checkStreamAvailability = useCallback(async (url: string): Promise<boolean> => {
+    try {
+      console.log('🔍 检查音频流可用性:', url);
+      const response = await fetch(url, { method: 'HEAD' });
+      const isAvailable = response.status === 200;
+      
+      if (!isAvailable) {
+        console.log('⚠️ 音频流不可用，状态码:', response.status);
+        if (response.status === 408) {
+          console.log('🔄 检测到处理超时，歌曲可能正在处理中');
+        }
+      } else {
+        console.log('✅ 音频流验证成功');
+      }
+      
+      return isAvailable;
+    } catch (error) {
+      console.error('❌ 检查音频流失败:', error);
+      return false;
+    }
+  }, []);
+
   // 播放单首歌曲 - 带重试机制
   const handlePlaySong = useCallback(async (song: NeteaseSong) => {
     // 处理歌曲名称，优先使用主标题
@@ -309,32 +332,36 @@ const Collections: React.FC = () => {
       url: `http://localhost:8080/streams/netease/${song.id}/playlist.m3u8`
     };
     
-    console.log('开始播放歌曲，启用重试机制:', track);
+    console.log('🎵 开始播放歌曲，启用重试机制:', {
+      songId: song.id,
+      title: track.title,
+      url: track.url
+    });
     setRetryingTrack(song.id);
     
     try {
+      // 使用重试机制检查音频流是否可用
       await retryWithDelay(async () => {
-        return new Promise<void>((resolve, reject) => {
-          try {
-            playTrack(track);
-            // 简单验证播放是否成功 - 可以根据实际情况调整验证逻辑
-            setTimeout(() => {
-              resolve();
-            }, 100);
-          } catch (error) {
-            reject(error);
-          }
-        });
-      }, 10, 50); // 最多重试10次，每次间隔50ms
+        console.log(`🔄 重试检查音频流: ${track.url}`);
+        const isAvailable = await checkStreamAvailability(track.url);
+        if (!isAvailable) {
+          console.log('🔄 音频流暂不可用，可能正在处理中，继续重试...');
+          throw new Error(`音频流不可用: ${track.url}`);
+        }
+        return true;
+      }, 20, 50); // 最多重试20次，每次间隔50ms
       
-      console.log('歌曲播放成功:', track.title);
+      // 音频流可用后触发播放
+      console.log('✅ 音频流验证成功，开始播放:', track.title);
+      playTrack(track);
+      
     } catch (error) {
-      console.error('歌曲播放失败，已达到最大重试次数:', error);
-      setError(`播放失败: ${track.title}`);
+      console.error('❌ 歌曲播放失败，音频流不可用:', error);
+      setError(`播放失败，音频流不可用: ${track.title}`);
     } finally {
       setRetryingTrack(null);
     }
-  }, [playTrack]);
+  }, [playTrack, checkStreamAvailability]);
 
   // 添加整个歌单到播放列表
   const handleAddPlaylistToQueue = useCallback(() => {
