@@ -328,6 +328,32 @@ func (c *Client) SearchSongs(keyword string, limit, offset int, mp3Processor *au
 			// 异步预处理第一首歌
 			go func(songID int64, songName string) {
 				streamID := fmt.Sprintf("%d", songID)
+
+				// 检查是否正在处理中
+				if mp3Processor.IsProcessing(streamID) {
+					logger.Info("[SearchSongs] 歌曲正在处理中，跳过预处理",
+						logger.Int64("song_id", songID),
+						logger.String("name", songName))
+					return
+				}
+
+				// 尝试获取处理锁
+				_, acquired := mp3Processor.TryLockProcessing(streamID, true)
+				if !acquired {
+					logger.Info("[SearchSongs] 无法获取处理锁，歌曲正在被其他进程处理",
+						logger.Int64("song_id", songID),
+						logger.String("name", songName))
+					return
+				}
+
+				// 确保释放锁
+				defer func() {
+					mp3Processor.ReleaseProcessing(streamID)
+					logger.Info("[SearchSongs] 已释放处理锁",
+						logger.Int64("song_id", songID),
+						logger.String("name", songName))
+				}()
+
 				logger.Info("[SearchSongs] 开始预处理歌曲",
 					logger.Int64("song_id", songID),
 					logger.String("name", songName))
