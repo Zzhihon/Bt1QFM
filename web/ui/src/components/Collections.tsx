@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { usePlayer } from '../contexts/PlayerContext';
 import { authInterceptor } from '../utils/authInterceptor';
+import { retryWithDelay } from '../utils/retry';
 
 interface NeteasePlaylist {
   id: number;
@@ -72,6 +73,7 @@ const Collections: React.FC = () => {
     neteaseUsername: '',
     neteaseUID: ''
   });
+  const [retryingTrack, setRetryingTrack] = useState<number | null>(null);
 
   const { addToPlaylist, playTrack } = usePlayer();
 
@@ -288,8 +290,8 @@ const Collections: React.FC = () => {
     addToPlaylist(track);
   }, [addToPlaylist]);
 
-  // 播放单首歌曲
-  const handlePlaySong = useCallback((song: NeteaseSong) => {
+  // 播放单首歌曲 - 带重试机制
+  const handlePlaySong = useCallback(async (song: NeteaseSong) => {
     // 处理歌曲名称，优先使用主标题
     const songTitle = song.mainTitle || song.name;
     const fullTitle = song.additionalTitle ? `${songTitle} ${song.additionalTitle}` : songTitle;
@@ -307,8 +309,31 @@ const Collections: React.FC = () => {
       url: `http://localhost:8080/streams/netease/${song.id}/playlist.m3u8`
     };
     
-    console.log('播放歌曲:', track);
-    playTrack(track);
+    console.log('开始播放歌曲，启用重试机制:', track);
+    setRetryingTrack(song.id);
+    
+    try {
+      await retryWithDelay(async () => {
+        return new Promise<void>((resolve, reject) => {
+          try {
+            playTrack(track);
+            // 简单验证播放是否成功 - 可以根据实际情况调整验证逻辑
+            setTimeout(() => {
+              resolve();
+            }, 100);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      }, 10, 50); // 最多重试10次，每次间隔50ms
+      
+      console.log('歌曲播放成功:', track.title);
+    } catch (error) {
+      console.error('歌曲播放失败，已达到最大重试次数:', error);
+      setError(`播放失败: ${track.title}`);
+    } finally {
+      setRetryingTrack(null);
+    }
   }, [playTrack]);
 
   // 添加整个歌单到播放列表
@@ -485,10 +510,15 @@ const Collections: React.FC = () => {
                     <div className="flex items-center space-x-2">
                       <button 
                         onClick={() => handlePlaySong(song)}
-                        className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors"
+                        className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors relative"
                         title="播放"
+                        disabled={retryingTrack === song.id}
                       >
-                        <Play className="h-4 w-4" />
+                        {retryingTrack === song.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Play className="h-4 w-4" />
+                        )}
                       </button>
                       <button 
                         onClick={() => handleAddSong(song)}

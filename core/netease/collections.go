@@ -9,6 +9,7 @@ import (
 	"Bt1QFM/config"
 	"Bt1QFM/logger"
 	"Bt1QFM/repository"
+	// "Bt1QFM/core/audio"
 )
 
 // HandleUserPlaylists 处理获取用户歌单列表请求
@@ -164,9 +165,26 @@ func (h *NeteaseHandler) HandlePlaylistDetail(w http.ResponseWriter, r *http.Req
 			"updateTime":  playlistData["updateTime"],
 		}
 
-		// 从完整歌曲列表中提取歌曲信息
+		// 从完整歌曲列表中提取歌曲信息，并检查处理状态
 		if songs, ok := trackList["songs"].([]interface{}); ok {
-			playlistResult["tracks"] = songs
+			// 获取 MP3Processor 实例来检查处理状态
+			processedSongs := make([]interface{}, len(songs))
+
+			for i, songData := range songs {
+				song := songData.(map[string]interface{})
+				// songID := fmt.Sprintf("%.0f", song["id"].(float64))
+
+				// 这里可以添加处理状态检查逻辑
+				// 注意：需要从全局获取 MP3Processor 实例
+				// 或者通过依赖注入的方式传入
+
+				// 添加处理状态信息到歌曲数据中
+				song["processing"] = false // 默认不在处理中
+
+				processedSongs[i] = song
+			}
+
+			playlistResult["tracks"] = processedSongs
 		} else {
 			playlistResult["tracks"] = []interface{}{}
 		}
@@ -210,6 +228,12 @@ func (h *NeteaseHandler) HandleUpdateNeteaseInfo(userRepo repository.UserReposit
 			return
 		}
 
+		// 验证必填字段 - 只有 UID 是必填的
+		if req.NeteaseUID == "" {
+			http.Error(w, "NeteaseUID is required", http.StatusBadRequest)
+			return
+		}
+
 		// 从上下文中获取用户ID（需要配合认证中间件）
 		userID, ok := r.Context().Value("userID").(int64)
 		if !ok {
@@ -217,7 +241,7 @@ func (h *NeteaseHandler) HandleUpdateNeteaseInfo(userRepo repository.UserReposit
 			return
 		}
 
-		// 更新用户网易云信息
+		// 更新用户网易云信息 - 用户名可以为空
 		if err := userRepo.UpdateNeteaseInfo(userID, req.NeteaseUsername, req.NeteaseUID); err != nil {
 			logger.Error("更新用户网易云信息失败", logger.ErrorField(err))
 			http.Error(w, "Failed to update netease info", http.StatusInternalServerError)

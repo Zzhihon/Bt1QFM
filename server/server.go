@@ -181,6 +181,18 @@ func Start() {
 			return
 		}
 
+		// 检查是否正在处理中
+		if mp3Processor.IsProcessing(streamID) {
+			// 如果正在处理中，等待一段时间
+			if mp3Processor.WaitForProcessing(streamID, 30*time.Second) {
+				// 处理完成，继续获取文件
+			} else {
+				// 等待超时
+				http.Error(w, "Processing timeout", http.StatusRequestTimeout)
+				return
+			}
+		}
+
 		// 使用流处理器获取文件
 		streamProcessor := audio.NewStreamProcessor(mp3Processor, cfg)
 		data, contentType, err := streamProcessor.StreamGet(streamID, fileName, isNetease)
@@ -195,22 +207,45 @@ func Start() {
 						logger.String("streamId", streamID),
 						logger.String("fileName", fileName))
 
-					// 异步触发重新处理
-					go func() {
-						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-						defer cancel()
+					// 尝试获取处理锁
+					_, acquired := mp3Processor.TryLockProcessing(streamID, isNetease)
+					if acquired {
+						// 异步触发重新处理
+						go func() {
+							defer mp3Processor.ReleaseProcessing(streamID)
 
-						// 调用网易云处理逻辑重新下载和处理歌曲
-						neteaseClient := netease.NewClient()
-						if err := handleNeteaseReprocessing(ctx, streamID, neteaseClient, streamProcessor); err != nil {
-							logger.Error("网易云歌曲重新处理失败",
-								logger.String("streamId", streamID),
-								logger.ErrorField(err))
-						} else {
-							logger.Info("网易云歌曲重新处理完成",
-								logger.String("streamId", streamID))
+							ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+							defer cancel()
+
+							// 调用网易云处理逻辑重新下载和处理歌曲
+							neteaseClient := netease.NewClient()
+							if err := handleNeteaseReprocessing(ctx, streamID, neteaseClient, streamProcessor); err != nil {
+								logger.Error("网易云歌曲重新处理失败",
+									logger.String("streamId", streamID),
+									logger.ErrorField(err))
+							} else {
+								logger.Info("网易云歌曲重新处理完成",
+									logger.String("streamId", streamID))
+							}
+						}()
+
+						// 等待处理完成或超时
+						if mp3Processor.WaitForProcessing(streamID, 2*time.Minute) {
+							// 重新尝试获取文件
+							data, contentType, err = streamProcessor.StreamGet(streamID, fileName, isNetease)
+							if err == nil {
+								goto serveFile
+							}
 						}
-					}()
+					} else {
+						// 其他进程正在处理，等待
+						if mp3Processor.WaitForProcessing(streamID, 2*time.Minute) {
+							data, contentType, err = streamProcessor.StreamGet(streamID, fileName, isNetease)
+							if err == nil {
+								goto serveFile
+							}
+						}
+					}
 				}
 
 				logger.Warn("获取流分片失败",
@@ -222,6 +257,7 @@ func Start() {
 			}
 		}
 
+	serveFile:
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Cache-Control", "public, max-age=31536000")
@@ -295,6 +331,21 @@ func Start() {
 
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatal("服务器启动失败", logger.ErrorField(err))
+		}
+	}()
+
+	// 启动定期清理过期处理状态的协程
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				mp3Processor.CleanupExpiredProcessing(15 * time.Minute)
+			case <-stop:
+				return
+			}
 		}
 	}()
 

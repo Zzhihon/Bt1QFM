@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"Bt1QFM/core/utils"
 	"Bt1QFM/logger"
@@ -33,6 +34,7 @@ type PreprocessResult struct {
 type MP3Processor struct {
 	ffmpegPath       string
 	processingStatus map[string]*ProcessingStatus
+	statusMutex      sync.RWMutex // 添加状态锁
 	preprocessChan   chan *PreprocessTask
 	workerCount      int
 	wg               sync.WaitGroup
@@ -45,6 +47,10 @@ type ProcessingStatus struct {
 	Error        error
 	RetryCount   int
 	MaxRetries   int
+	StartTime    time.Time
+	SongID       string
+	IsNetease    bool
+	done         chan struct{} // 添加完成信号
 }
 
 // NewMP3Processor 创建一个新的 MP3 处理器
@@ -192,39 +198,175 @@ func (p *MP3Processor) PreprocessSong(songID, url, outputDir string) error {
 	return nil
 }
 
-// GetProcessingStatus 获取处理状态
+// GetProcessingStatus 获取处理状态 - 线程安全
 func (p *MP3Processor) GetProcessingStatus(songID string) *ProcessingStatus {
+	p.statusMutex.RLock()
+	defer p.statusMutex.RUnlock()
+
 	if status, exists := p.processingStatus[songID]; exists {
 		return status
 	}
 	return nil
 }
 
-// SetProcessingStatus 设置处理状态
+// SetProcessingStatus 设置处理状态 - 线程安全
 func (p *MP3Processor) SetProcessingStatus(songID string, isProcessing bool, err error) {
-	p.processingStatus[songID] = &ProcessingStatus{
-		IsProcessing: isProcessing,
-		Error:        err,
-		RetryCount:   0,
-		MaxRetries:   3,
+	p.statusMutex.Lock()
+	defer p.statusMutex.Unlock()
+
+	if isProcessing {
+		// 开始处理
+		p.processingStatus[songID] = &ProcessingStatus{
+			IsProcessing: true,
+			Error:        err,
+			RetryCount:   0,
+			MaxRetries:   3,
+			StartTime:    time.Now(),
+			SongID:       songID,
+			IsNetease:    strings.HasPrefix(songID, "netease_") || len(songID) < 10, // 简单判断是否为网易云
+			done:         make(chan struct{}),
+		}
+	} else {
+		// 处理完成
+		if status, exists := p.processingStatus[songID]; exists {
+			status.IsProcessing = false
+			status.Error = err
+			close(status.done)
+		}
 	}
 }
 
-// UpdateProcessingStatus 更新处理状态
+// UpdateProcessingStatus 更新处理状态 - 线程安全
 func (p *MP3Processor) UpdateProcessingStatus(songID string, err error) {
+	p.statusMutex.Lock()
+	defer p.statusMutex.Unlock()
+
 	if status, exists := p.processingStatus[songID]; exists {
 		status.Error = err
 		if err != nil {
 			status.RetryCount++
 		} else {
 			status.IsProcessing = false
+			close(status.done)
 		}
 	}
 }
 
-// ClearProcessingStatus 清除处理状态
+// ClearProcessingStatus 清除处理状态 - 线程安全
 func (p *MP3Processor) ClearProcessingStatus(songID string) {
-	delete(p.processingStatus, songID)
+	p.statusMutex.Lock()
+	defer p.statusMutex.Unlock()
+
+	if status, exists := p.processingStatus[songID]; exists {
+		if status.IsProcessing {
+			status.IsProcessing = false
+			close(status.done)
+		}
+		delete(p.processingStatus, songID)
+	}
+}
+
+// TryLockProcessing 尝试获取处理锁
+func (p *MP3Processor) TryLockProcessing(songID string, isNetease bool) (*ProcessingStatus, bool) {
+	p.statusMutex.Lock()
+	defer p.statusMutex.Unlock()
+
+	// 检查是否已经在处理中
+	if status, exists := p.processingStatus[songID]; exists && status.IsProcessing {
+		logger.Info("歌曲正在处理中，跳过重复处理",
+			logger.String("songId", songID),
+			logger.Bool("isNetease", isNetease))
+		return status, false
+	}
+
+	// 创建新的处理状态
+	status := &ProcessingStatus{
+		IsProcessing: true,
+		StartTime:    time.Now(),
+		SongID:       songID,
+		IsNetease:    isNetease,
+		done:         make(chan struct{}),
+		MaxRetries:   3,
+	}
+
+	p.processingStatus[songID] = status
+
+	logger.Info("获取歌曲处理锁成功",
+		logger.String("songId", songID),
+		logger.Bool("isNetease", isNetease))
+
+	return status, true
+}
+
+// ReleaseProcessing 释放处理锁
+func (p *MP3Processor) ReleaseProcessing(songID string) {
+	p.statusMutex.Lock()
+	defer p.statusMutex.Unlock()
+
+	if status, exists := p.processingStatus[songID]; exists {
+		if status.IsProcessing {
+			status.IsProcessing = false
+			close(status.done)
+		}
+
+		delete(p.processingStatus, songID)
+
+		logger.Info("释放歌曲处理锁",
+			logger.String("songId", songID),
+			logger.Duration("processingTime", time.Since(status.StartTime)))
+	}
+}
+
+// WaitForProcessing 等待处理完成
+func (p *MP3Processor) WaitForProcessing(songID string, timeout time.Duration) bool {
+	p.statusMutex.RLock()
+	status, exists := p.processingStatus[songID]
+	p.statusMutex.RUnlock()
+
+	if !exists || !status.IsProcessing {
+		return true // 没有在处理中，直接返回
+	}
+
+	select {
+	case <-status.done:
+		return true
+	case <-time.After(timeout):
+		logger.Warn("等待歌曲处理超时",
+			logger.String("songId", songID),
+			logger.Duration("timeout", timeout))
+		return false
+	}
+}
+
+// IsProcessing 检查歌曲是否正在处理中
+func (p *MP3Processor) IsProcessing(songID string) bool {
+	p.statusMutex.RLock()
+	defer p.statusMutex.RUnlock()
+
+	status, exists := p.processingStatus[songID]
+	return exists && status.IsProcessing
+}
+
+// CleanupExpiredProcessing 清理过期的处理状态
+func (p *MP3Processor) CleanupExpiredProcessing(maxAge time.Duration) {
+	p.statusMutex.Lock()
+	defer p.statusMutex.Unlock()
+
+	now := time.Now()
+	for songID, status := range p.processingStatus {
+		if now.Sub(status.StartTime) > maxAge {
+			if status.IsProcessing {
+				status.IsProcessing = false
+				close(status.done)
+			}
+
+			delete(p.processingStatus, songID)
+
+			logger.Warn("清理过期的处理状态",
+				logger.String("songId", songID),
+				logger.Duration("age", now.Sub(status.StartTime)))
+		}
+	}
 }
 
 // ProcessToHLS 将 MP3 文件转换为 HLS 格式
