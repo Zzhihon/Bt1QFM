@@ -128,6 +128,36 @@ const MusicLibraryView: React.FC = () => {
     }
   };
 
+  // 添加播放歌曲的处理函数
+  const handlePlayTrack = (track: Track) => {
+    console.log("=== 播放歌曲信息 ===");
+    console.log("原始歌曲信息:", {
+      id: track.id,
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      hlsPlaylistUrl: track.hlsPlaylistUrl,
+      hlsPlaylistPath: track.hlsPlaylistPath // 检查是否有错误的字段
+    });
+    console.log("API请求路径:", track.hlsPlaylistUrl);
+    
+    // 确保使用正确的HLS URL格式，清理任何错误的字段
+    const correctTrack = {
+      ...track,
+      hlsPlaylistUrl: `/streams/${track.id}/playlist.m3u8`,
+      hlsPlaylistPath: undefined // 清理可能存在的错误字段
+    };
+    
+    console.log("修正后传递给PlayerContext的track:", {
+      id: correctTrack.id,
+      title: correctTrack.title,
+      hlsPlaylistUrl: correctTrack.hlsPlaylistUrl
+    });
+    console.log("==================");
+    
+    playTrack(correctTrack);
+  };
+
   if (isLoading) {
     return <div className="min-h-[calc(100vh-150px)] flex items-center justify-center p-4 text-cyber-primary text-xl">Loading music library...</div>;
   }
@@ -219,7 +249,7 @@ const MusicLibraryView: React.FC = () => {
                 {/* Play/Pause Overlay */}
                 <div 
                   className="absolute inset-0 bg-cyber-bg-darker bg-opacity-40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
-                  onClick={() => isPlayable && playTrack(track)}
+                  onClick={() => isPlayable && handlePlayTrack(track)}
                 >
                   {isCurrentlyPlaying ? (
                     <PauseCircle className="h-16 w-16 text-cyber-primary" />
@@ -236,7 +266,7 @@ const MusicLibraryView: React.FC = () => {
                 
                 <div className="mt-4 flex justify-between items-center">
                   <button 
-                    onClick={() => isPlayable && playTrack(track)}
+                    onClick={() => isPlayable && handlePlayTrack(track)}
                     disabled={!isPlayable}
                     className={`flex items-center px-3 py-1 rounded-full text-sm font-medium transition-colors ${isPlayable ? 'bg-cyber-primary text-cyber-bg-darker hover:bg-cyber-hover-primary' : 'bg-cyber-bg text-cyber-muted cursor-not-allowed'}`}
                   >
