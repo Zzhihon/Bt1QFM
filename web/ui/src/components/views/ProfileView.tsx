@@ -7,6 +7,14 @@ interface NullString {
   Valid: boolean;
 }
 
+// 获取后端 URL，提供默认值
+const getBackendUrl = () => {
+  if (typeof window !== 'undefined' && (window as any).__ENV__?.BACKEND_URL) {
+    return (window as any).__ENV__.BACKEND_URL;
+  }
+  return import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
+};
+
 const ProfileView: React.FC = () => {
   const { currentUser, logout } = useAuth();
   const [profileData, setProfileData] = useState<any>(null);
@@ -63,7 +71,8 @@ const ProfileView: React.FC = () => {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const response = await fetch('/api/user/profile', {
+      const backendUrl = getBackendUrl();
+      const response = await fetch(`${backendUrl}/api/user/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -135,7 +144,8 @@ const ProfileView: React.FC = () => {
         return;
       }
 
-      const response = await fetch('/api/user/profile', {
+      const backendUrl = getBackendUrl();
+      const response = await fetch(`${backendUrl}/api/user/profile`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -201,7 +211,8 @@ const ProfileView: React.FC = () => {
         return;
       }
 
-      const response = await fetch('/api/user/netease/update', {
+      const backendUrl = getBackendUrl();
+      const response = await fetch(`${backendUrl}/api/user/netease/update`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
