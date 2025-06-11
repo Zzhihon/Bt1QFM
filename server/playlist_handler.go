@@ -12,6 +12,7 @@ import (
 
 	// "Bt1QFM/db"
 	"Bt1QFM/cache"
+	"Bt1QFM/model"
 	"Bt1QFM/repository"
 )
 
@@ -198,12 +199,25 @@ func (h *APIHandler) AddToPlaylistHandler(ctx context.Context, userID int64, w h
 			return
 		}
 		if song == nil {
-			log.Printf("[AddToPlaylistHandler] 网易云音乐歌曲不存在 (ID: %d)", requestData.NeteaseID)
-			http.Error(w, "Netease song not found", http.StatusNotFound)
-			return
+			log.Printf("[AddToPlaylistHandler] 网易云音乐歌曲不存在，尝试使用请求数据创建记录 (ID: %d)", requestData.NeteaseID)
+			// 当数据库中不存在时，尝试插入一条简单记录，保证后续播放功能正常
+			hlsPath := fmt.Sprintf("/streams/netease/%d/playlist.m3u8", requestData.NeteaseID)
+			newSong := &model.NeteaseSongDB{
+				ID:              requestData.NeteaseID,
+				Title:           requestData.Title,
+				Artist:          requestData.Artist,
+				Album:           requestData.Album,
+				HLSPlaylistPath: hlsPath,
+			}
+			if _, err := neteaseRepo.InsertNeteaseSong(newSong); err != nil {
+				log.Printf("[AddToPlaylistHandler] 创建网易云歌曲记录失败 (ID: %d): %v", requestData.NeteaseID, err)
+				http.Error(w, "Failed to create netease song", http.StatusInternalServerError)
+				return
+			}
+			song = newSong
 		}
 
-		log.Printf("[AddToPlaylistHandler] 找到网易云音乐歌曲: %s - %s", song.Title, song.Artist)
+		log.Printf("[AddToPlaylistHandler] 找到/创建网易云歌曲: %s - %s", song.Title, song.Artist)
 		// 使用数据库中的信息更新请求数据
 		requestData.Title = song.Title
 		requestData.Artist = song.Artist
