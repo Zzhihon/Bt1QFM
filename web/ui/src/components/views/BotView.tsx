@@ -693,29 +693,29 @@ const BotView: React.FC = () => {
             </div>
           </div>
 
-          {/* 输入区域 - 手机端优化 */}
-          <div className="h-auto p-2 md:p-6 bg-cyber-bg-darker/80 backdrop-blur-md border-t border-cyber-secondary/20 flex-shrink-0">
+          {/* 输入区域 - 优化紧凑样式 */}
+          <div className="h-auto p-2 md:p-3 bg-cyber-bg-darker/60 backdrop-blur-md border-t border-cyber-secondary/20 flex-shrink-0">
             <div className="max-w-5xl mx-auto">
               <form onSubmit={handleCommand} className="w-full">
-                <div className="flex items-center space-x-2 md:space-x-3 bg-cyber-bg-darker/50 backdrop-blur-md p-2 md:p-3 rounded-xl border border-cyber-secondary/30 shadow-lg">
+                <div className="flex items-center space-x-2 bg-cyber-bg-darker/40 backdrop-blur-sm p-1.5 md:p-2 rounded-lg border border-cyber-secondary/20 shadow-sm">
                   <div className="flex-1 relative">
                     <input
                       type="text"
                       value={command}
                       onChange={(e) => setCommand(e.target.value)}
                       placeholder="输入 /netease [歌曲名称]..."
-                      className="w-full px-3 md:px-4 py-2 md:py-2.5 text-sm bg-transparent text-cyber-text placeholder:text-cyber-secondary/50 focus:outline-none focus:ring-2 focus:ring-cyber-primary/30 rounded-lg transition-all duration-300"
+                      className="w-full px-2.5 md:px-3 py-1.5 md:py-2 text-sm bg-transparent text-cyber-text placeholder:text-cyber-secondary/50 focus:outline-none focus:ring-1 focus:ring-cyber-primary/40 rounded-md transition-all duration-200"
                     />
                   </div>
                   <button
                     type="submit"
                     disabled={isLoading}
-                    className="px-3 md:px-5 py-2 md:py-2.5 bg-cyber-primary text-cyber-bg rounded-lg hover:bg-cyber-hover-primary hover:scale-105 active:scale-95 transition-all duration-300 disabled:opacity-50 disabled:hover:scale-100 disabled:hover:bg-cyber-primary shadow-lg"
+                    className="px-2.5 md:px-3 py-1.5 md:py-2 bg-cyber-primary text-cyber-bg rounded-md hover:bg-cyber-hover-primary hover:scale-105 active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:hover:scale-100 disabled:hover:bg-cyber-primary shadow-sm"
                   >
                     {isLoading ? (
-                      <div className="animate-spin rounded-full h-4 w-4 md:h-5 md:w-5 border-2 border-cyber-bg border-t-transparent" />
+                      <div className="animate-spin rounded-full h-3.5 w-3.5 md:h-4 md:w-4 border-2 border-cyber-bg border-t-transparent" />
                     ) : (
-                      <Send className="h-4 w-4 md:h-5 md:w-5" />
+                      <Send className="h-3.5 w-3.5 md:h-4 md:w-4" />
                     )}
                   </button>
                 </div>
