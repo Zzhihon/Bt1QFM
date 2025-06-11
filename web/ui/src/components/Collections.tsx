@@ -447,7 +447,7 @@ const Collections: React.FC = () => {
 
   if (selectedPlaylist) {
     return (
-      <div className="p-6">
+      <div className="p-6 min-h-screen">
         {/* 返回按钮 */}
         <button 
           onClick={() => setSelectedPlaylist(null)}
@@ -459,52 +459,126 @@ const Collections: React.FC = () => {
 
         {/* 歌单信息 */}
         <div className="bg-cyber-bg-darker rounded-lg p-6 mb-6">
-          <div className="flex flex-col md:flex-row gap-6">
+          <div className="flex flex-col lg:flex-row gap-6">
             <div className="flex-shrink-0">
               <img 
                 src={selectedPlaylist.playlist.coverImgUrl}
                 alt={selectedPlaylist.playlist.name}
-                className="w-48 h-48 rounded-lg object-cover"
+                className="w-64 h-64 rounded-lg object-cover shadow-lg"
               />
             </div>
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold text-cyber-primary mb-2">
-                {selectedPlaylist.playlist.name}
-              </h1>
-              <div className="flex items-center text-cyber-secondary mb-4">
-                <User className="h-4 w-4 mr-2" />
-                <span>{selectedPlaylist.playlist.creator.nickname}</span>
+            <div className="flex-1 space-y-4">
+              <div>
+                <h1 className="text-3xl font-bold text-cyber-primary mb-2">
+                  {selectedPlaylist.playlist.name}
+                </h1>
+                <div className="flex items-center text-cyber-secondary mb-3">
+                  <User className="h-4 w-4 mr-2" />
+                  <span className="text-lg">{selectedPlaylist.playlist.creator.nickname}</span>
+                </div>
               </div>
+
+              {/* 歌单统计信息 */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-4 border-y border-cyber-bg">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-cyber-primary">
+                    {selectedPlaylist.playlist.trackCount}
+                  </div>
+                  <div className="text-sm text-cyber-secondary flex items-center justify-center">
+                    <Music className="h-3 w-3 mr-1" />
+                    歌曲
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-cyber-primary">
+                    {Math.floor(selectedPlaylist.playlist.tracks.reduce((total, song) => total + (song.dt || 0), 0) / 60000)}
+                  </div>
+                  <div className="text-sm text-cyber-secondary flex items-center justify-center">
+                    <Clock className="h-3 w-3 mr-1" />
+                    分钟
+                  </div>
+                </div>
+                {selectedPlaylist.playlist.createTime && (
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-cyber-primary">
+                      {formatDate(selectedPlaylist.playlist.createTime).split('/')[0]}
+                    </div>
+                    <div className="text-sm text-cyber-secondary flex items-center justify-center">
+                      <Calendar className="h-3 w-3 mr-1" />
+                      创建年份
+                    </div>
+                  </div>
+                )}
+                {selectedPlaylist.playlist.updateTime && (
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-cyber-primary">
+                      {formatDate(selectedPlaylist.playlist.updateTime)}
+                    </div>
+                    <div className="text-sm text-cyber-secondary">
+                      最后更新
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 歌单描述 */}
               {selectedPlaylist.playlist.description && (
-                <p className="text-cyber-text mb-4 line-clamp-3">
-                  {selectedPlaylist.playlist.description}
-                </p>
+                <div className="bg-cyber-bg rounded-lg p-4">
+                  <h3 className="text-cyber-primary font-semibold mb-2">简介</h3>
+                  <p className="text-cyber-text text-sm leading-relaxed whitespace-pre-wrap">
+                    {selectedPlaylist.playlist.description}
+                  </p>
+                </div>
               )}
-              <div className="flex items-center gap-4 text-sm text-cyber-secondary mb-4">
-                <span className="flex items-center">
-                  <Music className="h-4 w-4 mr-1" />
-                  {selectedPlaylist.playlist.trackCount} 首歌曲
-                </span>
+
+              {/* 操作按钮 */}
+              <div className="flex flex-wrap gap-3 pt-2">
+                <button 
+                  onClick={handleAddPlaylistToQueue}
+                  className="flex items-center px-6 py-3 bg-cyber-primary text-cyber-bg-darker rounded-lg hover:bg-cyber-hover-primary transition-colors font-medium"
+                >
+                  <Plus className="h-5 w-5 mr-2" />
+                  添加全部到播放列表
+                </button>
+                <button 
+                  onClick={() => handlePlaySong(selectedPlaylist.playlist.tracks[0])}
+                  className="flex items-center px-6 py-3 bg-transparent border border-cyber-primary text-cyber-primary rounded-lg hover:bg-cyber-primary hover:text-cyber-bg-darker transition-colors font-medium"
+                  disabled={!selectedPlaylist.playlist.tracks.length}
+                >
+                  <Play className="h-5 w-5 mr-2" />
+                  播放全部
+                </button>
               </div>
-              <button 
-                onClick={handleAddPlaylistToQueue}
-                className="flex items-center px-4 py-2 bg-cyber-primary text-cyber-bg-darker rounded hover:bg-cyber-hover-primary transition-colors"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                添加全部到播放列表
-              </button>
             </div>
           </div>
         </div>
 
         {/* 歌曲列表 */}
         <div className="bg-cyber-bg-darker rounded-lg overflow-hidden">
-          <div className="p-4 border-b border-cyber-primary">
-            <h2 className="text-lg font-semibold text-cyber-primary">
-              歌曲列表 ({selectedPlaylist.playlist.tracks?.length || 0}首)
-            </h2>
+          <div className="p-6 border-b border-cyber-primary">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-cyber-primary">
+                歌曲列表
+              </h2>
+              <span className="text-cyber-secondary">
+                共 {selectedPlaylist.playlist.tracks?.length || 0} 首歌曲
+              </span>
+            </div>
           </div>
-          <div className="max-h-96 overflow-y-auto">
+          
+          {/* 列表头部 */}
+          <div className="px-6 py-3 bg-cyber-bg border-b border-cyber-bg text-cyber-secondary text-sm">
+            <div className="flex items-center">
+              <div className="w-12 text-center">#</div>
+              <div className="w-16 mr-4"></div>
+              <div className="flex-1">歌曲信息</div>
+              <div className="w-20 text-center">时长</div>
+              <div className="w-24 text-center">操作</div>
+            </div>
+          </div>
+
+          {/* 歌曲列表内容 */}
+          <div className="divide-y divide-cyber-bg">
             {selectedPlaylist.playlist.tracks && selectedPlaylist.playlist.tracks.length > 0 ? (
               selectedPlaylist.playlist.tracks.map((song, index) => {
                 // 处理歌曲名称显示
@@ -514,44 +588,60 @@ const Collections: React.FC = () => {
                 return (
                   <div 
                     key={song.id} 
-                    className="flex items-center p-4 hover:bg-cyber-bg transition-colors border-b border-cyber-bg last:border-b-0"
+                    className="flex items-center px-6 py-4 hover:bg-cyber-bg transition-colors group"
                   >
-                    <div className="w-8 text-center text-cyber-secondary text-sm mr-4">
-                      {index + 1}
+                    <div className="w-12 text-center text-cyber-secondary text-sm">
+                      <span className="group-hover:hidden">{index + 1}</span>
+                      <button 
+                        onClick={() => handlePlaySong(song)}
+                        className="hidden group-hover:block p-1 text-cyber-primary hover:text-cyber-hover-primary transition-colors"
+                        disabled={retryingTrack === song.id}
+                      >
+                        {retryingTrack === song.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Play className="h-4 w-4" />
+                        )}
+                      </button>
                     </div>
-                    <div className="w-12 h-12 rounded mr-4 overflow-hidden flex-shrink-0">
+                    
+                    <div className="w-16 h-16 rounded-lg mr-4 overflow-hidden flex-shrink-0 shadow-sm">
                       <img 
                         src={song.al?.picUrl || ''}
                         alt={song.al?.name || 'Unknown Album'}
                         className="w-full h-full object-cover"
                         onError={(e) => {
-                          // 图片加载失败时显示默认占位符
                           e.currentTarget.style.display = 'none';
                         }}
                       />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-cyber-primary font-medium truncate">
+                    
+                    <div className="flex-1 min-w-0 pr-4">
+                      <div className="text-cyber-primary font-medium truncate text-base mb-1">
                         {fullTitle}
                       </div>
-                      <div className="text-cyber-secondary text-sm truncate">
-                        {song.ar?.map(a => a.name).join(', ') || 'Unknown Artist'} · {song.al?.name || 'Unknown Album'}
+                      <div className="text-cyber-secondary text-sm truncate mb-1">
+                        {song.ar?.map(a => a.name).join(', ') || 'Unknown Artist'}
+                      </div>
+                      <div className="text-cyber-secondary text-xs truncate">
+                        专辑: {song.al?.name || 'Unknown Album'}
                       </div>
                       {/* 显示别名信息 */}
                       {song.alia && song.alia.length > 0 && (
-                        <div className="text-cyber-secondary text-xs truncate mt-1">
-                          {song.alia.join(' · ')}
+                        <div className="text-cyber-secondary text-xs truncate mt-1 opacity-75">
+                          别名: {song.alia.join(' · ')}
                         </div>
                       )}
                     </div>
-                    <div className="text-cyber-secondary text-sm mr-4">
+                    
+                    <div className="w-20 text-center text-cyber-secondary text-sm">
                       {formatDuration(song.dt || 0)}
                     </div>
 
-                    <div className="flex items-center space-x-2">
+                    <div className="w-24 flex items-center justify-center space-x-2">
                       <button 
                         onClick={() => handlePlaySong(song)}
-                        className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors relative"
+                        className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors opacity-0 group-hover:opacity-100"
                         title="播放"
                         disabled={retryingTrack === song.id}
                       >
@@ -563,7 +653,7 @@ const Collections: React.FC = () => {
                       </button>
                       <button 
                         onClick={() => handleAddSong(song)}
-                        className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors"
+                        className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors opacity-0 group-hover:opacity-100"
                         title="添加到播放列表"
                       >
                         <Plus className="h-4 w-4" />
@@ -573,8 +663,9 @@ const Collections: React.FC = () => {
                 );
               })
             ) : (
-              <div className="p-8 text-center text-cyber-secondary">
-                该歌单暂无歌曲
+              <div className="p-12 text-center text-cyber-secondary">
+                <Music className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>该歌单暂无歌曲</p>
               </div>
             )}
           </div>
