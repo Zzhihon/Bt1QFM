@@ -13,7 +13,7 @@ const AnnouncementBell: React.FC<Props> = ({ onShowAnnouncement }) => {
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const unreadCount = announcements.filter(a => !a.isRead).length;
+  const unreadCount = announcements?.filter(a => !a.isRead).length || 0;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -54,11 +54,11 @@ const AnnouncementBell: React.FC<Props> = ({ onShowAnnouncement }) => {
 
   const markAllAsRead = async () => {
     try {
-      const unreadAnnouncements = announcements.filter(a => !a.isRead);
+      const unreadAnnouncements = announcements?.filter(a => !a.isRead) || [];
       await Promise.all(unreadAnnouncements.map(a => announcementApi.markAsRead(a.id)));
       
       // 更新本地状态
-      setAnnouncements(prev => prev.map(a => ({ ...a, isRead: true })));
+      setAnnouncements(prev => prev?.map(a => ({ ...a, isRead: true })) || []);
     } catch (error) {
       console.error('标记全部已读失败:', error);
     }
@@ -118,12 +118,12 @@ const AnnouncementBell: React.FC<Props> = ({ onShowAnnouncement }) => {
               <div className="p-8 text-center text-cyber-secondary">
                 正在加载...
               </div>
-            ) : announcements.length === 0 ? (
+            ) : announcements?.length === 0 ? (
               <div className="p-8 text-center text-cyber-secondary">
                 暂无公告
               </div>
             ) : (
-              announcements.map(announcement => (
+              (announcements || []).map(announcement => (
                 <div
                   key={announcement.id}
                   className={`p-4 border-b border-cyber-primary/20 cursor-pointer transition-colors relative ${
