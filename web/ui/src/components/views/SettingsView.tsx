@@ -110,9 +110,53 @@ const SettingsView: React.FC = () => {
 
   // 获取用户完整资料信息
   const fetchUserProfile = async () => {
+    console.log('🚀 SettingsView fetchUserProfile 开始执行');
+    
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
+      // 添加详细的 localStorage 调试信息
+      console.log('🔍 SettingsView localStorage 调试信息:', {
+        allKeys: Object.keys(localStorage),
+        localStorage_length: localStorage.length,
+        token: localStorage.getItem('token'),
+        auth_token: localStorage.getItem('auth_token'),
+        authToken: localStorage.getItem('authToken'),
+        user_token: localStorage.getItem('user_token'),
+        jwt_token: localStorage.getItem('jwt_token'),
+        storage_entries: Object.entries(localStorage),
+        window_location: window.location,
+        document_domain: document.domain
+      });
+
+      // 优先使用 authToken，然后是 token，最后尝试其他可能的键
+      let token = localStorage.getItem('authToken') || localStorage.getItem('token');
+      
+      if (!token) {
+        // 尝试从其他可能的 key 获取 token
+        const possibleTokenKeys = ['auth_token', 'user_token', 'jwt_token', 'access_token'];
+        for (const key of possibleTokenKeys) {
+          const altToken = localStorage.getItem(key);
+          if (altToken) {
+            console.log(`🔍 SettingsView 在 ${key} 中找到 token:`, altToken.substring(0, 20) + '...');
+            token = altToken;
+            break;
+          }
+        }
+      }
+
+      console.log('🔑 SettingsView 获取到的 token:', token ? `${token.substring(0, 20)}...` : 'null');
+      
+      if (!token) {
+        console.log('❌ SettingsView 没有找到 token，退出函数');
+        return;
+      }
+
+      console.log('📡 SettingsView 准备发起用户资料请求:', {
+        endpoint: '/api/user/profile',
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + token.substring(0, 20) + '...' },
+        fullUrl: window.location.origin + '/api/user/profile',
+        timestamp: new Date().toISOString()
+      });
 
       const response = await fetch('/api/user/profile', {
         headers: {
@@ -120,14 +164,40 @@ const SettingsView: React.FC = () => {
         }
       });
 
+      console.log('📡 SettingsView 用户资料响应状态:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        url: response.url,
+        headers: Object.fromEntries(response.headers.entries()),
+        timestamp: new Date().toISOString()
+      });
+
       if (response.ok) {
         const result = await response.json();
+        console.log('✅ SettingsView 用户资料响应数据:', result);
+        
         if (result.success && result.data) {
           setProfileData(result.data);
+        } else {
+          console.warn('⚠️ SettingsView 响应成功但数据格式异常:', result);
         }
+      } else {
+        const errorText = await response.text();
+        console.error('❌ SettingsView 用户资料请求失败:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText: errorText,
+          url: response.url
+        });
       }
     } catch (error) {
-      console.error('获取用户资料失败:', error);
+      console.error('❌ SettingsView 获取用户资料失败 - 网络错误:', {
+        error: error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
     }
   };
 

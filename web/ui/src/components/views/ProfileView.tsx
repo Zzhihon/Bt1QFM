@@ -62,14 +62,64 @@ const ProfileView: React.FC = () => {
   };
 
   useEffect(() => {
-    console.log('ProfileView - currentUser:', currentUser);
+    console.log('🔄 ProfileView useEffect 触发:', {
+      currentUser: currentUser,
+      hasCurrentUser: !!currentUser,
+      userAgent: navigator.userAgent,
+      location: window.location.href
+    });
     fetchUserProfile();
   }, [currentUser]);
 
   const fetchUserProfile = async () => {
+    console.log('🚀 fetchUserProfile 开始执行');
+    
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
+      // 添加详细的 localStorage 调试信息
+      console.log('🔍 localStorage 调试信息:', {
+        allKeys: Object.keys(localStorage),
+        localStorage_length: localStorage.length,
+        token: localStorage.getItem('token'),
+        auth_token: localStorage.getItem('auth_token'),
+        authToken: localStorage.getItem('authToken'),
+        user_token: localStorage.getItem('user_token'),
+        jwt_token: localStorage.getItem('jwt_token'),
+        storage_entries: Object.entries(localStorage),
+        window_location: window.location,
+        document_domain: document.domain,
+        document_cookie: document.cookie
+      });
+
+      // 优先使用 authToken，然后是 token，最后尝试其他可能的键
+      let token = localStorage.getItem('authToken') || localStorage.getItem('token');
+      
+      if (!token) {
+        // 尝试从其他可能的 key 获取 token
+        const possibleTokenKeys = ['auth_token', 'user_token', 'jwt_token', 'access_token'];
+        for (const key of possibleTokenKeys) {
+          const altToken = localStorage.getItem(key);
+          if (altToken) {
+            console.log(`🔍 在 ${key} 中找到 token:`, altToken.substring(0, 20) + '...');
+            token = altToken;
+            break;
+          }
+        }
+      }
+
+      console.log('🔑 获取到的 token:', token ? `${token.substring(0, 20)}...` : 'null');
+      
+      if (!token) {
+        console.log('❌ 没有找到 token，退出函数');
+        return;
+      }
+
+      console.log('📡 准备发起用户资料请求:', {
+        endpoint: '/api/user/profile',
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + token.substring(0, 20) + '...' },
+        fullUrl: window.location.origin + '/api/user/profile',
+        timestamp: new Date().toISOString()
+      });
 
       // 直接请求统一的 API 路径，避免在正式环境下出现 " /1qfm/profile " 的错误端点
       const response = await fetch('/api/user/profile', {
@@ -78,8 +128,19 @@ const ProfileView: React.FC = () => {
         }
       });
 
+      console.log('📡 用户资料响应状态:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        url: response.url,
+        headers: Object.fromEntries(response.headers.entries()),
+        timestamp: new Date().toISOString()
+      });
+
       if (response.ok) {
         const result = await response.json();
+        console.log('✅ 用户资料响应数据:', result);
+        
         if (result.success && result.data) {
           const data = result.data;
           setProfileData(data);
@@ -93,11 +154,27 @@ const ProfileView: React.FC = () => {
             neteaseUID: data.neteaseUID || ''
           };
           
+          console.log('🔄 初始化表单数据:', initializeFormData);
           setEditForm(initializeFormData);
+        } else {
+          console.warn('⚠️ 响应成功但数据格式异常:', result);
         }
+      } else {
+        const errorText = await response.text();
+        console.error('❌ 用户资料请求失败:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText: errorText,
+          url: response.url
+        });
       }
     } catch (error) {
-      console.error('获取用户资料失败:', error);
+      console.error('❌ 获取用户资料失败 - 网络错误:', {
+        error: error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
     }
   };
 
@@ -138,11 +215,24 @@ const ProfileView: React.FC = () => {
     setUpdateMessage('');
 
     try {
-      const token = localStorage.getItem('token');
+      // 使用统一的 token 获取逻辑
+      let token = localStorage.getItem('authToken') || localStorage.getItem('token');
       if (!token) {
         setUpdateMessage('请先登录');
         return;
       }
+
+      console.log('📡 准备发起更新用户资料请求:', {
+        endpoint: '/api/user/profile',
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + token.substring(0, 20) + '...'
+        },
+        body: editForm,
+        fullUrl: window.location.origin + '/api/user/profile',
+        timestamp: new Date().toISOString()
+      });
 
       // 使用绝对 API 路径，确保生产环境不受 BASE 路径影响
       const response = await fetch('/api/user/profile', {
@@ -154,8 +244,19 @@ const ProfileView: React.FC = () => {
         body: JSON.stringify(editForm)
       });
 
+      console.log('📡 更新用户资料响应状态:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        url: response.url,
+        headers: Object.fromEntries(response.headers.entries()),
+        timestamp: new Date().toISOString()
+      });
+
       if (response.ok) {
         const result = await response.json();
+        console.log('✅ 更新用户资料响应数据:', result);
+        
         if (result.success) {
           setUpdateMessage('资料更新成功！');
           setIsEditing(false);
@@ -164,13 +265,26 @@ const ProfileView: React.FC = () => {
           // 3秒后清除成功消息
           setTimeout(() => setUpdateMessage(''), 3000);
         } else {
+          console.error('❌ 更新失败 - 服务器返回错误:', result);
           setUpdateMessage('更新失败，请重试');
         }
       } else {
+        const errorText = await response.text();
+        console.error('❌ 更新用户资料请求失败:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText: errorText,
+          url: response.url
+        });
         setUpdateMessage('更新失败，请检查网络连接');
       }
     } catch (error) {
-      console.error('更新用户资料失败:', error);
+      console.error('❌ 更新用户资料失败 - 网络错误:', {
+        error: error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
       setUpdateMessage('更新失败，请重试');
     } finally {
       setIsUpdating(false);
@@ -205,11 +319,29 @@ const ProfileView: React.FC = () => {
     setUpdateMessage('');
 
     try {
-      const token = localStorage.getItem('token');
+      // 使用统一的 token 获取逻辑
+      let token = localStorage.getItem('authToken') || localStorage.getItem('token');
       if (!token) {
         setUpdateMessage('请先登录');
         return;
       }
+
+      const neteaseData = {
+        neteaseUsername: editForm.neteaseUsername,
+        neteaseUID: editForm.neteaseUID
+      };
+
+      console.log('📡 准备发起更新网易云信息请求:', {
+        endpoint: '/api/user/netease/update',
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + token.substring(0, 20) + '...'
+        },
+        body: neteaseData,
+        fullUrl: window.location.origin + '/api/user/netease/update',
+        timestamp: new Date().toISOString()
+      });
 
       // 使用绝对 API 路径，避免构建后的基路径影响
       const response = await fetch('/api/user/netease/update', {
@@ -218,26 +350,47 @@ const ProfileView: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          neteaseUsername: editForm.neteaseUsername,
-          neteaseUID: editForm.neteaseUID
-        })
+        body: JSON.stringify(neteaseData)
+      });
+
+      console.log('📡 更新网易云信息响应状态:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        url: response.url,
+        headers: Object.fromEntries(response.headers.entries()),
+        timestamp: new Date().toISOString()
       });
 
       if (response.ok) {
         const result = await response.json();
+        console.log('✅ 更新网易云信息响应数据:', result);
+        
         if (result.success) {
           setUpdateMessage('网易云信息更新成功！');
           await fetchUserProfile();
           setTimeout(() => setUpdateMessage(''), 3000);
         } else {
+          console.error('❌ 网易云信息更新失败 - 服务器返回错误:', result);
           setUpdateMessage('更新失败，请重试');
         }
       } else {
+        const errorText = await response.text();
+        console.error('❌ 更新网易云信息请求失败:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText: errorText,
+          url: response.url
+        });
         setUpdateMessage('更新失败，请检查网络连接');
       }
     } catch (error) {
-      console.error('更新网易云信息失败:', error);
+      console.error('❌ 更新网易云信息失败 - 网络错误:', {
+        error: error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
       setUpdateMessage('更新失败，请重试');
     } finally {
       setIsUpdating(false);
