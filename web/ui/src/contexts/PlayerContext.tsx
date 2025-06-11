@@ -181,7 +181,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       
       console.log('音频源已设置，等待用户操作');
     }
-  }, [backendUrl]); // 添加 backendUrl 到依赖数组
+  }, [backendUrl, playerState.currentTrack, playerState.currentTime]);
   
   // 获取播放列表
   const fetchPlaylist = async () => {
@@ -646,20 +646,29 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const togglePlayPause = useCallback(() => {
     if (!audioRef.current) return;
 
+    const audio = audioRef.current;
+
     if (playerState.isPlaying) {
-      audioRef.current.pause();
+      audio.pause();
       setPlayerState(prev => ({ ...prev, isPlaying: false }));
     } else {
       if (playerState.currentTrack) {
-        audioRef.current.play().then(() => {
-          setPlayerState(prev => ({ ...prev, isPlaying: true }));
-        }).catch(error => {
-          console.error('播放失败:', error);
-          setPlayerState(prev => ({ ...prev, isPlaying: false }));
-        });
+        if (!audio.src) {
+          // 页面刷新后可能未正确恢复音频源，重新加载当前歌曲
+          playTrack(playerState.currentTrack);
+        }
+
+        audio.play()
+          .then(() => {
+            setPlayerState(prev => ({ ...prev, isPlaying: true }));
+          })
+          .catch(error => {
+            console.error('播放失败:', error);
+            setPlayerState(prev => ({ ...prev, isPlaying: false }));
+          });
       }
     }
-  }, [playerState.isPlaying, playerState.currentTrack]);
+  }, [playerState.isPlaying, playerState.currentTrack, playTrack]);
 
   // 静音切换
   const toggleMute = () => {
@@ -1072,9 +1081,14 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       console.log('音频开始播放事件');
       setPlayerState(prev => ({ ...prev, isPlaying: true }));
     };
-    
+
+    const handlePlaying = () => {
+      console.log('音频播放中事件');
+      setPlayerState(prev => ({ ...prev, isPlaying: true }));
+    };
+
     const handlePause = () => {
-      console.log('音频暂停事件'); 
+      console.log('音频暂停事件');
       setPlayerState(prev => ({ ...prev, isPlaying: false }));
     };
     
@@ -1152,6 +1166,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     
     // 添加所有事件监听器
     audio.addEventListener('play', handlePlay);
+    audio.addEventListener('playing', handlePlaying);
     audio.addEventListener('pause', handlePause);
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('ended', handleEnded);
@@ -1163,6 +1178,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return () => {
       // 清理所有事件监听器
       audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('playing', handlePlaying);
       audio.removeEventListener('pause', handlePause);
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('ended', handleEnded);
