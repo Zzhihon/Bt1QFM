@@ -353,6 +353,157 @@ func (h *AnnouncementHandler) CreateAnnouncement(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(response)
 }
 
+// UpdateAnnouncement 更新公告（管理员）
+func (h *AnnouncementHandler) UpdateAnnouncement(w http.ResponseWriter, r *http.Request) {
+	logger.Info("收到更新公告请求", 
+		logger.String("method", r.Method),
+		logger.String("url", r.URL.String()),
+		logger.String("remoteAddr", r.RemoteAddr))
+
+	userID := r.Context().Value("userID")
+	if userID == nil {
+		logger.Warn("更新公告失败：未授权访问")
+		http.Error(w, `{"success": false, "message": "未授权访问"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// 处理多种可能的用户ID类型
+	var uid uint
+	switch v := userID.(type) {
+	case uint:
+		uid = v
+	case int:
+		uid = uint(v)
+	case int64:
+		uid = uint(v)
+	case float64:
+		uid = uint(v)
+	default:
+		logger.Error("更新公告失败：用户ID格式错误", 
+			logger.Any("userID", userID),
+			logger.String("userIDType", fmt.Sprintf("%T", userID)))
+		http.Error(w, `{"success": false, "message": "用户ID格式错误"}`, http.StatusBadRequest)
+		return
+	}
+
+	// 检查用户是否为管理员
+	_, err := h.userRepo.GetUserByID(int64(uid))
+	if err != nil {
+		logger.Error("更新公告失败：获取用户信息失败", 
+			logger.Any("userId", uid),
+			logger.ErrorField(err))
+		http.Error(w, `{"success": false, "message": "获取用户信息失败"}`, http.StatusInternalServerError)
+		return
+	}
+	
+	// 简单的管理员检查
+	if uid != 1 {
+		logger.Warn("更新公告失败：用户没有管理员权限", 
+			logger.Any("userId", uid))
+		http.Error(w, `{"success": false, "message": "需要管理员权限"}`, http.StatusForbidden)
+		return
+	}
+
+	vars := mux.Vars(r)
+	announcementID := vars["id"]
+	if announcementID == "" {
+		logger.Error("更新公告失败：公告ID为空", 
+			logger.Any("userId", uid))
+		http.Error(w, `{"success": false, "message": "公告ID不能为空"}`, http.StatusBadRequest)
+		return
+	}
+
+	var req model.CreateAnnouncementRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		logger.Error("更新公告失败：JSON解析错误", 
+			logger.Any("userId", uid),
+			logger.String("announcementId", announcementID),
+			logger.ErrorField(err))
+		http.Error(w, `{"success": false, "message": "请求参数错误"}`, http.StatusBadRequest)
+		return
+	}
+
+	logger.Info("收到更新公告请求数据", 
+		logger.Any("userId", uid),
+		logger.String("announcementId", announcementID),
+		logger.String("title", req.Title),
+		logger.String("version", req.Version),
+		logger.String("type", req.Type))
+
+	// 基本验证
+	if req.Title == "" || req.Content == "" || req.Version == "" || req.Type == "" {
+		logger.Error("更新公告失败：必填字段为空", 
+			logger.Any("userId", uid),
+			logger.String("announcementId", announcementID))
+		http.Error(w, `{"success": false, "message": "必填字段不能为空"}`, http.StatusBadRequest)
+		return
+	}
+
+	// 验证类型
+	validTypes := map[string]bool{"info": true, "warning": true, "success": true, "error": true}
+	if !validTypes[req.Type] {
+		logger.Error("更新公告失败：公告类型无效", 
+			logger.Any("userId", uid),
+			logger.String("announcementId", announcementID),
+			logger.String("invalidType", req.Type))
+		http.Error(w, `{"success": false, "message": "公告类型无效"}`, http.StatusBadRequest)
+		return
+	}
+
+	// 检查公告是否存在
+	existingAnnouncement, err := h.announcementRepo.GetAnnouncementByID(announcementID)
+	if err != nil {
+		logger.Error("更新公告失败：公告不存在", 
+			logger.Any("userId", uid),
+			logger.String("announcementId", announcementID),
+			logger.ErrorField(err))
+		http.Error(w, `{"success": false, "message": "公告不存在"}`, http.StatusNotFound)
+		return
+	}
+
+	logger.Info("找到要更新的公告", 
+		logger.Any("userId", uid),
+		logger.String("announcementId", announcementID),
+		logger.String("currentTitle", existingAnnouncement.Title))
+
+	// 更新公告
+	err = h.announcementRepo.UpdateAnnouncement(announcementID, req)
+	if err != nil {
+		logger.Error("更新公告失败：数据库操作错误", 
+			logger.Any("userId", uid),
+			logger.String("announcementId", announcementID),
+			logger.ErrorField(err))
+		http.Error(w, `{"success": false, "message": "更新公告失败"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// 获取更新后的公告
+	updatedAnnouncement, err := h.announcementRepo.GetAnnouncementByID(announcementID)
+	if err != nil {
+		logger.Error("获取更新后的公告失败", 
+			logger.Any("userId", uid),
+			logger.String("announcementId", announcementID),
+			logger.ErrorField(err))
+		http.Error(w, `{"success": false, "message": "获取更新后的公告失败"}`, http.StatusInternalServerError)
+		return
+	}
+
+	logger.Info("成功更新公告", 
+		logger.Any("userId", uid),
+		logger.String("announcementId", announcementID),
+		logger.String("newTitle", updatedAnnouncement.Title),
+		logger.String("newVersion", updatedAnnouncement.Version))
+
+	response := map[string]interface{}{
+		"success": true,
+		"data":    updatedAnnouncement.ToResponse(false),
+		"message": "更新公告成功",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 // DeleteAnnouncement 删除公告（管理员）
 func (h *AnnouncementHandler) DeleteAnnouncement(w http.ResponseWriter, r *http.Request) {
 	logger.Info("收到删除公告请求", 
@@ -542,9 +693,10 @@ func RegisterAnnouncementRoutes(router *mux.Router, handler *AnnouncementHandler
 	router.HandleFunc("/api/announcements/unread", authMiddleware(handler.GetUnreadAnnouncements)).Methods("GET")
 	router.HandleFunc("/api/announcements/{id}/read", authMiddleware(handler.MarkAsRead)).Methods("PUT")
 	router.HandleFunc("/api/announcements", authMiddleware(handler.CreateAnnouncement)).Methods("POST")
+	router.HandleFunc("/api/announcements/{id}", authMiddleware(handler.UpdateAnnouncement)).Methods("PUT")
 	router.HandleFunc("/api/announcements/{id}", authMiddleware(handler.DeleteAnnouncement)).Methods("DELETE")
 	router.HandleFunc("/api/announcements/stats", authMiddleware(handler.GetAnnouncementStats)).Methods("GET")
 	
 	logger.Info("公告路由注册完成", 
-		logger.String("routes", "GET,POST /api/announcements | GET /api/announcements/unread | PUT /api/announcements/{id}/read | DELETE /api/announcements/{id} | GET /api/announcements/stats"))
+		logger.String("routes", "GET,POST /api/announcements | GET /api/announcements/unread | PUT /api/announcements/{id}/read | PUT,DELETE /api/announcements/{id} | GET /api/announcements/stats"))
 }

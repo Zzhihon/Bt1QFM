@@ -121,5 +121,32 @@ export const announcementApi = {
     }
 
     return await parseResponse(response);
-  }
+  },
+
+  // 更新公告（管理员）
+  updateAnnouncement: async (id: string, data: CreateAnnouncementRequest): Promise<ApiResponse<Announcement>> => {
+    try {
+      const response = await fetch(`/api/announcements/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('更新公告失败:', error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : '更新公告失败',
+        data: null
+      };
+    }
+  },
 };

@@ -282,3 +282,21 @@ func (r *AnnouncementRepository) GetAnnouncementStats() (map[string]interface{},
 	
 	return stats, nil
 }
+
+// UpdateAnnouncement 更新公告
+func (r *AnnouncementRepository) UpdateAnnouncement(id string, req model.CreateAnnouncementRequest) error {
+	query := `UPDATE announcements 
+		SET title = ?, content = ?, version = ?, type = ?, updated_at = ?
+		WHERE id = ? AND is_active = 1`
+	
+	_, err := r.DB.Exec(query,
+		req.Title,
+		req.Content,
+		req.Version,
+		req.Type,
+		time.Now(),
+		id,
+	)
+	
+	return err
+}
