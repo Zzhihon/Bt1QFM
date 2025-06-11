@@ -205,7 +205,7 @@ const AnnouncementManageView: React.FC = () => {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-6 max-w-6xl mx-auto pb-32">
       {/* 统计信息卡片 */}
       {stats && (
         <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
