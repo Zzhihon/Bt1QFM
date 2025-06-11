@@ -8,6 +8,15 @@ import { usePlayer } from '../../contexts/PlayerContext';
 import Hls from 'hls.js';
 import debounce from 'lodash/debounce';
 
+// 获取后端 URL，提供默认值
+const getBackendUrl = () => {
+  // 从全局变量读取
+  if (typeof window !== 'undefined' && (window as any).__ENV__?.BACKEND_URL) {
+    return (window as any).__ENV__.BACKEND_URL;
+  }
+  return import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
+};
+
 // 添加netease歌曲详情接口
 interface NeteaseSongDetail {
   id: number;
@@ -86,7 +95,7 @@ const Player: React.FC = () => {
       processingDetailsRef.current.add(neteaseId);
       
       console.log(`Fetching song detail for Netease ID: ${neteaseId}`);
-      const response = await fetch(`/api/netease/song/detail?ids=${neteaseId}`);
+      const response = await fetch(`${getBackendUrl()}/api/netease/song/detail?ids=${neteaseId}`);
       const data = await response.json();
       
       console.log('Song detail API返回数据:', data);

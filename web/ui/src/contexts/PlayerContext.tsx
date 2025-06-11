@@ -190,7 +190,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setIsLoadingPlaylist(true);
     try {
       console.log('开始获取播放列表...');
-      const response = await fetch('/api/playlist', {
+      const response = await fetch(`${backendUrl}/api/playlist`, {
         headers: {
           ...(authToken && { 'Authorization': `Bearer ${authToken}` })
         }
@@ -801,7 +801,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         hlsPlaylistUrl: playlistTrack.hlsPlaylistUrl
       };
 
-      const response = await fetch('/api/playlist', {
+      const response = await fetch(`${backendUrl}/api/playlist`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -840,7 +840,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
              
              // 直接调用获取详情的API，绕过Player组件的useEffect
              try {
-                const detailResponse = await fetch(`/api/netease/song/detail?ids=${neteaseIdStr}`);
+                const detailResponse = await fetch(`${backendUrl}/api/netease/song/detail?ids=${neteaseIdStr}`);
                 const detailData = await detailResponse.json();
 
                 if(detailData.success && detailData.data) {
@@ -915,7 +915,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         return;
       }
       
-      const response = await fetch(`/api/playlist?${queryParam}=${idToRemove}`, {
+      const response = await fetch(`${backendUrl}/api/playlist?${queryParam}=${idToRemove}`, {
         method: 'DELETE',
         headers: {
           ...(authToken && { 'Authorization': `Bearer ${authToken}` })
@@ -964,7 +964,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (!currentUser) return;
     
     try {
-      const response = await fetch('/api/playlist?clear=true', {
+      const response = await fetch(`${backendUrl}/api/playlist?clear=true`, {
         method: 'DELETE',
         headers: {
           ...(authToken && { 'Authorization': `Bearer ${authToken}` })
@@ -993,7 +993,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     
     try {
       // 调用后端API打乱播放列表
-      const response = await fetch('/api/playlist?shuffle=true', {
+      const response = await fetch(`${backendUrl}/api/playlist?shuffle=true`, {
         method: 'PUT',
         headers: {
           ...(authToken && { 'Authorization': `Bearer ${authToken}` })
@@ -1032,7 +1032,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (!currentUser) return;
     
     try {
-      const response = await fetch('/api/playlist/all', {
+      const response = await fetch(`${backendUrl}/api/playlist/all`, {
         method: 'POST',
         headers: {
           ...(authToken && { 'Authorization': `Bearer ${authToken}` })

@@ -276,7 +276,7 @@ const Collections: React.FC = () => {
   };
 
   // 添加单首歌曲到播放列表
-  const handleAddSong = useCallback((song: NeteaseSong) => {
+  const handleAddSong = useCallback(async (song: NeteaseSong) => {
     // 处理歌曲名称，优先使用主标题
     const songTitle = song.mainTitle || song.name;
     const fullTitle = song.additionalTitle ? `${songTitle} ${song.additionalTitle}` : songTitle;
@@ -290,12 +290,18 @@ const Collections: React.FC = () => {
       coverArtPath: song.al?.picUrl || '',
       duration: Math.floor((song.dt || 0) / 1000),
       source: 'netease' as const,
-      hlsPlaylistPath: `/streams/netease/${song.id}/playlist.m3u8`,
-      url: `${getBackendUrl()}/streams/netease/${song.id}/playlist.m3u8`
+      hlsPlaylistUrl: `/streams/netease/${song.id}/playlist.m3u8`
     };
     
     console.log('添加歌曲到播放列表:', track);
-    addToPlaylist(track);
+    
+    try {
+      await addToPlaylist(track);
+      console.log('✅ 成功添加歌曲到播放列表:', track.title);
+    } catch (error) {
+      console.error('❌ 添加歌曲到播放列表失败:', error);
+      setError(`添加歌曲失败: ${track.title}`);
+    }
   }, [addToPlaylist]);
 
   // 检查音频流是否可用
@@ -336,25 +342,24 @@ const Collections: React.FC = () => {
       coverArtPath: song.al?.picUrl || '',
       duration: Math.floor((song.dt || 0) / 1000),
       source: 'netease' as const,
-      hlsPlaylistPath: `/streams/netease/${song.id}/playlist.m3u8`,
-      url: `${getBackendUrl()}/streams/netease/${song.id}/playlist.m3u8`
+      hlsPlaylistUrl: `/streams/netease/${song.id}/playlist.m3u8`
     };
     
     console.log('🎵 开始播放歌曲，启用重试机制:', {
       songId: song.id,
       title: track.title,
-      url: track.url
+      url: track.hlsPlaylistUrl
     });
     setRetryingTrack(song.id);
     
     try {
       // 使用重试机制检查音频流是否可用
       await retryWithDelay(async () => {
-        console.log(`🔄 重试检查音频流: ${track.url}`);
-        const isAvailable = await checkStreamAvailability(track.url);
+        console.log(`🔄 重试检查音频流: ${track.hlsPlaylistUrl}`);
+        const isAvailable = await checkStreamAvailability(track.hlsPlaylistUrl);
         if (!isAvailable) {
           console.log('🔄 音频流暂不可用，可能正在处理中，继续重试...');
-          throw new Error(`音频流不可用: ${track.url}`);
+          throw new Error(`音频流不可用: ${track.hlsPlaylistUrl}`);
         }
         return true;
       }, 20, 50); // 最多重试20次，每次间隔50ms
@@ -372,7 +377,7 @@ const Collections: React.FC = () => {
   }, [playTrack, checkStreamAvailability]);
 
   // 添加整个歌单到播放列表
-  const handleAddPlaylistToQueue = useCallback(() => {
+  const handleAddPlaylistToQueue = useCallback(async () => {
     if (!selectedPlaylist) return;
 
     const tracks = selectedPlaylist.playlist.tracks.map(song => {
@@ -389,13 +394,22 @@ const Collections: React.FC = () => {
         coverArtPath: song.al?.picUrl || '',
         duration: Math.floor((song.dt || 0) / 1000),
         source: 'netease' as const,
-        hlsPlaylistPath: `/streams/netease/${song.id}/playlist.m3u8`,
-        url: `${getBackendUrl()}/streams/netease/${song.id}/playlist.m3u8`
+        hlsPlaylistUrl: `/streams/netease/${song.id}/playlist.m3u8`
       };
     });
 
     console.log('添加整个歌单到播放列表，歌曲数量:', tracks.length);
-    tracks.forEach(track => addToPlaylist(track));
+    
+    try {
+      // 逐个添加歌曲，避免批量请求导致的问题
+      for (const track of tracks) {
+        await addToPlaylist(track);
+      }
+      console.log('✅ 成功添加整个歌单到播放列表');
+    } catch (error) {
+      console.error('❌ 添加歌单到播放列表失败:', error);
+      setError(`添加歌单失败: ${selectedPlaylist.playlist.name}`);
+    }
   }, [selectedPlaylist, addToPlaylist]);
 
   useEffect(() => {
