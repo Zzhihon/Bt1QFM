@@ -71,8 +71,8 @@ const ProfileView: React.FC = () => {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const backendUrl = getBackendUrl();
-      const response = await fetch(`${backendUrl}/api/user/profile`, {
+      // 直接请求统一的 API 路径，避免在正式环境下出现 " /1qfm/profile " 的错误端点
+      const response = await fetch('/api/user/profile', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -144,8 +144,8 @@ const ProfileView: React.FC = () => {
         return;
       }
 
-      const backendUrl = getBackendUrl();
-      const response = await fetch(`${backendUrl}/api/user/profile`, {
+      // 使用绝对 API 路径，确保生产环境不受 BASE 路径影响
+      const response = await fetch('/api/user/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -211,8 +211,8 @@ const ProfileView: React.FC = () => {
         return;
       }
 
-      const backendUrl = getBackendUrl();
-      const response = await fetch(`${backendUrl}/api/user/netease/update`, {
+      // 使用绝对 API 路径，避免构建后的基路径影响
+      const response = await fetch('/api/user/netease/update', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
