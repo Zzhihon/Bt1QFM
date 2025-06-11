@@ -75,6 +75,11 @@ const Player: React.FC = () => {
   const prevPlaylistLengthRef = useRef(playerState.playlist.length);
   const processingDetailsRef = useRef<Set<string>>(new Set());
 
+  // 添加进度条拖拽相关状态
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragProgress, setDragProgress] = useState(0);
+  const progressBarRef = useRef<HTMLDivElement>(null);
+
   // 获取歌曲详情的函数
   const fetchSongDetail = useCallback(async (neteaseId: string) => {
     // 检查是否正在处理中，避免重复请求
@@ -279,16 +284,122 @@ const Player: React.FC = () => {
     return currentId === trackId;
   };
   
-  // 处理时间轨道点击
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!audioRef.current) return;
+  // 处理进度条拖拽开始
+  const handleProgressMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
     
-    const rect = e.currentTarget.getBoundingClientRect();
+    if (progressBarRef.current) {
+      const rect = progressBarRef.current.getBoundingClientRect();
+      const percent = Math.min(Math.max(0, e.clientX - rect.left), rect.width) / rect.width;
+      setDragProgress(percent);
+      
+      // 立即更新播放位置预览
+      const time = percent * playerState.duration;
+      if (audioRef.current && !isNaN(time)) {
+        audioRef.current.currentTime = time;
+      }
+    }
+  }, [playerState.duration]);
+
+  // 处理进度条拖拽移动
+  const handleProgressMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging || !progressBarRef.current) return;
+    
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const percent = Math.min(Math.max(0, e.clientX - rect.left), rect.width) / rect.width;
+    setDragProgress(percent);
+    
+    // 实时更新播放位置
+    const time = percent * playerState.duration;
+    if (audioRef.current && !isNaN(time)) {
+      seekTo(time);
+    }
+  }, [isDragging, playerState.duration, seekTo]);
+
+  // 处理进度条拖拽结束
+  const handleProgressMouseUp = useCallback(() => {
+    if (!isDragging) return;
+    
+    setIsDragging(false);
+    // dragProgress 在拖拽过程中已经实时更新了播放位置，这里不需要额外操作
+  }, [isDragging]);
+
+  // 处理触摸事件
+  const handleProgressTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+    
+    if (progressBarRef.current) {
+      const rect = progressBarRef.current.getBoundingClientRect();
+      const touch = e.touches[0];
+      const percent = Math.min(Math.max(0, touch.clientX - rect.left), rect.width) / rect.width;
+      setDragProgress(percent);
+      
+      const time = percent * playerState.duration;
+      if (audioRef.current && !isNaN(time)) {
+        audioRef.current.currentTime = time;
+      }
+    }
+  }, [playerState.duration]);
+
+  const handleProgressTouchMove = useCallback((e: TouchEvent) => {
+    if (!isDragging || !progressBarRef.current) return;
+    
+    e.preventDefault();
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const touch = e.touches[0];
+    const percent = Math.min(Math.max(0, touch.clientX - rect.left), rect.width) / rect.width;
+    setDragProgress(percent);
+    
+    const time = percent * playerState.duration;
+    if (audioRef.current && !isNaN(time)) {
+      seekTo(time);
+    }
+  }, [isDragging, playerState.duration, seekTo]);
+
+  const handleProgressTouchEnd = useCallback(() => {
+    if (!isDragging) return;
+    setIsDragging(false);
+  }, [isDragging]);
+
+  // 添加全局鼠标和触摸事件监听
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleProgressMouseMove);
+      document.addEventListener('mouseup', handleProgressMouseUp);
+      document.addEventListener('touchmove', handleProgressTouchMove, { passive: false });
+      document.addEventListener('touchend', handleProgressTouchEnd);
+      
+      return () => {
+        document.removeEventListener('mousemove', handleProgressMouseMove);
+        document.removeEventListener('mouseup', handleProgressMouseUp);
+        document.removeEventListener('touchmove', handleProgressTouchMove);
+        document.removeEventListener('touchend', handleProgressTouchEnd);
+      };
+    }
+  }, [isDragging, handleProgressMouseMove, handleProgressMouseUp, handleProgressTouchMove, handleProgressTouchEnd]);
+
+  // 处理时间轨道点击（保持向下兼容）
+  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isDragging) return; // 拖拽时不处理点击
+    
+    if (!progressBarRef.current) return;
+    
+    const rect = progressBarRef.current.getBoundingClientRect();
     const percent = Math.min(Math.max(0, e.clientX - rect.left), rect.width) / rect.width;
     const time = percent * playerState.duration;
     seekTo(time);
   };
-  
+
+  // 获取当前进度百分比
+  const getCurrentProgress = () => {
+    if (isDragging) {
+      return dragProgress * 100;
+    }
+    return playerState.duration ? (playerState.currentTime / playerState.duration) * 100 : 0;
+  };
+
   // 格式化时间
   const formatTime = (seconds: number) => {
     if (isNaN(seconds)) return '0:00';
@@ -334,19 +445,36 @@ const Player: React.FC = () => {
         {/* 移动端进度条 - 独立行 */}
         <div className="block md:hidden px-4 pt-3">
           <div 
-            className="w-full h-2 bg-cyber-bg rounded-full cursor-pointer relative overflow-hidden"
+            ref={progressBarRef}
+            className="w-full h-3 bg-cyber-bg rounded-full cursor-pointer relative overflow-hidden group"
+            onMouseDown={handleProgressMouseDown}
+            onTouchStart={handleProgressTouchStart}
             onClick={handleProgressClick}
           >
+            {/* 背景轨道 */}
+            <div className="absolute inset-0 bg-cyber-bg rounded-full"></div>
+            
+            {/* 进度填充 */}
             <div 
-              className="h-full bg-gradient-to-r from-cyber-primary to-cyber-secondary rounded-full relative"
-              style={{ width: `${playerState.duration ? (playerState.currentTime / playerState.duration) * 100 : 0}%` }}
+              className="h-full bg-gradient-to-r from-cyber-primary to-cyber-secondary rounded-full relative transition-all duration-150 ease-out"
+              style={{ width: `${getCurrentProgress()}%` }}
             >
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-cyber-primary rounded-full shadow-lg shadow-cyber-primary/50"></div>
+              {/* 拖拽手柄 */}
+              <div 
+                className={`absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-cyber-primary rounded-full shadow-lg shadow-cyber-primary/50 transition-all duration-200 ${
+                  isDragging ? 'scale-125' : 'scale-100 group-hover:scale-110'
+                }`}
+              ></div>
             </div>
+            
+            {/* 缓冲指示器（可选） */}
+            <div className="absolute top-0 left-0 h-full bg-cyber-secondary/30 rounded-full pointer-events-none"
+                 style={{ width: '0%' }}></div>
           </div>
+          
           {/* 移动端时间显示 */}
           <div className="flex justify-between text-xs text-cyber-secondary mt-1">
-            <span>{formatTime(playerState.currentTime)}</span>
+            <span>{formatTime(isDragging ? dragProgress * playerState.duration : playerState.currentTime)}</span>
             <span>{formatTime(playerState.duration)}</span>
           </div>
         </div>
@@ -355,15 +483,41 @@ const Player: React.FC = () => {
           {/* 桌面端进度条 */}
           <div className="hidden md:block">
             <div 
-              className="w-full h-1.5 bg-cyber-bg rounded-full mb-2.5 cursor-pointer relative overflow-hidden"
+              ref={progressBarRef}
+              className="w-full h-2 bg-cyber-bg rounded-full mb-2.5 cursor-pointer relative overflow-hidden group"
+              onMouseDown={handleProgressMouseDown}
+              onTouchStart={handleProgressTouchStart}
               onClick={handleProgressClick}
             >
+              {/* 背景轨道 */}
+              <div className="absolute inset-0 bg-cyber-bg rounded-full"></div>
+              
+              {/* 进度填充 */}
               <div 
-                className="h-full bg-gradient-to-r from-cyber-primary to-cyber-secondary rounded-full relative"
-                style={{ width: `${playerState.duration ? (playerState.currentTime / playerState.duration) * 100 : 0}%` }}
+                className="h-full bg-gradient-to-r from-cyber-primary to-cyber-secondary rounded-full relative transition-all duration-150 ease-out"
+                style={{ width: `${getCurrentProgress()}%` }}
               >
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 bg-cyber-primary rounded-full shadow-lg shadow-cyber-primary/50"></div>
+                {/* 拖拽手柄 */}
+                <div 
+                  className={`absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-cyber-primary rounded-full shadow-lg shadow-cyber-primary/50 transition-all duration-200 ${
+                    isDragging ? 'scale-125' : 'scale-100 group-hover:scale-110'
+                  }`}
+                ></div>
               </div>
+              
+              {/* 缓冲指示器（可选） */}
+              <div className="absolute top-0 left-0 h-full bg-cyber-secondary/30 rounded-full pointer-events-none"
+                   style={{ width: '0%' }}></div>
+              
+              {/* 时间提示框（拖拽时显示） */}
+              {isDragging && (
+                <div 
+                  className="absolute -top-10 bg-cyber-bg-darker border border-cyber-primary rounded px-2 py-1 text-xs text-cyber-text pointer-events-none transform -translate-x-1/2 z-10"
+                  style={{ left: `${getCurrentProgress()}%` }}
+                >
+                  {formatTime(dragProgress * playerState.duration)}
+                </div>
+              )}
             </div>
           </div>
           
@@ -432,7 +586,7 @@ const Player: React.FC = () => {
             <div className="flex items-center justify-end space-x-2 md:space-x-3 flex-1 min-w-0">
               {/* 桌面端时间显示 */}
               <div className="text-xs text-cyber-secondary hidden lg:block">
-                {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
+                {formatTime(isDragging ? dragProgress * playerState.duration : playerState.currentTime)} / {formatTime(playerState.duration)}
               </div>
               
               {/* 音量控制 - 移动端隐藏滑块 */}

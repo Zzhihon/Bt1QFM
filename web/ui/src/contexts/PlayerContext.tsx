@@ -706,13 +706,20 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     });
   };
   
-  // 调整进度
-  const seekTo = (time: number) => {
+  // 调整进度 - 优化拖拽体验
+  const seekTo = useCallback((time: number) => {
     if (!audioRef.current) return;
     
-    audioRef.current.currentTime = time;
-    setPlayerState(prev => ({ ...prev, currentTime: time }));
-  };
+    // 确保时间在有效范围内
+    const clampedTime = Math.max(0, Math.min(time, playerState.duration || 0));
+    
+    try {
+      audioRef.current.currentTime = clampedTime;
+      setPlayerState(prev => ({ ...prev, currentTime: clampedTime }));
+    } catch (error) {
+      console.error('Seek failed:', error);
+    }
+  }, [playerState.duration]);
   
   // 更新播放列表中的特定歌曲的信息
   const updatePlaylistTrackInfo = useCallback((trackId: string | number, trackInfo: Partial<Track>) => {
