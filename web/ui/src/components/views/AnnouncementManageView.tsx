@@ -207,7 +207,7 @@ const AnnouncementManageView: React.FC = () => {
       </div>
 
       <div className="space-y-4">
-        {announcements.length === 0 ? (
+        {(announcements?.length || 0) === 0 ? (
           <div className="text-center py-16">
             <div className="text-cyber-secondary mb-4">暂无公告</div>
             <button
@@ -218,7 +218,7 @@ const AnnouncementManageView: React.FC = () => {
             </button>
           </div>
         ) : (
-          announcements.map(announcement => (
+          (announcements || []).map(announcement => (
             <div key={announcement.id} className="bg-cyber-bg border-2 border-cyber-primary/30 rounded-lg overflow-hidden hover:border-cyber-primary/50 transition-colors">
               <div className="p-4 bg-cyber-primary/5 border-b border-cyber-primary/30 flex justify-between items-center">
                 <h3 className="text-lg font-semibold text-cyber-text">{announcement.title}</h3>
