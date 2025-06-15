@@ -27,11 +27,11 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  // 尺寸配置 - 优化封面和标签比例，让封面更大
+  // 尺寸配置 - 简化为只有黑胶外圈和封面
   const sizeConfig = {
-    sm: { vinyl: 'w-32 h-32', cover: 'w-16 h-16', label: 'w-24 h-24' },
-    md: { vinyl: 'w-48 h-48', cover: 'w-28 h-28', label: 'w-36 h-36' },
-    lg: { vinyl: 'w-72 h-72', cover: 'w-44 h-44', label: 'w-56 h-56' }
+    sm: { vinyl: 'w-32 h-32', cover: 'w-20 h-20' },
+    md: { vinyl: 'w-48 h-48', cover: 'w-32 h-32' },
+    lg: { vinyl: 'w-72 h-72', cover: 'w-48 h-48' }
   };
 
   const currentSize = sizeConfig[size];
@@ -83,7 +83,7 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
       className={`relative group cursor-pointer ${className}`}
       onClick={onClick}
       style={{
-        filter: 'drop-shadow(0 25px 50px rgba(0, 0, 0, 0.4))',
+        filter: 'drop-shadow(0 25px 50px rgba(33, 1, 32, 0.4))',
       }}
     >
       {/* 黑胶唱片外圈 */}
@@ -125,37 +125,16 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
           ))}
         </div>
 
-        {/* 中心标签区域 - 缩小以让封面更大 */}
-        <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 ${currentSize.label} rounded-full bg-gradient-to-br from-red-900 via-red-800 to-red-700 shadow-2xl border-2 border-yellow-400/60`}>
-          {/* 标签纹理 */}
-          <div className="absolute inset-0 rounded-full bg-gradient-to-br from-transparent via-red-600/20 to-transparent"></div>
-          
-          {/* 增强的反光效果 */}
-          <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-yellow-300/10 via-transparent to-transparent"></div>
-          
-          {/* 中心孔 */}
-          <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 ${size === 'lg' ? 'w-5 h-5' : size === 'md' ? 'w-4 h-4' : 'w-3 h-3'} bg-black rounded-full shadow-inner border border-gray-800`}></div>
-          
-          {/* 歌曲信息 - 只在小尺寸时显示 */}
-          {size !== 'lg' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-2">
-              <div className="text-yellow-100 font-bold text-xs mb-1 truncate w-full">
-                {title}
-              </div>
-              <div className="text-yellow-200/80 text-xs truncate w-full">
-                {artist}
-              </div>
-            </div>
-          )}
-        </div>
+        {/* 中心孔 - 直接在黑胶上 */}
+        <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 ${size === 'lg' ? 'w-6 h-6' : size === 'md' ? 'w-5 h-5' : 'w-4 h-4'} bg-black rounded-full shadow-inner border border-gray-800`}></div>
 
-        {/* 封面图片 - 增大尺寸 */}
+        {/* 封面图片 - 增大尺寸，直接贴在黑胶上 */}
         <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 ${currentSize.cover} rounded-full overflow-hidden`}
              style={{
                boxShadow: `
-                 0 0 20px rgba(0, 0, 0, 0.8),
-                 inset 0 0 20px rgba(0, 0, 0, 0.3),
-                 0 0 0 2px rgba(255, 255, 255, 0.05)
+                 0 0 25px rgba(0, 0, 0, 0.9),
+                 inset 0 0 15px rgba(0, 0, 0, 0.4),
+                 0 0 0 3px rgba(255, 255, 255, 0.08)
                `}}>
           {coverUrl && !imageError ? (
             <img
@@ -178,14 +157,14 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
           )}
           
           {/* 封面上的光泽效果 */}
-          <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-white/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+          <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-white/15 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
         </div>
 
         {/* 增强的光泽效果 */}
         <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-white/5 via-transparent to-transparent opacity-70 group-hover:opacity-90 transition-opacity duration-500"></div>
         
-        {/* 旋转时的额外光效 */}
-        <div className={`absolute inset-0 rounded-full transition-opacity duration-500 ${isPlaying ? 'opacity-30' : 'opacity-0'}`}
+      {/* 旋转时的额外光效 */}
+      <div className={`absolute inset-0 rounded-full transition-opacity duration-500 ${isPlaying ? 'opacity-30' : 'opacity-0'}`}
              style={{
                background: `conic-gradient(from 0deg, transparent, rgba(255,255,255,0.1), transparent, rgba(255,255,255,0.05), transparent)`
              }}></div>
