@@ -15,6 +15,7 @@ import {
 import { usePlayer } from '../../contexts/PlayerContext';
 import { useToast } from '../../contexts/ToastContext';
 import { LyricResponse, ParsedLyricLine, ParsedWord, LyricMetadata } from '../../types';
+import VinylRecord from '../ui/VinylRecord';
 
 // 获取后端 URL
 const getBackendUrl = () => {
@@ -579,7 +580,7 @@ const LyricView: React.FC = () => {
               </button>
               
               <div className="flex items-center space-x-3">
-                {/* 显示歌曲封面 - 优先从localStorage获取 */}
+                {/* 恢复原有的封面显示 */}
                 {(isCurrentSong && localPlayerState?.currentTrack?.coverArtPath) || playerState.currentTrack?.coverArtPath ? (
                   <img
                     src={(isCurrentSong && localPlayerState?.currentTrack?.coverArtPath) || playerState.currentTrack?.coverArtPath}
@@ -731,91 +732,157 @@ const LyricView: React.FC = () => {
         </div>
       )}
 
-      {/* 歌词内容 */}
-      <div className="max-w-4xl mx-auto px-4 py-8 pb-32">
-        {parsedLyrics.length === 0 ? (
-          <div className="text-center py-16">
-            <Music2 className="h-16 w-16 text-cyber-secondary mx-auto mb-4" />
-            <p className="text-cyber-secondary">暂无歌词</p>
-          </div>
-        ) : (
-          <div
-            ref={lyricContainerRef}
-            className="space-y-6 max-h-[calc(100vh-200px)] overflow-y-auto"
-            style={{ fontSize: `${fontSize}px` }}
-          >
-            {parsedLyrics.map((line, index) => {
-              const isActive = index === currentLineIndex && isCurrentSong;
-              const showTranslation = lyricMode === 'translation' && line.translation;
+      {/* 歌词内容区域 - 侧面布局 */}
+      <div className="max-w-6xl mx-auto px-4 py-8 pb-32">
+        <div className="flex gap-8">
+          {/* 左侧：黑胶唱片 */}
+          <div className="flex-shrink-0 w-80">
+            <div className="sticky top-32">
+              <VinylRecord
+                coverUrl={(isCurrentSong && localPlayerState?.currentTrack?.coverArtPath) || playerState.currentTrack?.coverArtPath}
+                title={metadata.title || '未知歌曲'}
+                artist={metadata.artist || '未知艺术家'}
+                isPlaying={isCurrentSong && (localPlayerState?.isPlaying || playerState.isPlaying)}
+                size="lg"
+                className="shadow-2xl"
+                onClick={() => {
+                  if (isCurrentSong) {
+                    addToast({
+                      type: 'info',
+                      message: '♪ 享受音乐与歌词的完美结合',
+                      duration: 2000,
+                    });
+                  } else {
+                    addToast({
+                      type: 'info',
+                      message: '请先播放此歌曲以启用歌词同步',
+                      duration: 3000,
+                    });
+                  }
+                }}
+              />
               
-              return (
-                <div
-                  key={index}
-                  ref={isActive ? currentLineRef : undefined}
-                  className={`transition-all duration-300 cursor-pointer px-4 py-3 rounded-lg ${
-                    isActive
-                      ? 'bg-cyber-primary/10 border-l-4 border-cyber-primary transform scale-105'
-                      : 'hover:bg-cyber-bg-darker/50'
-                  }`}
-                  onClick={() => handleLineClick(line)}
-                >
-                  <div
-                    className={`leading-relaxed transition-all duration-200 ${
-                      isActive
-                        ? 'text-cyber-primary font-medium'
-                        : 'text-cyber-text hover:text-cyber-primary'
-                    }`}
-                  >
-                    {lyricMode === 'translation' && line.translation ? (
-                      line.translation
-                    ) : (
-                      renderWordByWord(line, isActive)
-                    )}
-                  </div>
-                  
-                  {/* 显示翻译（非翻译模式下） */}
-                  {lyricMode !== 'translation' && line.translation && (
-                    <div className="text-sm text-cyber-secondary/70 mt-2 italic">
-                      {line.translation}
+              {/* 歌曲信息卡片 */}
+              <div className="mt-6 p-4 bg-cyber-bg-darker/50 rounded-xl backdrop-blur-sm border border-cyber-secondary/20">
+                <h2 className="text-xl font-bold text-cyber-primary mb-2 truncate">
+                  {metadata.title || '未知歌曲'}
+                </h2>
+                <p className="text-cyber-secondary mb-1 truncate">
+                  {metadata.artist || '未知艺术家'}
+                </p>
+                {metadata.album && (
+                  <p className="text-sm text-cyber-secondary/70 truncate">
+                    专辑：{metadata.album}
+                  </p>
+                )}
+                
+                {/* 播放状态 */}
+                <div className="flex items-center mt-4 pt-3 border-t border-cyber-secondary/20">
+                  {isCurrentSong ? (
+                    <div className="flex items-center space-x-2">
+                      <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                      <span className="text-sm text-green-500 font-medium">
+                        {(localPlayerState?.isPlaying || playerState.isPlaying) ? '正在播放' : '已暂停'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center space-x-2">
+                      <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
+                      <span className="text-sm text-gray-500">静态歌词</span>
                     </div>
                   )}
                 </div>
-              );
-            })}
-          </div>
-        )}
-        
-        {/* 贡献者信息 */}
-        {metadata.contributors && (
-          <div className="mt-12 pt-8 border-t border-cyber-secondary/30">
-            <h3 className="text-lg font-semibold text-cyber-primary mb-4">贡献者</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {metadata.contributors.lyricUser && (
-                <div className="flex items-center space-x-3 p-3 bg-cyber-bg-darker rounded-lg">
-                  <User className="h-5 w-5 text-cyber-secondary" />
-                  <div>
-                    <p className="text-cyber-primary font-medium">
-                      {metadata.contributors.lyricUser.nickname}
-                    </p>
-                    <p className="text-xs text-cyber-secondary">歌词贡献者</p>
-                  </div>
-                </div>
-              )}
-              
-              {metadata.contributors.transUser && (
-                <div className="flex items-center space-x-3 p-3 bg-cyber-bg-darker rounded-lg">
-                  <Globe className="h-5 w-5 text-cyber-secondary" />
-                  <div>
-                    <p className="text-cyber-primary font-medium">
-                      {metadata.contributors.transUser.nickname}
-                    </p>
-                    <p className="text-xs text-cyber-secondary">翻译贡献者</p>
-                  </div>
-                </div>
-              )}
+              </div>
             </div>
           </div>
-        )}
+
+          {/* 右侧：歌词内容 */}
+          <div className="flex-1 min-w-0">
+            {parsedLyrics.length === 0 ? (
+              <div className="text-center py-16">
+                <Music2 className="h-16 w-16 text-cyber-secondary mx-auto mb-4" />
+                <p className="text-cyber-secondary">暂无歌词</p>
+              </div>
+            ) : (
+              <div
+                ref={lyricContainerRef}
+                className="space-y-6"
+                style={{ fontSize: `${fontSize}px` }}
+              >
+                {parsedLyrics.map((line, index) => {
+                  const isActive = index === currentLineIndex && isCurrentSong;
+                  const showTranslation = lyricMode === 'translation' && line.translation;
+                  
+                  return (
+                    <div
+                      key={index}
+                      ref={isActive ? currentLineRef : undefined}
+                      className={`transition-all duration-300 cursor-pointer px-6 py-4 rounded-xl ${
+                        isActive
+                          ? 'bg-cyber-primary/10 border-l-4 border-cyber-primary transform scale-105 shadow-lg'
+                          : 'hover:bg-cyber-bg-darker/50'
+                      }`}
+                      onClick={() => handleLineClick(line)}
+                    >
+                      <div
+                        className={`leading-relaxed transition-all duration-200 ${
+                          isActive
+                            ? 'text-cyber-primary font-medium'
+                            : 'text-cyber-text hover:text-cyber-primary'
+                        }`}
+                      >
+                        {lyricMode === 'translation' && line.translation ? (
+                          line.translation
+                        ) : (
+                          renderWordByWord(line, isActive)
+                        )}
+                      </div>
+                      
+                      {/* 显示翻译（非翻译模式下） */}
+                      {lyricMode !== 'translation' && line.translation && (
+                        <div className="text-sm text-cyber-secondary/70 mt-2 italic">
+                          {line.translation}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            
+            {/* 贡献者信息 */}
+            {metadata.contributors && (
+              <div className="mt-12 pt-8 border-t border-cyber-secondary/30">
+                <h3 className="text-lg font-semibold text-cyber-primary mb-4">贡献者</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {metadata.contributors.lyricUser && (
+                    <div className="flex items-center space-x-3 p-3 bg-cyber-bg-darker rounded-lg">
+                      <User className="h-5 w-5 text-cyber-secondary" />
+                      <div>
+                        <p className="text-cyber-primary font-medium">
+                          {metadata.contributors.lyricUser.nickname}
+                        </p>
+                        <p className="text-xs text-cyber-secondary">歌词贡献者</p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {metadata.contributors.transUser && (
+                    <div className="flex items-center space-x-3 p-3 bg-cyber-bg-darker rounded-lg">
+                      <Globe className="h-5 w-5 text-cyber-secondary" />
+                      <div>
+                        <p className="text-cyber-primary font-medium">
+                          {metadata.contributors.transUser.nickname}
+                        </p>
+                        <p className="text-xs text-cyber-secondary">翻译贡献者</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

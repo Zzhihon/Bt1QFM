@@ -21,10 +21,12 @@ __metadata:
     eslint-plugin-react-hooks: "npm:^4.6.0"
     eslint-plugin-react-refresh: "npm:^0.4.6"
     file-type: "npm:^20.5.0"
+    gsap: "npm:^3.12.2"
     hls.js: "npm:^1.5.8"
     id3-parser: "npm:^3.0.0"
     jsmediatags: "npm:^3.9.7"
     lodash: "npm:^4.17.21"
+    lottie-react: "npm:^2.4.0"
     lucide-react: "npm:^0.395.0"
     music-metadata-browser: "npm:^2.5.11"
     postcss: "npm:^8.4.38"
@@ -1987,6 +1989,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"gsap@npm:^3.12.2":
+  version: 3.13.0
+  resolution: "gsap@npm:3.13.0"
+  checksum: 10c0/a42dd2e02467a4abe96409aaf6cd0e5d697c72e05ec13c18c2271330493983aa63cc717c9dd0740fda2f884d0f56c7b98fc18b13500f0c1da94864985840da7c
+  languageName: node
+  linkType: hard
+
 "has-flag@npm:^4.0.0":
   version: 4.0.0
   resolution: "has-flag@npm:4.0.0"
@@ -2339,6 +2348,25 @@ __metadata:
   bin:
     loose-envify: cli.js
   checksum: 10c0/655d110220983c1a4b9c0c679a2e8016d4b67f6e9c7b5435ff5979ecdb20d0813f4dec0a08674fcbdd4846a3f07edbb50a36811fd37930b94aaa0d9daceb017e
+  languageName: node
+  linkType: hard
+
+"lottie-react@npm:^2.4.0":
+  version: 2.4.1
+  resolution: "lottie-react@npm:2.4.1"
+  dependencies:
+    lottie-web: "npm:^5.10.2"
+  peerDependencies:
+    react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+    react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+  checksum: 10c0/7f6a0a2cf2af25deabe7b4d4c9917e47d12016673613c59dcdd8ef52e10e914dd0c1f71d4a275d56aaba03fe9d85b333087f7c8d40a8f967ece4a0444c7a3cdf
+  languageName: node
+  linkType: hard
+
+"lottie-web@npm:^5.10.2":
+  version: 5.13.0
+  resolution: "lottie-web@npm:5.13.0"
+  checksum: 10c0/b463ad462169df3f7e04b7f3716274e269842554f1d72b8303ca7245628f2512982a59ae31698b3d57fbcda886228ae160fcb2aa518c6cecd8a95974db2458ee
   languageName: node
   linkType: hard
 
