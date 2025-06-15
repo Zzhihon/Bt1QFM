@@ -37,7 +37,7 @@ const LyricView: React.FC = () => {
   const [currentWordIndex, setCurrentWordIndex] = useState(-1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [lyricMode, setLyricMode] = useState<'yrc' | 'lrc' | 'translation'>('yrc');
+  const [lyricMode, setLyricMode] = useState<'yrc' | 'lrc' | 'translation'>('lrc');
   const [fontSize, setFontSize] = useState(18);
   const [showSettings, setShowSettings] = useState(false);
   
@@ -336,15 +336,30 @@ const LyricView: React.FC = () => {
     
     const currentTime = timeToUse * 1000; // 转换为毫秒
     
-    // 查找当前行
+    // 查找当前行 - 优化算法减少延迟
     let lineIndex = -1;
     let wordIndex = -1;
     
+    // 提前量：提前500毫秒高亮下一行
+    const HIGHLIGHT_ADVANCE = 300;
+    const adjustedTime = currentTime + HIGHLIGHT_ADVANCE;
+    
     for (let i = 0; i < parsedLyrics.length; i++) {
       const line = parsedLyrics[i];
-      const lineEndTime = line.time + line.duration;
+      const nextLine = parsedLyrics[i + 1];
       
-      if (currentTime >= line.time && currentTime < lineEndTime) {
+      // 计算当前行的结束时间
+      let lineEndTime;
+      if (nextLine) {
+        // 如果有下一行，当前行持续到下一行开始前
+        lineEndTime = nextLine.time;
+      } else {
+        // 如果是最后一行，使用默认持续时间
+        lineEndTime = line.time + line.duration;
+      }
+      
+      // 检查当前时间是否在这一行的范围内
+      if (adjustedTime >= line.time && adjustedTime < lineEndTime) {
         lineIndex = i;
         
         // 如果有逐字信息且处于逐字模式，查找当前字
@@ -376,16 +391,49 @@ const LyricView: React.FC = () => {
       }
     }
     
+    // 如果没有找到匹配的行，尝试找最接近的行（向前查找）
+    if (lineIndex === -1) {
+      for (let i = parsedLyrics.length - 1; i >= 0; i--) {
+        const line = parsedLyrics[i];
+        if (adjustedTime >= line.time) {
+          lineIndex = i;
+          break;
+        }
+      }
+    }
+    
     setCurrentLineIndex(lineIndex);
     setCurrentWordIndex(wordIndex);
   }, [currentTime, parsedLyrics, lyricMode, isCurrentSong, localPlayerState, playerState.currentTime]);
 
-  // 监听播放器状态变化
+  // 监听播放器状态变化 - 增加更频繁的时间更新
   useEffect(() => {
     if (localPlayerState) {
       setCurrentTime(localPlayerState.currentTime || 0);
     }
   }, [localPlayerState]);
+
+  // 增加一个更频繁的时间更新机制
+  useEffect(() => {
+    if (!isCurrentSong) return;
+    
+    const updateInterval = setInterval(() => {
+      // 从localStorage重新读取最新的播放时间
+      try {
+        const savedState = localStorage.getItem('playerState');
+        if (savedState) {
+          const parsedState = JSON.parse(savedState);
+          if (parsedState.currentTime !== undefined) {
+            setCurrentTime(parsedState.currentTime);
+          }
+        }
+      } catch (error) {
+        console.warn('更新播放时间失败:', error);
+      }
+    }, 100); // 每100毫秒更新一次时间，提高响应速度
+    
+    return () => clearInterval(updateInterval);
+  }, [isCurrentSong]);
 
   // 自动滚动到当前行
   useEffect(() => {
@@ -422,46 +470,8 @@ const LyricView: React.FC = () => {
 
   // 渲染逐字歌词
   const renderWordByWord = (line: ParsedLyricLine, isActive: boolean) => {
-    if (!line.words || lyricMode !== 'yrc' || line.words.length === 0) {
-      return <span className={isActive ? 'text-cyber-primary' : 'text-cyber-text'}>{line.text}</span>;
-    }
-    
-    return (
-      <span>
-        {line.words.map((word, index) => {
-          let wordClass = 'transition-all duration-200 ';
-          
-          if (isActive) {
-            if (index === currentWordIndex) {
-              // 当前正在唱的字：高亮显示
-              wordClass += 'text-cyber-primary bg-cyber-primary/20 rounded-sm px-0.5 scale-110 font-bold shadow-lg shadow-cyber-primary/30';
-            } else if (index < currentWordIndex) {
-              // 已经唱过的字：保持高亮但稍微暗一些
-              wordClass += 'text-cyber-primary opacity-80';
-            } else {
-              // 还没唱到的字：正常显示
-              wordClass += 'text-cyber-text opacity-60';
-            }
-          } else {
-            // 非当前行：正常显示
-            wordClass += 'text-cyber-text';
-          }
-          
-          return (
-            <span
-              key={index}
-              className={wordClass}
-              style={{
-                display: 'inline-block',
-                transformOrigin: 'center',
-              }}
-            >
-              {word.text}
-            </span>
-          );
-        })}
-      </span>
-    );
+    // 优先显示逐行歌词，简化渲染逻辑
+    return <span className={isActive ? 'text-cyber-primary' : 'text-cyber-text'}>{line.text}</span>;
   };
 
   // 获取歌词
@@ -615,16 +625,18 @@ const LyricView: React.FC = () => {
             <div className="flex items-center space-x-2">
               {/* 歌词模式切换 */}
               <div className="flex bg-cyber-bg rounded-lg p-1">
+                {/* 暂时隐藏逐字歌词按钮
                 <button
                   onClick={() => setLyricMode('yrc')}
                   className={`px-3 py-1 text-xs rounded transition-colors ${
                     lyricMode === 'yrc' 
                       ? 'bg-cyber-primary text-cyber-bg-darker' 
                       : 'text-cyber-secondary hover:text-cyber-primary'
-                  }`}
+                  }`
                 >
                   逐字
                 </button>
+                */}
                 <button
                   onClick={() => setLyricMode('lrc')}
                   className={`px-3 py-1 text-xs rounded transition-colors ${
@@ -633,7 +645,7 @@ const LyricView: React.FC = () => {
                       : 'text-cyber-secondary hover:text-cyber-primary'
                   }`}
                 >
-                  普通
+                  歌词
                 </button>
                 <button
                   onClick={() => setLyricMode('translation')}
