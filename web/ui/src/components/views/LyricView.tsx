@@ -45,6 +45,11 @@ const LyricView: React.FC = () => {
   const [localPlayerState, setLocalPlayerState] = useState<any>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [isCurrentSong, setIsCurrentSong] = useState(false);
+  const [currentSongId, setCurrentSongId] = useState<string | null>(null);
+  
+  // 新增：追踪已加载的歌词ID，避免重复加载
+  const [loadedSongId, setLoadedSongId] = useState<string | null>(null);
+  const [isLyricLoaded, setIsLyricLoaded] = useState(false);
   
   const lyricContainerRef = useRef<HTMLDivElement>(null);
   const currentLineRef = useRef<HTMLDivElement>(null);
@@ -59,14 +64,19 @@ const LyricView: React.FC = () => {
         
         // 检查当前歌词页面的歌曲是否是正在播放的歌曲
         const currentTrack = parsedState.currentTrack;
-        if (currentTrack && currentTrack.neteaseId && id) {
-          const isPlaying = currentTrack.neteaseId.toString() === id;
+        if (currentTrack && currentTrack.neteaseId) {
+          const playingSongId = currentTrack.neteaseId.toString();
+          const isPlaying = playingSongId === id;
+          
           setIsCurrentSong(isPlaying);
+          setCurrentSongId(playingSongId);
           
           if (isPlaying) {
             setCurrentTime(parsedState.currentTime || 0);
-            console.log('🎵 检测到当前歌词页面正在播放，同步播放时间:', parsedState.currentTime);
           }
+        } else {
+          setCurrentSongId(null);
+          setIsCurrentSong(false);
         }
       }
     } catch (error) {
@@ -74,46 +84,30 @@ const LyricView: React.FC = () => {
     }
   }, [id]);
 
-  // 监听localStorage变化
-  useEffect(() => {
-    // 初始加载
-    loadPlayerStateFromStorage();
+  // 获取歌词数据 - 支持动态歌曲ID，但避免重复加载
+  const fetchLyricData = useCallback(async (songId?: string, forceReload = false) => {
+    const targetSongId = songId || id;
+    if (!targetSongId) return;
     
-    // 监听localStorage变化事件
-    const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'playerState') {
-        loadPlayerStateFromStorage();
-      }
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    
-    // 定期检查播放器状态（兜底机制，因为同一页面的localStorage变化不会触发storage事件）
-    const interval = setInterval(loadPlayerStateFromStorage, 1000);
-    
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
-    };
-  }, [loadPlayerStateFromStorage]);
-
-  // 获取歌词数据
-  const fetchLyricData = useCallback(async () => {
-    if (!id) return;
+    // 如果歌词已经加载过且不是强制重新加载，则跳过
+    if (!forceReload && loadedSongId === targetSongId && isLyricLoaded) {
+      console.log('🎵 歌词已加载，跳过重复请求:', targetSongId);
+      return;
+    }
     
     setLoading(true);
     setError(null);
     
     try {
-      console.log('正在获取歌词数据，歌曲ID:', id);
-      const response = await fetch(`${getBackendUrl()}/api/netease/lyric/new?id=${id}`);
+      console.log('🎵 正在获取歌词数据，歌曲ID:', targetSongId);
+      const response = await fetch(`${getBackendUrl()}/api/netease/lyric/new?id=${targetSongId}`);
       
       if (!response.ok) {
         throw new Error(`获取歌词失败: ${response.status}`);
       }
       
       const data: LyricResponse = await response.json();
-      console.log('歌词API响应:', data);
+      console.log('🎵 歌词API响应成功:', targetSongId);
       
       if (data.code !== 200) {
         throw new Error('歌词服务返回错误');
@@ -124,15 +118,21 @@ const LyricView: React.FC = () => {
       // 解析歌词
       const parsed = parseLyrics(data);
       setParsedLyrics(parsed);
-      console.log('解析后的歌词:', parsed.slice(0, 5));
       
       // 提取元数据
       const meta = extractMetadata(data);
       setMetadata(meta);
       
+      // 标记歌词已加载
+      setLoadedSongId(targetSongId);
+      setIsLyricLoaded(true);
+      
+      console.log('✅ 歌词加载完成:', targetSongId);
+      
     } catch (error) {
-      console.error('获取歌词失败:', error);
+      console.error('❌ 获取歌词失败:', error);
       setError(error instanceof Error ? error.message : '获取歌词失败');
+      setIsLyricLoaded(false);
       addToast({
         type: 'error',
         message: '获取歌词失败',
@@ -141,7 +141,7 @@ const LyricView: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [id, addToast]);
+  }, [id, addToast, loadedSongId, isLyricLoaded]);
 
   // 解析歌词函数
   const parseLyrics = (data: LyricResponse): ParsedLyricLine[] => {
@@ -250,8 +250,35 @@ const LyricView: React.FC = () => {
     return lines.sort((a, b) => a.time - b.time);
   };
 
-  // 提取元数据
-  const extractMetadata = (data: LyricResponse): LyricMetadata => {
+  // 检测当前播放歌曲变化并自动切换歌词
+  const handleCurrentSongChange = useCallback(async (newSongId: string) => {
+    console.log('🔄 检测到播放歌曲变化:', {
+      from: id,
+      to: newSongId,
+      shouldAutoSwitch: newSongId !== id,
+      isAlreadyLoaded: loadedSongId === newSongId
+    });
+
+    // 如果当前歌词页面显示的歌曲与正在播放的歌曲不同
+    if (newSongId !== id) {
+      // 显示切换提示
+      addToast({
+        type: 'info',
+        message: `正在切换到新歌曲的歌词...`,
+        duration: 2000,
+      });
+
+      // 重置歌词加载状态，因为要切换到新歌曲
+      setIsLyricLoaded(false);
+      setLoadedSongId(null);
+
+      // 更新URL
+      navigate(`/lyric/${newSongId}`, { replace: true });
+    }
+  }, [id, navigate, addToast, loadedSongId]);
+
+  // 提取元数据 - 增强版本，支持实时更新
+  const extractMetadata = useCallback((data: LyricResponse): LyricMetadata => {
     const metadata: LyricMetadata = {
       contributors: {
         lyricUser: data.lyricUser,
@@ -264,15 +291,31 @@ const LyricView: React.FC = () => {
       metadata.title = localPlayerState.currentTrack.title;
       metadata.artist = localPlayerState.currentTrack.artist;
       metadata.album = localPlayerState.currentTrack.album;
+      console.log('🎵 从localStorage获取歌曲元数据:', {
+        title: metadata.title,
+        artist: metadata.artist,
+        album: metadata.album
+      });
     } else if (playerState.currentTrack) {
       // 兜底：从PlayerContext获取
       metadata.title = playerState.currentTrack.title;
       metadata.artist = playerState.currentTrack.artist;
       metadata.album = playerState.currentTrack.album;
+      console.log('🎵 从PlayerContext获取歌曲元数据:', {
+        title: metadata.title,
+        artist: metadata.artist,
+        album: metadata.album
+      });
+    } else {
+      // 最后兜底：使用URL参数中的歌曲ID
+      metadata.title = `歌曲 ${id}`;
+      metadata.artist = '未知艺术家';
+      metadata.album = '未知专辑';
+      console.log('🎵 使用默认歌曲元数据');
     }
     
     return metadata;
-  };
+  }, [localPlayerState, isCurrentSong, playerState.currentTrack, id]);
 
   // 根据当前播放时间更新高亮
   useEffect(() => {
@@ -304,15 +347,28 @@ const LyricView: React.FC = () => {
       if (currentTime >= line.time && currentTime < lineEndTime) {
         lineIndex = i;
         
-        // 如果有逐字信息，查找当前字
-        if (line.words && lyricMode === 'yrc') {
+        // 如果有逐字信息且处于逐字模式，查找当前字
+        if (line.words && line.words.length > 0 && lyricMode === 'yrc') {
+          let foundCurrentWord = false;
+          
           for (let j = 0; j < line.words.length; j++) {
             const word = line.words[j];
             const wordEndTime = word.time + word.duration;
             
             if (currentTime >= word.time && currentTime < wordEndTime) {
               wordIndex = j;
+              foundCurrentWord = true;
               break;
+            }
+          }
+          
+          // 如果没有找到当前字，但时间在这一行内，检查是否应该高亮前面的字
+          if (!foundCurrentWord) {
+            for (let j = line.words.length - 1; j >= 0; j--) {
+              if (currentTime >= line.words[j].time) {
+                wordIndex = j;
+                break;
+              }
             }
           }
         }
@@ -366,26 +422,44 @@ const LyricView: React.FC = () => {
 
   // 渲染逐字歌词
   const renderWordByWord = (line: ParsedLyricLine, isActive: boolean) => {
-    if (!line.words || lyricMode !== 'yrc') {
-      return <span>{line.text}</span>;
+    if (!line.words || lyricMode !== 'yrc' || line.words.length === 0) {
+      return <span className={isActive ? 'text-cyber-primary' : 'text-cyber-text'}>{line.text}</span>;
     }
     
     return (
       <span>
-        {line.words.map((word, index) => (
-          <span
-            key={index}
-            className={`transition-all duration-200 ${
-              isActive && index === currentWordIndex
-                ? 'text-cyber-primary bg-cyber-primary/20 rounded px-1'
-                : isActive && index < currentWordIndex
-                ? 'text-cyber-primary'
-                : 'text-cyber-text'
-            }`}
-          >
-            {word.text}
-          </span>
-        ))}
+        {line.words.map((word, index) => {
+          let wordClass = 'transition-all duration-200 ';
+          
+          if (isActive) {
+            if (index === currentWordIndex) {
+              // 当前正在唱的字：高亮显示
+              wordClass += 'text-cyber-primary bg-cyber-primary/20 rounded-sm px-0.5 scale-110 font-bold shadow-lg shadow-cyber-primary/30';
+            } else if (index < currentWordIndex) {
+              // 已经唱过的字：保持高亮但稍微暗一些
+              wordClass += 'text-cyber-primary opacity-80';
+            } else {
+              // 还没唱到的字：正常显示
+              wordClass += 'text-cyber-text opacity-60';
+            }
+          } else {
+            // 非当前行：正常显示
+            wordClass += 'text-cyber-text';
+          }
+          
+          return (
+            <span
+              key={index}
+              className={wordClass}
+              style={{
+                display: 'inline-block',
+                transformOrigin: 'center',
+              }}
+            >
+              {word.text}
+            </span>
+          );
+        })}
       </span>
     );
   };
@@ -395,13 +469,62 @@ const LyricView: React.FC = () => {
     fetchLyricData();
   }, [fetchLyricData]);
 
-  // 重新提取元数据当播放器状态变化时
+  // 初始获取歌词 - 只在组件首次加载或URL中的ID变化时执行
   useEffect(() => {
-    if (lyricData) {
+    if (id && (!isLyricLoaded || loadedSongId !== id)) {
+      console.log('🎵 初始化或ID变化，加载歌词:', id);
+      fetchLyricData(id, true); // 强制重新加载
+    }
+  }, [id]); // 只依赖 id，移除 fetchLyricData 避免循环
+
+  // 重新提取元数据当播放器状态变化时 - 但不重新加载歌词
+  useEffect(() => {
+    if (lyricData && isLyricLoaded) {
       const meta = extractMetadata(lyricData);
       setMetadata(meta);
     }
-  }, [localPlayerState, isCurrentSong, lyricData]);
+  }, [localPlayerState, isCurrentSong, lyricData, extractMetadata, isLyricLoaded]);
+
+  // 监听localStorage变化
+  useEffect(() => {
+    // 初始加载
+    loadPlayerStateFromStorage();
+    
+    // 监听localStorage变化事件
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'playerState') {
+        loadPlayerStateFromStorage();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    // 定期检查播放器状态（兜底机制）- 降低频率
+    const interval = setInterval(loadPlayerStateFromStorage, 2000); // 从1秒改为2秒
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, [loadPlayerStateFromStorage]);
+
+  // 监听当前播放歌曲变化 - 只有歌曲ID真正变化时才触发
+  useEffect(() => {
+    if (currentSongId && currentSongId !== id && isLyricLoaded) {
+      // 只有在歌词已经加载完成的情况下才处理歌曲切换
+      handleCurrentSongChange(currentSongId);
+    }
+  }, [currentSongId, id, handleCurrentSongChange, isLyricLoaded]);
+
+  // 当URL参数中的歌曲ID变化时重置状态
+  useEffect(() => {
+    if (id !== loadedSongId) {
+      console.log('🔄 URL中的歌曲ID变化，重置加载状态:', { old: loadedSongId, new: id });
+      setIsLyricLoaded(false);
+      setLoadedSongId(null);
+      setError(null);
+    }
+  }, [id, loadedSongId]);
 
   if (loading) {
     return (
@@ -467,12 +590,24 @@ const LyricView: React.FC = () => {
                     {metadata.artist || '未知艺术家'}
                   </p>
                   {/* 同步状态指示器 */}
-                  {isCurrentSong && (
-                    <div className="flex items-center space-x-1 mt-1">
-                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                      <span className="text-xs text-green-500">实时同步</span>
-                    </div>
-                  )}
+                  <div className="flex items-center space-x-2 mt-1">
+                    {isCurrentSong ? (
+                      <>
+                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                        <span className="text-xs text-green-500">实时同步</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-2 h-2 bg-gray-500 rounded-full"></div>
+                        <span className="text-xs text-gray-500">静态显示</span>
+                      </>
+                    )}
+                    {currentSongId && currentSongId !== id && (
+                      <span className="text-xs text-yellow-500 ml-2">
+                        (正在播放其他歌曲)
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -547,6 +682,39 @@ const LyricView: React.FC = () => {
                 </button>
               </div>
             </div>
+            
+            {/* 歌曲切换提示 */}
+            {currentSongId && currentSongId !== id && isLyricLoaded && (
+              <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse"></div>
+                    <span className="text-sm text-yellow-500">
+                      检测到正在播放其他歌曲
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleCurrentSongChange(currentSongId)}
+                    className="text-xs bg-yellow-500/20 text-yellow-500 px-3 py-1 rounded hover:bg-yellow-500/30 transition-colors"
+                  >
+                    切换到当前播放
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 调试信息（开发环境） */}
+            {process.env.NODE_ENV === 'development' && (
+              <div className="mt-3 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                <div className="text-xs text-blue-500 space-y-1">
+                  <div>当前页面歌曲ID: {id}</div>
+                  <div>正在播放歌曲ID: {currentSongId || 'None'}</div>
+                  <div>已加载歌词ID: {loadedSongId || 'None'}</div>
+                  <div>歌词加载状态: {isLyricLoaded ? '已加载' : '未加载'}</div>
+                  <div>是否当前歌曲: {isCurrentSong ? '是' : '否'}</div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
