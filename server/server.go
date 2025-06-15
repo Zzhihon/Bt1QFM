@@ -115,6 +115,7 @@ func Start() {
 	router.HandleFunc("/api/netease/search", neteaseHandler.HandleSearch).Methods(http.MethodGet)
 	router.HandleFunc("/api/netease/song/detail", neteaseHandler.HandleSongDetail).Methods(http.MethodGet)
 	router.HandleFunc("/api/netease/song/dynamic/cover", neteaseHandler.HandleDynamicCover).Methods(http.MethodGet)
+	router.HandleFunc("/api/netease/lyric/new", neteaseHandler.HandleLyricNew).Methods(http.MethodGet)
 	// 新增网易云收藏相关接口
 	router.HandleFunc("/api/netease/user/playlist", neteaseHandler.HandleUserPlaylists).Methods(http.MethodGet)
 	router.HandleFunc("/api/netease/get/userids", neteaseHandler.HandleGetUserIDs).Methods(http.MethodGet)
@@ -156,7 +157,7 @@ func Start() {
 	// 🎉 公告相关的API端点 - 正式上线
 	logger.Info("注册公告系统API端点...")
 	RegisterAnnouncementRoutes(router, announcementHandler, apiHandler.AuthMiddleware)
-	logger.Info("公告系统API端点注册完成", 
+	logger.Info("公告系统API端点注册完成",
 		logger.String("endpoints", "GET /api/announcements, GET /api/announcements/unread, PUT /api/announcements/{id}/read, POST /api/announcements, DELETE /api/announcements/{id}, GET /api/announcements/stats"))
 
 	// 添加MinIO文件服务路由
@@ -296,7 +297,7 @@ func Start() {
 				logger.ErrorField(err))
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
-			
+
 		}
 
 	serveFile:

@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePlayer } from '../../contexts/PlayerContext';
 import { useToast } from '../../contexts/ToastContext';
 import { retryWithDelay } from '../../utils/retry';
-import { Music2, Search, PlayCircle, Send, Bot, User, Hash, Plus, Settings, Headphones, Minus, Clock, X } from 'lucide-react';
+import { Music2, Search, PlayCircle, Send, Bot, User, Hash, Plus, Settings, Headphones, Minus, Clock, X, Type } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -34,6 +35,7 @@ const getBackendUrl = () => {
 };
 
 const BotView: React.FC = () => {
+  const navigate = useNavigate();
   const { currentUser, authToken } = useAuth();
   const { 
     playTrack, 
@@ -669,6 +671,13 @@ const BotView: React.FC = () => {
                                 title="添加到播放列表"
                               >
                                 <Plus className="h-3 w-3 md:h-4 md:w-4 text-cyber-primary" />
+                              </button>
+                              <button
+                                onClick={() => navigate(`/lyric/${message.song!.id}`)}
+                                className="p-1.5 md:p-2 rounded-full bg-cyber-secondary/20 hover:bg-cyber-secondary/40 transition-all duration-200"
+                                title="查看歌词"
+                              >
+                                <Type className="h-3 w-3 md:h-4 md:w-4 text-cyber-secondary" />
                               </button>
                             </div>
                           </div>

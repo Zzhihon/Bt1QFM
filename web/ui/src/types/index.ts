@@ -107,3 +107,64 @@ export interface AlbumResponse {
 export interface AlbumsResponse {
   albums: Album[];
 }
+
+// 歌词相关类型
+export interface LyricUser {
+  id: number;
+  status: number;
+  demand: number;
+  userid: number;
+  nickname: string;
+  uptime: number;
+}
+
+export interface LyricData {
+  version: number;
+  lyric: string;
+}
+
+export interface LyricResponse {
+  sgc: boolean;
+  sfy: boolean;
+  qfy: boolean;
+  code: number;
+  transUser?: LyricUser;
+  lyricUser?: LyricUser;
+  lrc: LyricData;
+  tlyric?: LyricData;
+  romalrc?: LyricData;
+  yrc?: LyricData;        // 逐字歌词
+  ytlrc?: LyricData;      // 逐字翻译歌词
+  yromalrc?: LyricData;   // 逐字罗马音歌词
+  klyric?: LyricData;     // 卡拉OK歌词
+}
+
+// 解析后的歌词行
+export interface ParsedLyricLine {
+  time: number;           // 开始时间（毫秒）
+  duration: number;       // 持续时间（毫秒）
+  text: string;          // 歌词文本
+  words?: ParsedWord[];   // 逐字信息（仅yrc格式）
+  translation?: string;   // 翻译文本
+  roma?: string;         // 罗马音文本
+}
+
+// 逐字信息
+export interface ParsedWord {
+  time: number;          // 开始时间（毫秒）
+  duration: number;      // 持续时间（毫秒/厘秒）
+  text: string;         // 文字
+}
+
+// 歌词元数据
+export interface LyricMetadata {
+  title?: string;
+  artist?: string;
+  album?: string;
+  composer?: string;
+  lyricist?: string;
+  contributors?: {
+    lyricUser?: LyricUser;
+    transUser?: LyricUser;
+  };
+}

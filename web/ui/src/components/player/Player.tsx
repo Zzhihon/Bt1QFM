@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Shuffle,
   Loader2, ListMusic, X, Trash2, Music2, ArrowRight
@@ -45,6 +46,7 @@ interface DynamicCoverResponse {
 }
 
 const Player: React.FC = () => {
+  const navigate = useNavigate();
   const {
     playerState,
     audioRef,
@@ -438,6 +440,17 @@ const Player: React.FC = () => {
   
   const playModeInfo = getPlayModeInfo();
   
+  // 点击封面跳转到歌词页面
+  const handleCoverClick = useCallback(() => {
+    if (playerState.currentTrack) {
+      // 获取歌曲ID，优先使用neteaseId
+      const songId = playerState.currentTrack.neteaseId || playerState.currentTrack.id;
+      if (songId) {
+        navigate(`/lyric/${songId}`);
+      }
+    }
+  }, [playerState.currentTrack, navigate]);
+
   return (
     <>
       {/* 主播放器控件 - 底部固定 */}
@@ -527,7 +540,11 @@ const Player: React.FC = () => {
             <div className="flex items-center flex-1 min-w-0 pr-3">
               {playerState.currentTrack ? (
                 <>
-                  <div className="w-12 h-12 md:w-10 md:h-10 bg-cyber-bg rounded mr-3 md:mr-2 flex-shrink-0 overflow-hidden">
+                  <div 
+                    className="w-12 h-12 md:w-10 md:h-10 bg-cyber-bg rounded mr-3 md:mr-2 flex-shrink-0 overflow-hidden cursor-pointer hover:scale-105 transition-transform duration-200"
+                    onClick={handleCoverClick}
+                    title="点击查看歌词"
+                  >
                     {playerState.currentTrack.coverArtPath ? (
                       <img 
                         src={playerState.currentTrack.coverArtPath}

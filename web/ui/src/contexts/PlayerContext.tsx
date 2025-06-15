@@ -49,6 +49,7 @@ interface PlayerContextType {
   pauseTrack: () => void;
   resumeTrack: () => void;
   stopTrack: () => void;
+  currentSongId: string | number | null; // 添加当前歌曲ID便于歌词同步
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -1270,6 +1271,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }));
   };
   
+  // 获取当前歌曲ID
+  const currentSongId = playerState.currentTrack 
+    ? (playerState.currentTrack.neteaseId || playerState.currentTrack.id)
+    : null;
+
   return (
     <PlayerContext.Provider 
       value={{
@@ -1314,7 +1320,8 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             audioRef.current.currentTime = 0;
             setPlayerState(prev => ({ ...prev, isPlaying: false, currentTime: 0 }));
           }
-        }
+        },
+        currentSongId,
       }}
     >
       {children}

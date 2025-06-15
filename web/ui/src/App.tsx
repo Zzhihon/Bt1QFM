@@ -15,6 +15,7 @@ import Player from './components/player/Player';
 import { useAuth } from './contexts/AuthContext';
 import { usePlayer } from './contexts/PlayerContext';
 import { Loader2 } from 'lucide-react';
+import LyricView from './components/views/LyricView';
 
 function App() {
   const { currentUser, isLoading: authIsLoading } = useAuth();
@@ -45,6 +46,7 @@ function App() {
             <Route path="/bot" element={currentUser ? <BotView /> : <Navigate to="/login" />} />
             <Route path="/collections" element={currentUser ? <Collections /> : <Navigate to="/login" />} />
             <Route path="/announcements" element={currentUser ? <AnnouncementManageView /> : <Navigate to="/login" />} />
+            <Route path="/lyric/:id" element={currentUser ? <LyricView /> : <Navigate to="/login" />} />
             <Route path="/" element={<Navigate to={currentUser ? "/music-library" : "/login"} />} />
           </Routes>
         </main>
