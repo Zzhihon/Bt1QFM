@@ -93,37 +93,105 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
         style={{
           background: `
             radial-gradient(circle at 50% 50%, 
-              rgba(25, 25, 25, 1) 0%,
-              rgba(15, 15, 15, 1) 25%,
-              rgba(8, 8, 8, 1) 50%,
-              rgba(3, 3, 3, 1) 75%,
+              rgba(35, 35, 35, 1) 0%,
+              rgba(25, 25, 25, 1) 15%,
+              rgba(15, 15, 15, 1) 35%,
+              rgba(8, 8, 8, 1) 60%,
+              rgba(3, 3, 3, 1) 80%,
               rgba(0, 0, 0, 1) 100%
             )
           `,
           boxShadow: `
-            inset 0 0 30px rgba(255, 255, 255, 0.08),
-            inset 0 0 80px rgba(0, 0, 0, 0.9),
-            0 15px 40px rgba(0, 0, 0, 0.6),
-            0 5px 15px rgba(0, 0, 0, 0.4),
-            0 0 0 1px rgba(80, 80, 80, 0.3)
+            inset 0 0 40px rgba(255, 255, 255, 0.12),
+            inset 0 0 100px rgba(0, 0, 0, 0.9),
+            0 20px 50px rgba(0, 0, 0, 0.7),
+            0 8px 25px rgba(0, 0, 0, 0.5),
+            0 0 0 2px rgba(100, 100, 100, 0.4)
           `
         }}
       >
-        {/* 增强黑胶纹理 */}
-        <div className="absolute inset-0 rounded-full opacity-40">
-          {Array.from({ length: 12 }).map((_, i) => (
+        {/* 外围明亮纹理圈 - 模拟真实黑胶唱片 */}
+        <div className="absolute inset-0 rounded-full">
+          {/* 最外层明亮边缘 */}
+          <div className="absolute inset-0 rounded-full" 
+               style={{
+                 background: `
+                   radial-gradient(circle at 50% 50%, 
+                     transparent 85%,
+                     rgba(180, 180, 180, 0.6) 88%,
+                     rgba(200, 200, 200, 0.8) 90%,
+                     rgba(9, 9, 9, 0.4) 92%,
+                     transparent 94%
+                   )
+                 `}}></div>
+          
+          {/* 第二层明亮圈 */}
+          <div className="absolute inset-0 rounded-full"
+               style={{
+                 background: `
+                   radial-gradient(circle at 50% 50%, 
+                     transparent 75%,
+                     rgba(18, 17, 17, 0.3) 78%,
+                     rgba(12, 12, 12, 0.5) 80%,
+                     rgba(160, 160, 160, 0.3) 82%,
+                     transparent 84%
+                   )
+                 `}}></div>
+          
+          {/* 第三层明亮圈 */}
+          <div className="absolute inset-0 rounded-full"
+               style={{
+                 background: `
+                   radial-gradient(circle at 50% 50%, 
+                     transparent 65%,
+                     rgba(9, 9, 9, 0.2) 68%,
+                     rgba(10, 10, 10, 0.4) 70%,
+                     rgba(140, 140, 140, 0.2) 72%,
+                     transparent 74%
+                   )
+                 `}}></div>
+        </div>
+
+        {/* 增强黑胶纹理 - 更多圈数和更细腻的效果 */}
+        <div className="absolute inset-0 rounded-full opacity-50">
+          {Array.from({ length: 20 }).map((_, i) => (
             <div
               key={i}
-              className="absolute rounded-full border border-gray-600/15"
+              className="absolute rounded-full border"
               style={{
-                top: `${5 + i * 7.5}%`,
-                left: `${5 + i * 7.5}%`,
-                right: `${5 + i * 7.5}%`,
-                bottom: `${5 + i * 7.5}%`,
+                top: `${2 + i * 4.8}%`,
+                left: `${2 + i * 4.8}%`,
+                right: `${2 + i * 4.8}%`,
+                bottom: `${2 + i * 4.8}%`,
+                borderColor: i % 3 === 0 
+                  ? 'rgba(120, 120, 120, 0.25)' 
+                  : i % 2 === 0 
+                    ? 'rgba(80, 80, 80, 0.2)' 
+                    : 'rgba(60, 60, 60, 0.15)',
+                borderWidth: i % 4 === 0 ? '0.5px' : '0.25px'
               }}
             />
           ))}
         </div>
+
+        {/* 反光效果增强 */}
+        <div className="absolute inset-0 rounded-full"
+             style={{
+               background: `
+                 conic-gradient(from 45deg, 
+                   transparent 0deg,
+                   rgba(255, 255, 255, 0.08) 60deg,
+                   rgba(255, 255, 255, 0.15) 90deg,
+                   rgba(255, 255, 255, 0.08) 120deg,
+                   transparent 180deg,
+                   rgba(255, 255, 255, 0.05) 240deg,
+                   rgba(255, 255, 255, 0.1) 270deg,
+                   rgba(255, 255, 255, 0.05) 300deg,
+                   transparent 360deg
+                 )
+               `,
+               opacity: 0.7
+             }}></div>
 
         {/* 中心孔 - 直接在黑胶上 */}
         <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 ${size === 'lg' ? 'w-6 h-6' : size === 'md' ? 'w-5 h-5' : 'w-4 h-4'} bg-black rounded-full shadow-inner border border-gray-800`}></div>
@@ -161,21 +229,34 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
         </div>
 
         {/* 增强的光泽效果 */}
-        <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-white/5 via-transparent to-transparent opacity-70 group-hover:opacity-90 transition-opacity duration-500"></div>
+        <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-white/8 via-transparent to-transparent opacity-60 group-hover:opacity-85 transition-opacity duration-500"></div>
         
-      {/* 旋转时的额外光效 */}
-      <div className={`absolute inset-0 rounded-full transition-opacity duration-500 ${isPlaying ? 'opacity-30' : 'opacity-0'}`}
+        {/* 旋转时的额外光效 - 增强效果 */}
+        <div className={`absolute inset-0 rounded-full transition-opacity duration-500 ${isPlaying ? 'opacity-40' : 'opacity-0'}`}
              style={{
-               background: `conic-gradient(from 0deg, transparent, rgba(255,255,255,0.1), transparent, rgba(255,255,255,0.05), transparent)`
-             }}></div>
+               background: `
+                 conic-gradient(from 0deg, 
+                   transparent, 
+                   rgba(255,255,255,0.15), 
+                   transparent, 
+                   rgba(255,255,255,0.08), 
+                   transparent,
+                   rgba(255,255,255,0.12),
+                   transparent
+                 )
+               `}}></div>
       </div>
 
       {/* 增强的悬浮光环效果 */}
-      <div className="absolute inset-0 rounded-full bg-cyber-primary/15 blur-2xl opacity-0 group-hover:opacity-100 transition-all duration-700 -z-10 scale-110"></div>
+      <div className="absolute inset-0 rounded-full bg-cyber-primary/20 blur-3xl opacity-0 group-hover:opacity-100 transition-all duration-700 -z-10 scale-115"></div>
       
-      {/* 播放时的脉冲效果 */}
+      {/* 播放时的脉冲效果 - 增强 */}
       {isPlaying && (
-        <div className="absolute inset-0 rounded-full bg-green-500/20 blur-xl opacity-50 animate-pulse -z-20 scale-125"></div>
+        <>
+          <div className="absolute inset-0 rounded-full bg-green-500/15 blur-2xl opacity-60 animate-pulse -z-20 scale-130"></div>
+          <div className="absolute inset-0 rounded-full bg-green-400/10 blur-xl opacity-40 animate-pulse -z-21 scale-140" 
+               style={{ animationDelay: '0.5s' }}></div>
+        </>
       )}
     </div>
   );
