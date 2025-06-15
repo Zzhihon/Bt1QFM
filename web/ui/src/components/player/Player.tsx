@@ -451,6 +451,27 @@ const Player: React.FC = () => {
     }
   }, [playerState.currentTrack, navigate]);
 
+  // 增加一个更频繁的播放时间同步机制
+  useEffect(() => {
+    if (!playerState.isPlaying || !playerState.currentTrack) return;
+    
+    const syncInterval = setInterval(() => {
+      if (audioRef.current && !isNaN(audioRef.current.currentTime)) {
+        const currentTime = audioRef.current.currentTime;
+        const duration = audioRef.current.duration || 0;
+        
+        // 更新播放器状态
+        setPlayerState(prev => ({
+          ...prev,
+          currentTime: currentTime,
+          duration: duration
+        }));
+      }
+    }, 100); // 每100ms同步一次播放时间
+    
+    return () => clearInterval(syncInterval);
+  }, [playerState.isPlaying, playerState.currentTrack, setPlayerState]);
+
   return (
     <>
       {/* 主播放器控件 - 底部固定 */}

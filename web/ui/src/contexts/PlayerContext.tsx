@@ -103,10 +103,43 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     };
   });
   
-  // 监听playerState变化，保存到localStorage
+  // 监听playerState变化，保存到localStorage - 使用防抖避免过于频繁的写入
   useEffect(() => {
-    localStorage.setItem('playerState', JSON.stringify(playerState));
+    const timeoutId = setTimeout(() => {
+      localStorage.setItem('playerState', JSON.stringify(playerState));
+    }, 50); // 防抖50ms，避免过于频繁的写入
+    
+    return () => clearTimeout(timeoutId);
   }, [playerState]);
+
+  // 新增：高频更新localStorage中的播放时间
+  useEffect(() => {
+    if (!playerState.isPlaying || !playerState.currentTrack) return;
+    
+    const updateInterval = setInterval(() => {
+      if (audioRef.current && !isNaN(audioRef.current.currentTime)) {
+        const currentTime = audioRef.current.currentTime;
+        
+        // 只更新localStorage，不触发状态更新以避免重渲染
+        try {
+          const savedState = localStorage.getItem('playerState');
+          if (savedState) {
+            const parsedState = JSON.parse(savedState);
+            const updatedState = {
+              ...parsedState,
+              currentTime: currentTime,
+              duration: audioRef.current.duration || parsedState.duration
+            };
+            localStorage.setItem('playerState', JSON.stringify(updatedState));
+          }
+        } catch (error) {
+          console.warn('更新localStorage播放时间失败:', error);
+        }
+      }
+    }, 100); // 每100ms更新一次播放时间到localStorage
+    
+    return () => clearInterval(updateInterval);
+  }, [playerState.isPlaying, playerState.currentTrack]);
   
   // 修复音频恢复逻辑 - 恢复播放进度
   useEffect(() => {
