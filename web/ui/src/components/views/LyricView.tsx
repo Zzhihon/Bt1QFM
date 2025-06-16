@@ -468,10 +468,10 @@ const LyricView: React.FC = () => {
       clearTimeout(scrollCheckTimeoutRef.current);
     }
     
-    // 5秒后恢复自动滚动（延长时间）
+    // 2秒后恢复自动滚动（延长时间）
     userScrollTimeoutRef.current = setTimeout(() => {
       setIsUserScrolling(false);
-    }, 5000);
+    }, 2000);
   }, [autoScroll]);
 
   // 改进的自动滚动到当前行 - 确保始终居中
@@ -723,13 +723,13 @@ const LyricView: React.FC = () => {
                       addToast({
                         type: 'success',
                         message: '已开启自动跟随',
-                        duration: 2000,
+                        duration: 1000,
                       });
                     } else {
                       addToast({
                         type: 'info',
                         message: '已关闭自动跟随',
-                        duration: 2000,
+                        duration: 1000,
                       });
                     }
                   }}
@@ -845,7 +845,7 @@ const LyricView: React.FC = () => {
                       <div className="flex items-center space-x-2">
                         <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse"></div>
                         <span className="text-sm text-yellow-500">
-                          手动浏览中，5秒后恢复自动跟随
+                          手动浏览中，2秒后恢复自动跟随
                         </span>
                       </div>
                       <button
@@ -955,7 +955,7 @@ const LyricView: React.FC = () => {
                       {isUserScrolling && (
                         <div className="text-xs text-yellow-500 flex items-center space-x-1">
                           <Clock className="w-3 h-3" />
-                          <span>5秒后恢复跟随</span>
+                          <span>2秒后恢复跟随</span>
                         </div>
                       )}
                     </div>
