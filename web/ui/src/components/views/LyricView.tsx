@@ -49,6 +49,8 @@ const LyricView: React.FC = () => {
   const [scrollOffset, setScrollOffset] = useState(50); // 改为50%，即屏幕正中间
   const [isUserScrolling, setIsUserScrolling] = useState(false);
   const userScrollTimeoutRef = useRef<NodeJS.Timeout>();
+  const scrollCheckTimeoutRef = useRef<NodeJS.Timeout>();
+  const lastAutoScrollTime = useRef<number>(0);
   
   // 播放器状态同步相关
   const [localPlayerState, setLocalPlayerState] = useState<any>(null);
@@ -444,9 +446,16 @@ const LyricView: React.FC = () => {
     return () => clearInterval(updateInterval);
   }, [isCurrentSong]);
 
-  // 检测用户手动滚动
+  // 检测用户手动滚动 - 改进版本
   const handleUserScroll = useCallback(() => {
     if (!autoScroll) return;
+    
+    const now = Date.now();
+    
+    // 如果刚刚进行了自动滚动（500ms内），则忽略这次滚动事件
+    if (now - lastAutoScrollTime.current < 500) {
+      return;
+    }
     
     setIsUserScrolling(true);
     
@@ -455,13 +464,17 @@ const LyricView: React.FC = () => {
       clearTimeout(userScrollTimeoutRef.current);
     }
     
-    // 3秒后恢复自动滚动
+    if (scrollCheckTimeoutRef.current) {
+      clearTimeout(scrollCheckTimeoutRef.current);
+    }
+    
+    // 5秒后恢复自动滚动（延长时间）
     userScrollTimeoutRef.current = setTimeout(() => {
       setIsUserScrolling(false);
-    }, 3000);
+    }, 5000);
   }, [autoScroll]);
 
-  // 改进的自动滚动到当前行 - 优化为正中间显示
+  // 改进的自动滚动到当前行 - 确保始终居中
   useEffect(() => {
     if (
       currentLineIndex >= 0 && 
@@ -481,25 +494,47 @@ const LyricView: React.FC = () => {
       // 计算目标滚动位置：让高亮行始终位于容器正中间
       const targetScrollTop = lineTop - containerHeight / 2 + lineHeight / 2;
       
+      // 记录自动滚动时间
+      lastAutoScrollTime.current = Date.now();
+      
       // 使用更平滑的滚动行为
       container.scrollTo({
         top: Math.max(0, targetScrollTop),
         behavior: 'smooth'
       });
+      
+      // 滚动完成后短暂延迟，避免触发用户滚动检测
+      scrollCheckTimeoutRef.current = setTimeout(() => {
+        lastAutoScrollTime.current = Date.now();
+      }, 800);
     }
   }, [currentLineIndex, isCurrentSong, autoScroll, isUserScrolling]);
 
-  // 添加滚动事件监听
+  // 添加滚动事件监听 - 改进版本
   useEffect(() => {
     const container = lyricContainerRef.current;
     if (!container) return;
     
-    container.addEventListener('scroll', handleUserScroll, { passive: true });
+    // 使用防抖处理滚动事件
+    let scrollTimeout: NodeJS.Timeout;
+    
+    const debouncedScrollHandler = () => {
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        handleUserScroll();
+      }, 100);
+    };
+    
+    container.addEventListener('scroll', debouncedScrollHandler, { passive: true });
     
     return () => {
-      container.removeEventListener('scroll', handleUserScroll);
+      container.removeEventListener('scroll', debouncedScrollHandler);
+      clearTimeout(scrollTimeout);
       if (userScrollTimeoutRef.current) {
         clearTimeout(userScrollTimeoutRef.current);
+      }
+      if (scrollCheckTimeoutRef.current) {
+        clearTimeout(scrollCheckTimeoutRef.current);
       }
     };
   }, [handleUserScroll]);
@@ -788,7 +823,12 @@ const LyricView: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-cyber-secondary">自动跟随</span>
                   <button
-                    onClick={() => setAutoScroll(!autoScroll)}
+                    onClick={() => {
+                      setAutoScroll(!autoScroll);
+                      if (!autoScroll) {
+                        setIsUserScrolling(false);
+                      }
+                    }}
                     className={`px-3 py-1 text-xs rounded transition-colors ${
                       autoScroll
                         ? 'bg-cyber-primary text-cyber-bg-darker'
@@ -801,11 +841,24 @@ const LyricView: React.FC = () => {
                 
                 {isUserScrolling && (
                   <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse"></div>
-                      <span className="text-sm text-yellow-500">
-                        检测到手动滚动，3秒后恢复自动跟随
-                      </span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse"></div>
+                        <span className="text-sm text-yellow-500">
+                          手动浏览中，5秒后恢复自动跟随
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setIsUserScrolling(false);
+                          if (userScrollTimeoutRef.current) {
+                            clearTimeout(userScrollTimeoutRef.current);
+                          }
+                        }}
+                        className="text-xs text-yellow-500 hover:text-yellow-400 underline"
+                      >
+                        立即恢复
+                      </button>
                     </div>
                   </div>
                 )}
@@ -900,8 +953,9 @@ const LyricView: React.FC = () => {
                       </div>
                       
                       {isUserScrolling && (
-                        <div className="text-xs text-yellow-500">
-                          ⏱ 检测到手动滚动...
+                        <div className="text-xs text-yellow-500 flex items-center space-x-1">
+                          <Clock className="w-3 h-3" />
+                          <span>5秒后恢复跟随</span>
                         </div>
                       )}
                     </div>
@@ -927,51 +981,57 @@ const LyricView: React.FC = () => {
               <div className="relative">
                 <div
                   ref={lyricContainerRef}
-                  className="space-y-6 h-[80vh] overflow-y-auto scrollbar-thin scrollbar-track-cyber-bg scrollbar-thumb-cyber-secondary/50 
-                           pb-[40vh]" // 只保留底部留白，去除顶部留白
+                  className="h-[80vh] overflow-y-auto scrollbar-thin scrollbar-track-cyber-bg scrollbar-thumb-cyber-secondary/50"
                   style={{ fontSize: `${fontSize}px` }}
                 >
-                  {parsedLyrics.map((line, index) => {
-                    const isActive = index === currentLineIndex && isCurrentSong;
-                    
-                    return (
-                      <div
-                        key={index}
-                        ref={isActive ? currentLineRef : undefined}
-                        className={`transition-all duration-500 cursor-pointer px-6 py-4 rounded-xl text-center ${
-                          isActive
-                            ? 'bg-gradient-to-r from-cyber-primary/5 via-cyber-primary/10 to-cyber-primary/5 border-2 border-cyber-primary/30 transform scale-110 shadow-2xl shadow-cyber-primary/20'
-                            : 'hover:bg-cyber-bg-darker/30 hover:scale-105'
-                        }`}
-                        onClick={() => handleLineClick(line)}
-                      >
+                  {/* 顶部间距，确保第一行歌词可以滚动到中心 */}
+                  
+                  <div className="space-y-6">
+                    {parsedLyrics.map((line, index) => {
+                      const isActive = index === currentLineIndex && isCurrentSong;
+                      
+                      return (
                         <div
-                          className={`leading-relaxed transition-all duration-300 ${
+                          key={index}
+                          ref={isActive ? currentLineRef : undefined}
+                          className={`transition-all duration-500 cursor-pointer px-6 py-4 rounded-xl text-center ${
                             isActive
-                              ? 'text-cyber-primary font-bold text-shadow-lg'
-                              : 'text-cyber-text/80 hover:text-cyber-primary'
+                              ? 'bg-gradient-to-r from-cyber-primary/5 via-cyber-primary/10 to-cyber-primary/5 border-2 border-cyber-primary/30 transform scale-110 shadow-2xl shadow-cyber-primary/20'
+                              : 'hover:bg-cyber-bg-darker/30 hover:scale-105'
                           }`}
+                          onClick={() => handleLineClick(line)}
                         >
-                          {lyricMode === 'translation' && line.translation ? (
-                            line.translation
-                          ) : (
-                            renderWordByWord(line, isActive)
+                          <div
+                            className={`leading-relaxed transition-all duration-300 ${
+                              isActive
+                                ? 'text-cyber-primary font-bold text-shadow-lg'
+                                : 'text-cyber-text/80 hover:text-cyber-primary'
+                            }`}
+                          >
+                            {lyricMode === 'translation' && line.translation ? (
+                              line.translation
+                            ) : (
+                              renderWordByWord(line, isActive)
+                            )}
+                          </div>
+                          
+                          {/* 显示翻译（非翻译模式下） */}
+                          {lyricMode !== 'translation' && line.translation && (
+                            <div className={`text-sm mt-2 italic transition-all duration-300 ${
+                              isActive 
+                                ? 'text-cyber-primary/70 font-medium' 
+                                : 'text-cyber-secondary/60'
+                            }`}>
+                              {line.translation}
+                            </div>
                           )}
                         </div>
-                        
-                        {/* 显示翻译（非翻译模式下） */}
-                        {lyricMode !== 'translation' && line.translation && (
-                          <div className={`text-sm mt-2 italic transition-all duration-300 ${
-                            isActive 
-                              ? 'text-cyber-primary/70 font-medium' 
-                              : 'text-cyber-secondary/60'
-                          }`}>
-                            {line.translation}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                  
+                  {/* 底部间距，确保最后一行歌词可以滚动到中心 */}
+                  <div className="h-[40vh]"></div>
                 </div>
               </div>
             )}
