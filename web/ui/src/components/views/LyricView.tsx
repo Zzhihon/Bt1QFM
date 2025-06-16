@@ -10,7 +10,9 @@ import {
   Download,
   Share,
   Heart,
-  Loader2
+  Loader2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { usePlayer } from '../../contexts/PlayerContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -41,6 +43,12 @@ const LyricView: React.FC = () => {
   const [lyricMode, setLyricMode] = useState<'yrc' | 'lrc' | 'translation'>('lrc');
   const [fontSize, setFontSize] = useState(18);
   const [showSettings, setShowSettings] = useState(false);
+  
+  // 新增：自动滚动控制
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [scrollOffset, setScrollOffset] = useState(50); // 改为50%，即屏幕正中间
+  const [isUserScrolling, setIsUserScrolling] = useState(false);
+  const userScrollTimeoutRef = useRef<NodeJS.Timeout>();
   
   // 播放器状态同步相关
   const [localPlayerState, setLocalPlayerState] = useState<any>(null);
@@ -436,9 +444,33 @@ const LyricView: React.FC = () => {
     return () => clearInterval(updateInterval);
   }, [isCurrentSong]);
 
-  // 自动滚动到当前行
+  // 检测用户手动滚动
+  const handleUserScroll = useCallback(() => {
+    if (!autoScroll) return;
+    
+    setIsUserScrolling(true);
+    
+    // 清除之前的定时器
+    if (userScrollTimeoutRef.current) {
+      clearTimeout(userScrollTimeoutRef.current);
+    }
+    
+    // 3秒后恢复自动滚动
+    userScrollTimeoutRef.current = setTimeout(() => {
+      setIsUserScrolling(false);
+    }, 3000);
+  }, [autoScroll]);
+
+  // 改进的自动滚动到当前行 - 优化为正中间显示
   useEffect(() => {
-    if (currentLineIndex >= 0 && currentLineRef.current && lyricContainerRef.current && isCurrentSong) {
+    if (
+      currentLineIndex >= 0 && 
+      currentLineRef.current && 
+      lyricContainerRef.current && 
+      isCurrentSong && 
+      autoScroll && 
+      !isUserScrolling
+    ) {
       const container = lyricContainerRef.current;
       const currentLine = currentLineRef.current;
       
@@ -446,15 +478,31 @@ const LyricView: React.FC = () => {
       const lineTop = currentLine.offsetTop;
       const lineHeight = currentLine.clientHeight;
       
-      // 滚动到当前行居中位置
-      const scrollTop = lineTop - containerHeight / 2 + lineHeight / 2;
+      // 计算目标滚动位置：让高亮行始终位于容器正中间
+      const targetScrollTop = lineTop - containerHeight / 2 + lineHeight / 2;
       
+      // 使用更平滑的滚动行为
       container.scrollTo({
-        top: scrollTop,
+        top: Math.max(0, targetScrollTop),
         behavior: 'smooth'
       });
     }
-  }, [currentLineIndex, isCurrentSong]);
+  }, [currentLineIndex, isCurrentSong, autoScroll, isUserScrolling]);
+
+  // 添加滚动事件监听
+  useEffect(() => {
+    const container = lyricContainerRef.current;
+    if (!container) return;
+    
+    container.addEventListener('scroll', handleUserScroll, { passive: true });
+    
+    return () => {
+      container.removeEventListener('scroll', handleUserScroll);
+      if (userScrollTimeoutRef.current) {
+        clearTimeout(userScrollTimeoutRef.current);
+      }
+    };
+  }, [handleUserScroll]);
 
   // 点击歌词行跳转到对应时间
   const handleLineClick = (line: ParsedLyricLine) => {
@@ -606,6 +654,12 @@ const LyricView: React.FC = () => {
                       <>
                         <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                         <span className="text-xs text-green-500">实时同步</span>
+                        {autoScroll && !isUserScrolling && (
+                          <span className="text-xs text-blue-500">• 自动跟随</span>
+                        )}
+                        {isUserScrolling && (
+                          <span className="text-xs text-yellow-500">• 手动浏览</span>
+                        )}
                       </>
                     ) : (
                       <>
@@ -624,6 +678,37 @@ const LyricView: React.FC = () => {
             </div>
             
             <div className="flex items-center space-x-2">
+              {/* 自动跟随开关 */}
+              {isCurrentSong && (
+                <button
+                  onClick={() => {
+                    setAutoScroll(!autoScroll);
+                    if (!autoScroll) {
+                      setIsUserScrolling(false);
+                      addToast({
+                        type: 'success',
+                        message: '已开启自动跟随',
+                        duration: 2000,
+                      });
+                    } else {
+                      addToast({
+                        type: 'info',
+                        message: '已关闭自动跟随',
+                        duration: 2000,
+                      });
+                    }
+                  }}
+                  className={`p-2 rounded-lg transition-colors ${
+                    autoScroll
+                      ? 'text-cyber-primary bg-cyber-primary/10 hover:bg-cyber-primary/20'
+                      : 'text-cyber-secondary hover:text-cyber-primary hover:bg-cyber-bg/50'
+                  }`}
+                  title={autoScroll ? '关闭自动跟随' : '开启自动跟随'}
+                >
+                  {autoScroll ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                </button>
+              )}
+              
               {/* 歌词模式切换 */}
               <div className="flex bg-cyber-bg rounded-lg p-1">
                 {/* 暂时隐藏逐字歌词按钮
@@ -674,7 +759,8 @@ const LyricView: React.FC = () => {
       {/* 设置面板 */}
       {showSettings && (
         <div className="sticky top-16 z-10 bg-cyber-bg-darker/95 backdrop-blur-sm border-b border-cyber-secondary/30">
-          <div className="max-w-4xl mx-auto px-4 py-3">
+          <div className="max-w-4xl mx-auto px-4 py-3 space-y-4">
+            {/* 字体大小设置 */}
             <div className="flex items-center justify-between">
               <span className="text-sm text-cyber-secondary">字体大小</span>
               <div className="flex items-center space-x-3">
@@ -696,26 +782,36 @@ const LyricView: React.FC = () => {
               </div>
             </div>
             
-            {/* 歌曲切换提示 */}
-            {currentSongId && currentSongId !== id && isLyricLoaded && (
-              <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+            {/* 自动跟随设置 */}
+            {isCurrentSong && (
+              <>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse"></div>
-                    <span className="text-sm text-yellow-500">
-                      检测到正在播放其他歌曲
-                    </span>
-                  </div>
+                  <span className="text-sm text-cyber-secondary">自动跟随</span>
                   <button
-                    onClick={() => handleCurrentSongChange(currentSongId)}
-                    className="text-xs bg-yellow-500/20 text-yellow-500 px-3 py-1 rounded hover:bg-yellow-500/30 transition-colors"
+                    onClick={() => setAutoScroll(!autoScroll)}
+                    className={`px-3 py-1 text-xs rounded transition-colors ${
+                      autoScroll
+                        ? 'bg-cyber-primary text-cyber-bg-darker'
+                        : 'bg-cyber-bg text-cyber-secondary hover:text-cyber-primary'
+                    }`}
                   >
-                    切换到当前播放
+                    {autoScroll ? '已开启' : '已关闭'}
                   </button>
                 </div>
-              </div>
+                
+                {isUserScrolling && (
+                  <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse"></div>
+                      <span className="text-sm text-yellow-500">
+                        检测到手动滚动，3秒后恢复自动跟随
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
-
+            
             {/* 调试信息（开发环境） */}
             {process.env.NODE_ENV === 'development' && (
               <div className="mt-3 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
@@ -776,14 +872,38 @@ const LyricView: React.FC = () => {
                   </p>
                 )}
                 
-                {/* 播放状态 */}
+                {/* 播放状态和跟随状态 */}
                 <div className="flex items-center mt-4 pt-3 border-t border-cyber-secondary/20">
                   {isCurrentSong ? (
-                    <div className="flex items-center space-x-2">
-                      <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                      <span className="text-sm text-green-500 font-medium">
-                        {(localPlayerState?.isPlaying || playerState.isPlaying) ? '正在播放' : '已暂停'}
-                      </span>
+                    <div className="space-y-2 w-full">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                        <span className="text-sm text-green-500 font-medium">
+                          {(localPlayerState?.isPlaying || playerState.isPlaying) ? '正在播放' : '已暂停'}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        {autoScroll ? (
+                          <>
+                            <Eye className="w-3 h-3 text-blue-500" />
+                            <span className="text-xs text-blue-500">
+                              自动居中跟随
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="w-3 h-3 text-gray-500" />
+                            <span className="text-xs text-gray-500">手动浏览模式</span>
+                          </>
+                        )}
+                      </div>
+                      
+                      {isUserScrolling && (
+                        <div className="text-xs text-yellow-500">
+                          ⏱ 检测到手动滚动...
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="flex items-center space-x-2">
@@ -804,49 +924,55 @@ const LyricView: React.FC = () => {
                 <p className="text-cyber-secondary">暂无歌词</p>
               </div>
             ) : (
-              <div
-                ref={lyricContainerRef}
-                className="space-y-6"
-                style={{ fontSize: `${fontSize}px` }}
-              >
-                {parsedLyrics.map((line, index) => {
-                  const isActive = index === currentLineIndex && isCurrentSong;
-                  const showTranslation = lyricMode === 'translation' && line.translation;
-                  
-                  return (
-                    <div
-                      key={index}
-                      ref={isActive ? currentLineRef : undefined}
-                      className={`transition-all duration-300 cursor-pointer px-6 py-4 rounded-xl ${
-                        isActive
-                          ? 'bg-cyber-primary/10 border-l-4 border-cyber-primary transform scale-105 shadow-lg'
-                          : 'hover:bg-cyber-bg-darker/50'
-                      }`}
-                      onClick={() => handleLineClick(line)}
-                    >
+              <div className="relative">
+                <div
+                  ref={lyricContainerRef}
+                  className="space-y-6 h-[80vh] overflow-y-auto scrollbar-thin scrollbar-track-cyber-bg scrollbar-thumb-cyber-secondary/50 
+                           pb-[40vh]" // 只保留底部留白，去除顶部留白
+                  style={{ fontSize: `${fontSize}px` }}
+                >
+                  {parsedLyrics.map((line, index) => {
+                    const isActive = index === currentLineIndex && isCurrentSong;
+                    
+                    return (
                       <div
-                        className={`leading-relaxed transition-all duration-200 ${
+                        key={index}
+                        ref={isActive ? currentLineRef : undefined}
+                        className={`transition-all duration-500 cursor-pointer px-6 py-4 rounded-xl text-center ${
                           isActive
-                            ? 'text-cyber-primary font-medium'
-                            : 'text-cyber-text hover:text-cyber-primary'
+                            ? 'bg-gradient-to-r from-cyber-primary/5 via-cyber-primary/10 to-cyber-primary/5 border-2 border-cyber-primary/30 transform scale-110 shadow-2xl shadow-cyber-primary/20'
+                            : 'hover:bg-cyber-bg-darker/30 hover:scale-105'
                         }`}
+                        onClick={() => handleLineClick(line)}
                       >
-                        {lyricMode === 'translation' && line.translation ? (
-                          line.translation
-                        ) : (
-                          renderWordByWord(line, isActive)
+                        <div
+                          className={`leading-relaxed transition-all duration-300 ${
+                            isActive
+                              ? 'text-cyber-primary font-bold text-shadow-lg'
+                              : 'text-cyber-text/80 hover:text-cyber-primary'
+                          }`}
+                        >
+                          {lyricMode === 'translation' && line.translation ? (
+                            line.translation
+                          ) : (
+                            renderWordByWord(line, isActive)
+                          )}
+                        </div>
+                        
+                        {/* 显示翻译（非翻译模式下） */}
+                        {lyricMode !== 'translation' && line.translation && (
+                          <div className={`text-sm mt-2 italic transition-all duration-300 ${
+                            isActive 
+                              ? 'text-cyber-primary/70 font-medium' 
+                              : 'text-cyber-secondary/60'
+                          }`}>
+                            {line.translation}
+                          </div>
                         )}
                       </div>
-                      
-                      {/* 显示翻译（非翻译模式下） */}
-                      {lyricMode !== 'translation' && line.translation && (
-                        <div className="text-sm text-cyber-secondary/70 mt-2 italic">
-                          {line.translation}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             )}
             
