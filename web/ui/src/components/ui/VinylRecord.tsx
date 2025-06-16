@@ -40,13 +40,15 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
   useEffect(() => {
     if (!vinylRef.current) return;
 
-    // 创建无限旋转动画，但初始时暂停
+    // 创建无限旋转动画，优化性能
     rotationRef.current = gsap.to(vinylRef.current, {
       rotation: 360,
       duration: 3,
       ease: 'none',
       repeat: -1,
-      paused: true
+      paused: true,
+      force3D: true, // 启用硬件加速
+      transformOrigin: 'center center'
     });
 
     return () => {
@@ -56,13 +58,15 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
     };
   }, []);
 
-  // 控制播放/暂停动画
+  // 控制播放/暂停动画 - 播放时顺时针旋转
   useEffect(() => {
     if (!rotationRef.current) return;
 
     if (isPlaying) {
+      // 播放时开始顺时针旋转
       rotationRef.current.play();
     } else {
+      // 暂停时停止旋转
       rotationRef.current.pause();
     }
   }, [isPlaying]);
@@ -89,7 +93,7 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
       {/* 黑胶唱片外圈 */}
       <div
         ref={vinylRef}
-        className={`${currentSize.vinyl} relative rounded-full transform transition-all duration-500 group-hover:scale-105 group-hover:rotate-12`}
+        className={`${currentSize.vinyl} relative rounded-full transition-all duration-500 group-hover:scale-105`}
         style={{
           background: `
             radial-gradient(circle at 50% 50%, 
@@ -107,7 +111,8 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
             0 20px 50px rgba(0, 0, 0, 0.7),
             0 8px 25px rgba(0, 0, 0, 0.5),
             0 0 0 2px rgba(100, 100, 100, 0.4)
-          `
+          `,
+          willChange: 'transform' // 优化动画性能
         }}
       >
         {/* 外围明亮纹理圈 - 模拟真实黑胶唱片 */}
