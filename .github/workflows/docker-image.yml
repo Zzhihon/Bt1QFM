@@ -95,3 +95,41 @@ jobs:
         echo "  - Docker Hub: ${{ env.REGISTRY_IMAGE_DOCKERHUB }}" >> $GITHUB_STEP_SUMMARY
         echo "  - GitHub CR: ${{ env.REGISTRY_IMAGE_GHCR }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+
+  # 自动部署到生产服务器
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+    - name: Deploy to Production Server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        username: ${{ secrets.DEPLOY_USER }}
+        key: ${{ secrets.DEPLOY_SSH_KEY }}
+        port: ${{ secrets.DEPLOY_PORT || 22 }}
+        script: |
+          echo "🚀 开始部署..."
+          cd /opt/docker_file/backend-1qfm
+
+          echo "📦 拉取最新镜像..."
+          sudo docker pull zzhihong/1qfm:latest
+
+          echo "🔄 重启服务..."
+          sudo docker compose up -d
+
+          echo "🧹 清理旧镜像..."
+          sudo docker image prune -f
+
+          echo "✅ 部署完成!"
+          sudo docker ps | grep go-1qfm-backend
+
+    - name: Deploy Summary
+      if: always()
+      run: |
+        echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Server**: Production" >> $GITHUB_STEP_SUMMARY
+        echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Time**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
