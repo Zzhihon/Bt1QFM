@@ -62,12 +62,12 @@ func (r *mysqlTrackRepository) CreateTrack(track *model.Track) (int64, error) {
 
 // GetTrackByID retrieves a track by its ID.
 func (r *mysqlTrackRepository) GetTrackByID(id int64) (*model.Track, error) {
-	query := `SELECT id, user_id, title, artist, album, cover_art_path, hls_playlist_path, duration, created_at, updated_at 
+	query := `SELECT id, user_id, title, artist, album, cover_art_path, hls_playlist_path, duration, state, created_at, updated_at
 	           FROM tracks WHERE id = ?`
 	row := r.DB.QueryRow(query, id)
 
 	track := &model.Track{}
-	err := row.Scan(&track.ID, &track.UserID, &track.Title, &track.Artist, &track.Album, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.CreatedAt, &track.UpdatedAt)
+	err := row.Scan(&track.ID, &track.UserID, &track.Title, &track.Artist, &track.Album, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.State, &track.CreatedAt, &track.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // Track not found
@@ -77,10 +77,10 @@ func (r *mysqlTrackRepository) GetTrackByID(id int64) (*model.Track, error) {
 	return track, nil
 }
 
-// GetAllTracks retrieves all tracks from the database.
+// GetAllTracks retrieves all active tracks from the database (state=1).
 func (r *mysqlTrackRepository) GetAllTracksByUserID(userID int64) ([]*model.Track, error) {
-	query := `SELECT id, user_id, title, artist, album, cover_art_path, hls_playlist_path, duration, created_at, updated_at 
-	           FROM tracks WHERE user_id = ? ORDER BY created_at DESC`
+	query := `SELECT id, user_id, title, artist, album, cover_art_path, hls_playlist_path, duration, state, created_at, updated_at
+	           FROM tracks WHERE user_id = ? AND state = 1 ORDER BY created_at DESC`
 	rows, err := r.DB.Query(query, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tracks for user ID %d: %w", userID, err)
@@ -90,7 +90,7 @@ func (r *mysqlTrackRepository) GetAllTracksByUserID(userID int64) ([]*model.Trac
 	tracks := make([]*model.Track, 0)
 	for rows.Next() {
 		track := &model.Track{}
-		err := rows.Scan(&track.ID, &track.UserID, &track.Title, &track.Artist, &track.Album, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.CreatedAt, &track.UpdatedAt)
+		err := rows.Scan(&track.ID, &track.UserID, &track.Title, &track.Artist, &track.Album, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.State, &track.CreatedAt, &track.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan track in GetAllTracksByUserID: %w", err)
 		}

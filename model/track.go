@@ -14,6 +14,7 @@ type Track struct {
 	HLSPlaylistPath string    `json:"hlsPlaylistPath"` // Relative path to HLS playlist, served via static server
 	Duration        float32   `json:"duration"`        // Duration in seconds
 	Status          string    `json:"status"`          // Track processing status: processing, completed, failed
+	State           int8      `json:"state"`           // 0=soft deleted, 1=normal
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
 }
