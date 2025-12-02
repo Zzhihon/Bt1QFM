@@ -103,6 +103,23 @@ jobs:
     if: success()
 
     steps:
+    - name: Debug - Test SSH connectivity
+      run: |
+        echo "🔍 测试 SSH 连通性..."
+        echo "目标主机: ${{ secrets.DEPLOY_HOST }}"
+        echo "目标端口: ${{ secrets.DEPLOY_PORT }}"
+        echo "用户名: ${{ secrets.DEPLOY_USER }}"
+
+        echo "--- 测试端口连通性 ---"
+        timeout 10 bash -c "cat < /dev/null > /dev/tcp/${{ secrets.DEPLOY_HOST }}/${{ secrets.DEPLOY_PORT }}" && echo "✅ 端口可达" || echo "❌ 端口不可达"
+
+        echo "--- NC 测试 ---"
+        nc -zv -w 10 ${{ secrets.DEPLOY_HOST }} ${{ secrets.DEPLOY_PORT }} 2>&1 || true
+
+        echo "--- SSH 密钥检查 ---"
+        echo "${{ secrets.DEPLOY_SSH_KEY }}" | head -c 50
+        echo "...(truncated)"
+
     - name: Deploy to Production Server
       uses: appleboy/ssh-action@v1.0.3
       with:
