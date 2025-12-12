@@ -30,6 +30,10 @@ const (
 	pongWait       = 60 * time.Second    // 等待 pong 响应超时
 	pingPeriod     = (pongWait * 9) / 10 // ping 间隔 (必须小于 pongWait)
 	maxMessageSize = 8192                // 最大消息大小
+
+	// 分层超时配置
+	softTimeout = 8 * time.Second  // 软超时：提示用户"AI思考中"
+	hardTimeout = 30 * time.Second // 硬超时：提示用户可以重试
 )
 
 // NewChatHandler creates a new ChatHandler.
@@ -277,9 +281,21 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 		Content: "",
 	})
 
+	// 用于跟踪是否收到首个响应
+	firstChunkReceived := make(chan struct{})
+	var firstChunkOnce sync.Once
+
+	// 启动超时检测 goroutine
+	go h.timeoutWatcher(conn, firstChunkReceived, ctx)
+
 	// Stream response from AI
 	var fullResponse string
 	fullResponse, err = h.musicAgent.ChatStream(ctx, history, content, func(chunk string) error {
+		// 标记已收到首个响应
+		firstChunkOnce.Do(func() {
+			close(firstChunkReceived)
+		})
+
 		return h.sendWebSocketMessage(conn, model.WebSocketMessage{
 			Type:    "content",
 			Content: chunk,
@@ -319,6 +335,49 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 	logger.Info("Chat message processed",
 		logger.Int64("userID", userID),
 		logger.Int("responseLength", len(fullResponse)))
+}
+
+// timeoutWatcher 监控首响应超时，发送分层超时提示
+func (h *ChatHandler) timeoutWatcher(conn *websocket.Conn, firstChunkReceived <-chan struct{}, ctx context.Context) {
+	softTimer := time.NewTimer(softTimeout)
+	hardTimer := time.NewTimer(hardTimeout)
+	defer softTimer.Stop()
+	defer hardTimer.Stop()
+
+	softNotified := false
+
+	for {
+		select {
+		case <-firstChunkReceived:
+			// 已收到首个响应，停止超时检测
+			logger.Debug("First chunk received, stopping timeout watcher")
+			return
+
+		case <-ctx.Done():
+			// 上下文已取消
+			return
+
+		case <-softTimer.C:
+			// 软超时：8秒未收到响应，发送提示
+			if !softNotified {
+				softNotified = true
+				logger.Info("Soft timeout reached, notifying user")
+				h.sendWebSocketMessage(conn, model.WebSocketMessage{
+					Type:    "slow",
+					Content: "AI正在思考中，请稍候...",
+				})
+			}
+
+		case <-hardTimer.C:
+			// 硬超时：30秒未收到响应，提示可以重试
+			logger.Warn("Hard timeout reached, suggesting retry")
+			h.sendWebSocketMessage(conn, model.WebSocketMessage{
+				Type:    "timeout",
+				Content: "响应时间较长，您可以选择继续等待或重试",
+			})
+			return
+		}
+	}
 }
 
 // sendWebSocketMessage sends a message through WebSocket with proper deadline.

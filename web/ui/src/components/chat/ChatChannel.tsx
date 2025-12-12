@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { Bot, User, Send, Trash2, Loader2, MessageSquare } from 'lucide-react';
+import { Bot, User, Send, Trash2, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
 
 interface ChatMessage {
   id: number;
@@ -20,7 +20,7 @@ interface ChatSession {
 }
 
 interface WebSocketMessage {
-  type: 'start' | 'content' | 'end' | 'error';
+  type: 'start' | 'content' | 'end' | 'error' | 'slow' | 'timeout';
   content: string;
 }
 
@@ -54,6 +54,9 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [slowHint, setSlowHint] = useState('');      // 慢响应提示
+  const [showRetry, setShowRetry] = useState(false); // 显示重试按钮
+  const [lastMessage, setLastMessage] = useState(''); // 保存最后发送的消息用于重试
 
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -129,8 +132,12 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
             setIsStreaming(true);
             setStreamingContent('');
             streamingContentRef.current = '';
+            setSlowHint('');      // 清除慢响应提示
+            setShowRetry(false);  // 隐藏重试按钮
             break;
           case 'content':
+            setSlowHint('');      // 收到内容后清除慢响应提示
+            setShowRetry(false);  // 隐藏重试按钮
             streamingContentRef.current += msg.content;
             setStreamingContent(streamingContentRef.current);
             break;
@@ -148,6 +155,17 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
             streamingContentRef.current = '';
             setIsStreaming(false);
             setIsLoading(false);
+            setSlowHint('');
+            setShowRetry(false);
+            break;
+          case 'slow':
+            // 软超时：显示提示但继续等待
+            setSlowHint(msg.content || 'AI正在思考中，请稍候...');
+            break;
+          case 'timeout':
+            // 硬超时：显示重试按钮
+            setSlowHint(msg.content || '响应时间较长');
+            setShowRetry(true);
             break;
           case 'error':
             addToast({
@@ -157,6 +175,8 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
             });
             setIsStreaming(false);
             setIsLoading(false);
+            setSlowHint('');
+            setShowRetry(false);
             break;
         }
       } catch (error) {
@@ -213,6 +233,9 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
     const content = inputValue.trim();
     setInputValue('');
     setIsLoading(true);
+    setLastMessage(content); // 保存消息用于重试
+    setSlowHint('');
+    setShowRetry(false);
 
     // 添加用户消息到列表
     const userMessage: ChatMessage = {
@@ -236,6 +259,27 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
       setIsLoading(false);
     }
   }, [inputValue, isLoading, addToast]);
+
+  // 重试发送
+  const handleRetry = useCallback(() => {
+    if (!lastMessage || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      addToast({
+        type: 'error',
+        message: '无法重试，请重新发送消息',
+        duration: 3000,
+      });
+      return;
+    }
+
+    setSlowHint('');
+    setShowRetry(false);
+    setIsLoading(true);
+    setStreamingContent('');
+    streamingContentRef.current = '';
+
+    // 重新发送最后的消息
+    wsRef.current.send(JSON.stringify({ content: lastMessage }));
+  }, [lastMessage, addToast]);
 
   // 清除聊天历史
   const handleClearHistory = async () => {
@@ -348,14 +392,28 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
               </div>
             )}
 
-            {/* 加载中指示器 */}
+            {/* 加载中指示器 - 包含慢响应提示和重试按钮 */}
             {isLoading && !isStreaming && (
               <div className="flex justify-start items-start space-x-2 md:space-x-3">
                 <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-cyber-primary/20 flex items-center justify-center flex-shrink-0">
                   <Bot className="w-4 h-4 md:w-6 md:h-6 text-cyber-primary" />
                 </div>
                 <div className="rounded-2xl p-3 md:p-4 bg-cyber-bg-darker/50 backdrop-blur-sm border border-cyber-secondary/20">
-                  <Loader2 className="w-5 h-5 text-cyber-primary animate-spin" />
+                  <div className="flex items-center space-x-2">
+                    <Loader2 className="w-5 h-5 text-cyber-primary animate-spin" />
+                    {slowHint && (
+                      <span className="text-xs text-cyber-secondary/70">{slowHint}</span>
+                    )}
+                  </div>
+                  {showRetry && (
+                    <button
+                      onClick={handleRetry}
+                      className="mt-2 flex items-center space-x-1 px-3 py-1.5 text-xs bg-cyber-primary/20 hover:bg-cyber-primary/30 text-cyber-primary rounded-md transition-colors"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>重试</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
