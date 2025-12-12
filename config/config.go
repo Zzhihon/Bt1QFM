@@ -42,6 +42,12 @@ type Config struct {
 	MinioPath      string // 路径样式
 	// 网易云音乐API配置
 	NeteaseAPIURL string `env:"NETEASE_API_URL" default:"http://localhost:3000"`
+	// AI Agent 配置
+	AgentAPIBaseURL  string
+	AgentAPIKey      string
+	AgentModel       string
+	AgentMaxTokens   int
+	AgentTemperature float64
 }
 
 // getEnv gets an environment variable or returns a default value.
@@ -57,6 +63,16 @@ func getEnvInt(key string, fallback int) int {
 	if value, exists := os.LookupEnv(key); exists {
 		if intVal, err := strconv.Atoi(value); err == nil {
 			return intVal
+		}
+	}
+	return fallback
+}
+
+// getEnvFloat gets an environment variable as float64 or returns a default value.
+func getEnvFloat(key string, fallback float64) float64 {
+	if value, exists := os.LookupEnv(key); exists {
+		if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+			return floatVal
 		}
 	}
 	return fallback
@@ -105,5 +121,11 @@ func Load() *Config {
 		MinioPath:      getEnv("MINIO_PATH", "auto"),
 		// 网易云音乐API配置
 		NeteaseAPIURL: getEnv("NETEASE_API_URL", "http://localhost:3000"), // 默认使用本地代理
+		// AI Agent 配置
+		AgentAPIBaseURL:  getEnv("AGENT_API_BASE_URL", "https://one-api.ygxz.in/v1"),
+		AgentAPIKey:      getEnv("AGENT_API_KEY", ""),
+		AgentModel:       getEnv("AGENT_MODEL", "gpt5"),
+		AgentMaxTokens:   getEnvInt("AGENT_MAX_TOKENS", 2000),
+		AgentTemperature: getEnvFloat("AGENT_TEMPERATURE", 0.7),
 	}
 }

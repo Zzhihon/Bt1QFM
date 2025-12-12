@@ -4,7 +4,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePlayer } from '../../contexts/PlayerContext';
 import { useToast } from '../../contexts/ToastContext';
 import { retryWithDelay } from '../../utils/retry';
-import { Music2, Search, PlayCircle, Send, Bot, User, Hash, Plus, Settings, Headphones, Minus, Clock, X, Type } from 'lucide-react';
+import { Music2, Search, PlayCircle, Send, Bot, User, Hash, Plus, Settings, Headphones, Minus, Clock, X, Type, MessageSquare } from 'lucide-react';
+import ChatChannel from '../chat/ChatChannel';
 
 interface Message {
   id: string;
@@ -58,6 +59,7 @@ const BotView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [processingSongs, setProcessingSongs] = useState<Set<number>>(new Set());
   const [showMobileUserList, setShowMobileUserList] = useState(false);
+  const [activeChannel, setActiveChannel] = useState<'music-search' | 'chat-assistant'>('music-search');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // 获取后端 URL
@@ -571,17 +573,27 @@ const BotView: React.FC = () => {
                 <Plus className="w-4 h-4 cursor-pointer hover:text-cyber-primary transition-colors" />
               </div>
               <div className="space-y-1">
-                <div className="flex items-center px-2 py-2 rounded-lg bg-cyber-primary/10 text-cyber-primary cursor-pointer hover:bg-cyber-primary/20 transition-colors">
+                <div
+                  onClick={() => setActiveChannel('music-search')}
+                  className={`flex items-center px-2 py-2 rounded-lg cursor-pointer transition-colors ${
+                    activeChannel === 'music-search'
+                      ? 'bg-cyber-primary/10 text-cyber-primary'
+                      : 'hover:bg-cyber-bg/50 text-cyber-secondary/70'
+                  }`}
+                >
                   <Hash className="w-4 h-4 mr-2" />
-                  <span className="text-sm font-medium">音乐助手</span>
+                  <span className="text-sm font-medium">音乐搜索</span>
                 </div>
-                <div className="flex items-center px-2 py-2 rounded-lg hover:bg-cyber-bg/50 cursor-pointer text-cyber-secondary/70 transition-colors">
-                  <Hash className="w-4 h-4 mr-2" />
-                  <span className="text-sm">流行音乐</span>
-                </div>
-                <div className="flex items-center px-2 py-2 rounded-lg hover:bg-cyber-bg/50 cursor-pointer text-cyber-secondary/70 transition-colors">
-                  <Hash className="w-4 h-4 mr-2" />
-                  <span className="text-sm">经典老歌</span>
+                <div
+                  onClick={() => setActiveChannel('chat-assistant')}
+                  className={`flex items-center px-2 py-2 rounded-lg cursor-pointer transition-colors ${
+                    activeChannel === 'chat-assistant'
+                      ? 'bg-cyber-primary/10 text-cyber-primary'
+                      : 'hover:bg-cyber-bg/50 text-cyber-secondary/70'
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  <span className="text-sm font-medium">聊天助手</span>
                 </div>
               </div>
             </div>
@@ -592,145 +604,184 @@ const BotView: React.FC = () => {
         <div className="col-span-12 lg:col-span-8 flex flex-col h-full">
           {/* 频道标题 - 手机端优化 */}
           <div className="h-12 md:h-14 border-b border-cyber-secondary/30 flex items-center px-3 md:px-6 bg-cyber-bg-darker/30 backdrop-blur-sm flex-shrink-0">
-            <Hash className="w-4 h-4 md:w-5 md:h-5 text-cyber-primary mr-2" />
-            <span className="font-semibold text-cyber-text text-sm md:text-base">音乐助手</span>
-            {/* 手机端显示在线用户按钮 */}
-            <button 
-              className="ml-auto lg:hidden text-cyber-secondary hover:text-cyber-primary transition-colors p-2 rounded-lg"
-              onClick={() => setShowMobileUserList(!showMobileUserList)}
-            >
-              <User className="w-5 h-5" />
-            </button>
+            {activeChannel === 'music-search' ? (
+              <Hash className="w-4 h-4 md:w-5 md:h-5 text-cyber-primary mr-2" />
+            ) : (
+              <MessageSquare className="w-4 h-4 md:w-5 md:h-5 text-cyber-primary mr-2" />
+            )}
+            <span className="font-semibold text-cyber-text text-sm md:text-base">
+              {activeChannel === 'music-search' ? '音乐搜索' : '聊天助手'}
+            </span>
+            {/* 手机端频道切换按钮 */}
+            <div className="ml-auto flex items-center space-x-2">
+              <button
+                className={`lg:hidden p-2 rounded-lg transition-colors ${
+                  activeChannel === 'music-search'
+                    ? 'bg-cyber-primary/20 text-cyber-primary'
+                    : 'text-cyber-secondary hover:text-cyber-primary'
+                }`}
+                onClick={() => setActiveChannel('music-search')}
+                title="音乐搜索"
+              >
+                <Hash className="w-4 h-4" />
+              </button>
+              <button
+                className={`lg:hidden p-2 rounded-lg transition-colors ${
+                  activeChannel === 'chat-assistant'
+                    ? 'bg-cyber-primary/20 text-cyber-primary'
+                    : 'text-cyber-secondary hover:text-cyber-primary'
+                }`}
+                onClick={() => setActiveChannel('chat-assistant')}
+                title="聊天助手"
+              >
+                <MessageSquare className="w-4 h-4" />
+              </button>
+              {/* 手机端显示在线用户按钮 */}
+              <button
+                className="lg:hidden text-cyber-secondary hover:text-cyber-primary transition-colors p-2 rounded-lg"
+                onClick={() => setShowMobileUserList(!showMobileUserList)}
+              >
+                <User className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
-          {/* 消息显示区域 - 手机端优化间距 */}
-          <div className="flex-1 relative bg-cyber-bg">
-            <div className="absolute inset-0 overflow-y-auto messages-scroll-area">
-              <div className="p-2 md:p-6 max-w-5xl mx-auto space-y-3 md:space-y-4">
-                {displayMessages.map((message, index) => (
-                  <div
-                    key={message.id}
-                    className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'} items-start space-x-2 md:space-x-3 animate-fade-in`}
-                    style={{ animationDelay: `${index * 100}ms` }}
-                  >
-                    {message.type === 'bot' && (
-                      <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-cyber-primary/20 flex items-center justify-center flex-shrink-0">
-                        <Bot className="w-4 h-4 md:w-6 md:h-6 text-cyber-primary" />
-                      </div>
-                    )}
-                    
-                    <div
-                      className={`max-w-[90%] md:max-w-[80%] rounded-2xl p-3 md:p-4 shadow-lg ${
-                        message.type === 'user'
-                          ? 'bg-cyber-primary text-cyber-bg'
-                          : 'bg-cyber-bg-darker/50 backdrop-blur-sm text-cyber-text border border-cyber-secondary/20'
-                      }`}
-                    >
-                      <p className="text-xs md:text-sm mb-2">{message.content}</p>
-                      
-                      {message.song && (
-                        <div className="mt-2 md:mt-3 p-2 md:p-3 bg-cyber-bg/50 rounded-lg border border-cyber-secondary/30">
-                          <div className="flex items-center space-x-2 md:space-x-3">
-                            {/* 封面 - 手机端稍小 */}
-                            <div className="w-12 h-12 md:w-14 md:h-14 flex-shrink-0 rounded-lg overflow-hidden bg-cyber-bg">
-                              {message.song.coverUrl || message.song.picUrl ? (
-                                <img
-                                  src={message.song.coverUrl || message.song.picUrl}
-                                  alt={message.song.name}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center">
-                                  <Music2 className="h-6 w-6 md:h-7 md:w-7 text-cyber-primary" />
-                                </div>
-                              )}
-                            </div>
-                            
-                            {/* 歌曲信息 - 手机端字体调整 */}
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-bold text-cyber-text truncate text-xs md:text-sm">{message.song.name}</h4>
-                              <p className="text-xs text-cyber-primary truncate">
-                                {Array.isArray(message.song.artists) ? message.song.artists.join(', ') : message.song.artists}
-                              </p>
-                              <p className="text-xs text-cyber-secondary/70 truncate">{message.song.album}</p>
-                              <span className="text-xs text-cyber-secondary/70">{formatDuration(message.song.duration)}</span>
-                            </div>
-                            
-                            {/* 操作按钮 - 手机端垂直布局 */}
-                            <div className="flex flex-col space-y-1">
-                              <button
-                                onClick={() => handlePlay(message.song!)}
-                                className="p-1.5 md:p-2 rounded-full bg-cyber-primary hover:bg-cyber-hover-primary transition-all duration-200 hover:scale-105"
-                                title="播放"
-                              >
-                                <PlayCircle className="h-3 w-3 md:h-4 md:w-4 text-cyber-bg" />
-                              </button>
-                              <button
-                                onClick={() => handleAddToPlaylist(message.song!)}
-                                className="p-1.5 md:p-2 rounded-full bg-cyber-primary/20 hover:bg-cyber-primary/40 transition-all duration-200"
-                                title="添加到播放列表"
-                              >
-                                <Plus className="h-3 w-3 md:h-4 md:w-4 text-cyber-primary" />
-                              </button>
-                              <button
-                                onClick={() => navigate(`/lyric/${message.song!.id}`)}
-                                className="p-1.5 md:p-2 rounded-full bg-cyber-secondary/20 hover:bg-cyber-secondary/40 transition-all duration-200"
-                                title="查看歌词"
-                              >
-                                <Type className="h-3 w-3 md:h-4 md:w-4 text-cyber-secondary" />
-                              </button>
-                            </div>
+          {/* 内容区域 - 根据频道切换 */}
+          {activeChannel === 'music-search' ? (
+            <>
+              {/* 消息显示区域 - 手机端优化间距 */}
+              <div className="flex-1 relative bg-cyber-bg">
+                <div className="absolute inset-0 overflow-y-auto messages-scroll-area">
+                  <div className="p-2 md:p-6 max-w-5xl mx-auto space-y-3 md:space-y-4">
+                    {displayMessages.map((message, index) => (
+                      <div
+                        key={message.id}
+                        className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'} items-start space-x-2 md:space-x-3 animate-fade-in`}
+                        style={{ animationDelay: `${index * 100}ms` }}
+                      >
+                        {message.type === 'bot' && (
+                          <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-cyber-primary/20 flex items-center justify-center flex-shrink-0">
+                            <Bot className="w-4 h-4 md:w-6 md:h-6 text-cyber-primary" />
                           </div>
-                        </div>
-                      )}
-                      
-                      <span className="text-xs opacity-50 mt-1 md:mt-2 block">
-                        {message.timestamp.toLocaleTimeString()}
-                      </span>
-                    </div>
-                    
-                    {message.type === 'user' && (
-                      <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-cyber-secondary/20 flex items-center justify-center flex-shrink-0">
-                        <User className="w-4 h-4 md:w-6 md:h-6 text-cyber-secondary" />
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {/* 用于自动滚动到底部的参考元素 */}
-                <div ref={messagesEndRef} />
-              </div>
-            </div>
-          </div>
+                        )}
 
-          {/* 输入区域 - 优化紧凑样式 */}
-          <div className="h-auto p-2 md:p-3 bg-cyber-bg-darker/60 backdrop-blur-md border-t border-cyber-secondary/20 flex-shrink-0">
-            <div className="max-w-5xl mx-auto">
-              <form onSubmit={handleCommand} className="w-full">
-                <div className="flex items-center space-x-2 bg-cyber-bg-darker/40 backdrop-blur-sm p-1.5 md:p-2 rounded-lg border border-cyber-secondary/20 shadow-sm">
-                  <div className="flex-1 relative">
-                    <input
-                      type="text"
-                      value={command}
-                      onChange={(e) => setCommand(e.target.value)}
-                      placeholder="输入 /netease [歌曲名称]..."
-                      className="w-full px-2.5 md:px-3 py-1.5 md:py-2 text-sm bg-transparent text-cyber-text placeholder:text-cyber-secondary/50 focus:outline-none focus:ring-1 focus:ring-cyber-primary/40 rounded-md transition-all duration-200"
-                    />
+                        <div
+                          className={`max-w-[90%] md:max-w-[80%] rounded-2xl p-3 md:p-4 shadow-lg ${
+                            message.type === 'user'
+                              ? 'bg-cyber-primary text-cyber-bg'
+                              : 'bg-cyber-bg-darker/50 backdrop-blur-sm text-cyber-text border border-cyber-secondary/20'
+                          }`}
+                        >
+                          <p className="text-xs md:text-sm mb-2">{message.content}</p>
+
+                          {message.song && (
+                            <div className="mt-2 md:mt-3 p-2 md:p-3 bg-cyber-bg/50 rounded-lg border border-cyber-secondary/30">
+                              <div className="flex items-center space-x-2 md:space-x-3">
+                                {/* 封面 - 手机端稍小 */}
+                                <div className="w-12 h-12 md:w-14 md:h-14 flex-shrink-0 rounded-lg overflow-hidden bg-cyber-bg">
+                                  {message.song.coverUrl || message.song.picUrl ? (
+                                    <img
+                                      src={message.song.coverUrl || message.song.picUrl}
+                                      alt={message.song.name}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      <Music2 className="h-6 w-6 md:h-7 md:w-7 text-cyber-primary" />
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* 歌曲信息 - 手机端字体调整 */}
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="font-bold text-cyber-text truncate text-xs md:text-sm">{message.song.name}</h4>
+                                  <p className="text-xs text-cyber-primary truncate">
+                                    {Array.isArray(message.song.artists) ? message.song.artists.join(', ') : message.song.artists}
+                                  </p>
+                                  <p className="text-xs text-cyber-secondary/70 truncate">{message.song.album}</p>
+                                  <span className="text-xs text-cyber-secondary/70">{formatDuration(message.song.duration)}</span>
+                                </div>
+
+                                {/* 操作按钮 - 手机端垂直布局 */}
+                                <div className="flex flex-col space-y-1">
+                                  <button
+                                    onClick={() => handlePlay(message.song!)}
+                                    className="p-1.5 md:p-2 rounded-full bg-cyber-primary hover:bg-cyber-hover-primary transition-all duration-200 hover:scale-105"
+                                    title="播放"
+                                  >
+                                    <PlayCircle className="h-3 w-3 md:h-4 md:w-4 text-cyber-bg" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleAddToPlaylist(message.song!)}
+                                    className="p-1.5 md:p-2 rounded-full bg-cyber-primary/20 hover:bg-cyber-primary/40 transition-all duration-200"
+                                    title="添加到播放列表"
+                                  >
+                                    <Plus className="h-3 w-3 md:h-4 md:w-4 text-cyber-primary" />
+                                  </button>
+                                  <button
+                                    onClick={() => navigate(`/lyric/${message.song!.id}`)}
+                                    className="p-1.5 md:p-2 rounded-full bg-cyber-secondary/20 hover:bg-cyber-secondary/40 transition-all duration-200"
+                                    title="查看歌词"
+                                  >
+                                    <Type className="h-3 w-3 md:h-4 md:w-4 text-cyber-secondary" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          <span className="text-xs opacity-50 mt-1 md:mt-2 block">
+                            {message.timestamp.toLocaleTimeString()}
+                          </span>
+                        </div>
+
+                        {message.type === 'user' && (
+                          <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-cyber-secondary/20 flex items-center justify-center flex-shrink-0">
+                            <User className="w-4 h-4 md:w-6 md:h-6 text-cyber-secondary" />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {/* 用于自动滚动到底部的参考元素 */}
+                    <div ref={messagesEndRef} />
                   </div>
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className="px-2.5 md:px-3 py-1.5 md:py-2 bg-cyber-primary text-cyber-bg rounded-md hover:bg-cyber-hover-primary hover:scale-105 active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:hover:scale-100 disabled:hover:bg-cyber-primary shadow-sm"
-                  >
-                    {isLoading ? (
-                      <div className="animate-spin rounded-full h-3.5 w-3.5 md:h-4 md:w-4 border-2 border-cyber-bg border-t-transparent" />
-                    ) : (
-                      <Send className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                    )}
-                  </button>
                 </div>
-              </form>
-            </div>
-          </div>
+              </div>
+
+              {/* 输入区域 - 优化紧凑样式 */}
+              <div className="h-auto p-2 md:p-3 bg-cyber-bg-darker/60 backdrop-blur-md border-t border-cyber-secondary/20 flex-shrink-0">
+                <div className="max-w-5xl mx-auto">
+                  <form onSubmit={handleCommand} className="w-full">
+                    <div className="flex items-center space-x-2 bg-cyber-bg-darker/40 backdrop-blur-sm p-1.5 md:p-2 rounded-lg border border-cyber-secondary/20 shadow-sm">
+                      <div className="flex-1 relative">
+                        <input
+                          type="text"
+                          value={command}
+                          onChange={(e) => setCommand(e.target.value)}
+                          placeholder="输入 /netease [歌曲名称]..."
+                          className="w-full px-2.5 md:px-3 py-1.5 md:py-2 text-sm bg-transparent text-cyber-text placeholder:text-cyber-secondary/50 focus:outline-none focus:ring-1 focus:ring-cyber-primary/40 rounded-md transition-all duration-200"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={isLoading}
+                        className="px-2.5 md:px-3 py-1.5 md:py-2 bg-cyber-primary text-cyber-bg rounded-md hover:bg-cyber-hover-primary hover:scale-105 active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:hover:scale-100 disabled:hover:bg-cyber-primary shadow-sm"
+                      >
+                        {isLoading ? (
+                          <div className="animate-spin rounded-full h-3.5 w-3.5 md:h-4 md:w-4 border-2 border-cyber-bg border-t-transparent" />
+                        ) : (
+                          <Send className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </>
+          ) : (
+            /* 聊天助手频道 */
+            <ChatChannel className="flex-1" />
+          )}
         </div>
 
         {/* 右侧用户列表 - 在手机端隐藏，减少宽度 */}

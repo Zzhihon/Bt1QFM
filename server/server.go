@@ -13,6 +13,7 @@ import (
 
 	"Bt1QFM/cache"
 	"Bt1QFM/config"
+	"Bt1QFM/core/agent"
 	"Bt1QFM/core/audio"
 	"Bt1QFM/core/netease"
 	"Bt1QFM/db"
@@ -83,12 +84,23 @@ func Start() {
 	userRepo := repository.NewMySQLUserRepository(db.DB)
 	albumRepo := repository.NewMySQLAlbumRepository(db.DB)
 	announcementRepo := repository.NewAnnouncementRepository()
+	chatRepo := repository.NewMySQLChatRepository(db.DB)
 
 	// 初始化处理器
 	apiHandler := NewAPIHandler(trackRepo, userRepo, albumRepo, audioProcessor, cfg)
 	neteaseHandler := netease.NewNeteaseHandler(cfg.NeteaseAPIURL, cfg)
 	userHandler := NewUserHandler(userRepo)
 	announcementHandler := NewAnnouncementHandler(announcementRepo, userRepo)
+
+	// 初始化聊天处理器
+	agentConfig := &agent.MusicAgentConfig{
+		APIBaseURL:  cfg.AgentAPIBaseURL,
+		APIKey:      cfg.AgentAPIKey,
+		Model:       cfg.AgentModel,
+		MaxTokens:   cfg.AgentMaxTokens,
+		Temperature: cfg.AgentTemperature,
+	}
+	chatHandler := NewChatHandler(chatRepo, agentConfig)
 
 	// 使用 gorilla/mux 创建路由器
 	router := mux.NewRouter()
@@ -159,6 +171,14 @@ func Start() {
 	RegisterAnnouncementRoutes(router, announcementHandler, apiHandler.AuthMiddleware)
 	logger.Info("公告系统API端点注册完成",
 		logger.String("endpoints", "GET /api/announcements, GET /api/announcements/unread, PUT /api/announcements/{id}/read, POST /api/announcements, DELETE /api/announcements/{id}, GET /api/announcements/stats"))
+
+	// 🤖 AI聊天助手相关的API端点
+	logger.Info("注册AI聊天助手API端点...")
+	router.HandleFunc("/api/chat/history", apiHandler.AuthMiddleware(chatHandler.GetChatHistoryHandler)).Methods(http.MethodGet)
+	router.HandleFunc("/api/chat/clear", apiHandler.AuthMiddleware(chatHandler.ClearChatHistoryHandler)).Methods(http.MethodDelete)
+	router.HandleFunc("/ws/chat", chatHandler.WebSocketChatHandler)
+	logger.Info("AI聊天助手API端点注册完成",
+		logger.String("endpoints", "GET /api/chat/history, DELETE /api/chat/clear, WS /ws/chat"))
 
 	// 添加MinIO文件服务路由
 	router.PathPrefix("/streams/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
