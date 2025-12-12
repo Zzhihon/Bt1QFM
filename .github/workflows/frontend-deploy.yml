@@ -44,27 +44,23 @@ jobs:
       working-directory: web/ui
       run: tar -czvf dist.tar.gz dist/
 
-    - name: Copy dist to server
-      uses: appleboy/scp-action@v0.1.7
-      with:
-        host: ${{ secrets.DEPLOY_HOST }}
-        username: ${{ secrets.DEPLOY_USER }}
-        key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_PORT }}
-        source: "web/ui/dist.tar.gz"
-        target: "/opt/docker_file/website/nginx_website/website_file/1qfm"
-        strip_components: 2
+    - name: Setup SSH Key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        ssh-keyscan -p ${{ secrets.DEPLOY_PORT }} ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
 
-    - name: Deploy on server
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.DEPLOY_HOST }}
-        username: ${{ secrets.DEPLOY_USER }}
-        key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_PORT }}
-        timeout: 60s
-        command_timeout: 5m
-        script: |
+    - name: Upload and Deploy
+      run: |
+        # 上传文件
+        scp -P ${{ secrets.DEPLOY_PORT }} -i ~/.ssh/deploy_key \
+          web/ui/dist.tar.gz \
+          ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/docker_file/website/nginx_website/website_file/1qfm/
+
+        # 部署
+        ssh -p ${{ secrets.DEPLOY_PORT }} -i ~/.ssh/deploy_key \
+          ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'ENDSSH'
           cd /opt/docker_file/website/nginx_website/website_file/1qfm
 
           echo "🚀 开始部署前端..."
@@ -76,7 +72,7 @@ jobs:
           fi
 
           echo "📦 解压新版本..."
-          sudo tar -xzvf dist.tar.gz
+          tar -xzvf dist.tar.gz
 
           echo "🔧 设置权限..."
           sudo chmod -R 755 dist/
@@ -87,24 +83,11 @@ jobs:
 
           echo "✅ 前端部署完成!"
           ls -la dist/
+        ENDSSH
 
-    - name: Rollback on failure
-      if: failure()
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.DEPLOY_HOST }}
-        username: ${{ secrets.DEPLOY_USER }}
-        key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_PORT }}
-        timeout: 60s
-        script: |
-          cd /opt/docker_file/website/nginx_website/website_file/1qfm
-          if [ -d "dist.backup" ]; then
-            echo "⚠️ 部署失败，正在回滚..."
-            sudo rm -rf dist
-            sudo mv dist.backup dist
-            echo "✅ 回滚完成"
-          fi
+    - name: Cleanup SSH Key
+      if: always()
+      run: rm -f ~/.ssh/deploy_key
 
     - name: Deploy Summary
       if: always()
