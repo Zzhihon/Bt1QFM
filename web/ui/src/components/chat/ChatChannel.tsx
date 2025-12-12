@@ -58,6 +58,7 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isConnectingRef = useRef(false); // 防止重复连接
 
   // 滚动到底部
   const scrollToBottom = useCallback(() => {
@@ -95,8 +96,13 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
 
   // 连接WebSocket
   const connectWebSocket = useCallback(() => {
-    if (!authToken || wsRef.current?.readyState === WebSocket.OPEN) return;
+    // 防止重复连接
+    if (!authToken) return;
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (wsRef.current?.readyState === WebSocket.CONNECTING) return;
+    if (isConnectingRef.current) return;
 
+    isConnectingRef.current = true;
     const wsUrl = `${getWebSocketUrl()}/ws/chat?token=${authToken}`;
     console.log('Connecting to WebSocket:', wsUrl);
 
@@ -105,6 +111,7 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
 
     ws.onopen = () => {
       console.log('WebSocket connected');
+      isConnectingRef.current = false;
       setIsConnected(true);
       addToast({
         type: 'success',
@@ -159,11 +166,12 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
 
     ws.onclose = () => {
       console.log('WebSocket disconnected');
+      isConnectingRef.current = false;
       setIsConnected(false);
       wsRef.current = null;
 
-      // 尝试重连
-      if (authToken) {
+      // 尝试重连，只有在有 authToken 且不在连接中时才重连
+      if (authToken && !isConnectingRef.current) {
         reconnectTimeoutRef.current = setTimeout(() => {
           console.log('Attempting to reconnect...');
           connectWebSocket();
@@ -173,11 +181,12 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
 
     ws.onerror = (error) => {
       console.error('WebSocket error:', error);
+      isConnectingRef.current = false;
       setIsConnected(false);
     };
   }, [authToken, addToast]);
 
-  // 初始化
+  // 初始化 - 只在 authToken 变化时执行一次
   useEffect(() => {
     if (authToken) {
       loadChatHistory();
@@ -190,9 +199,12 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
       }
       if (wsRef.current) {
         wsRef.current.close();
+        wsRef.current = null;
       }
+      isConnectingRef.current = false;
     };
-  }, [authToken, loadChatHistory, connectWebSocket]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authToken]);
 
   // 发送消息
   const handleSendMessage = useCallback(async () => {
