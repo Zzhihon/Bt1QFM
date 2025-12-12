@@ -26,7 +26,7 @@ type ChatHandler struct {
 
 const (
 	// WebSocket 配置
-	writeWait      = 10 * time.Second    // 写入超时
+	writeWait      = 30 * time.Second    // 写入超时 - 增加到30秒
 	pongWait       = 60 * time.Second    // 等待 pong 响应超时
 	pingPeriod     = (pongWait * 9) / 10 // ping 间隔 (必须小于 pongWait)
 	maxMessageSize = 8192                // 最大消息大小
@@ -38,8 +38,8 @@ func NewChatHandler(chatRepo repository.ChatRepository, agentConfig *agent.Music
 		chatRepo:   chatRepo,
 		musicAgent: agent.NewMusicAgent(agentConfig),
 		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
+			ReadBufferSize:  4096,  // 增加读缓冲
+			WriteBufferSize: 4096,  // 增加写缓冲
 			CheckOrigin: func(r *http.Request) bool {
 				return true // Allow all origins for now
 			},
@@ -321,8 +321,9 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 		logger.Int("responseLength", len(fullResponse)))
 }
 
-// sendWebSocketMessage sends a message through WebSocket.
+// sendWebSocketMessage sends a message through WebSocket with proper deadline.
 func (h *ChatHandler) sendWebSocketMessage(conn *websocket.Conn, msg model.WebSocketMessage) error {
+	conn.SetWriteDeadline(time.Now().Add(writeWait))
 	return conn.WriteJSON(msg)
 }
 

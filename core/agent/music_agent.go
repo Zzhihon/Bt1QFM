@@ -290,7 +290,10 @@ func (a *MusicAgent) chatStreamInternal(ctx context.Context, history []*model.Ch
 
 				if callback != nil {
 					if err := callback(content); err != nil {
-						return fullContent.String(), fmt.Errorf("callback error: %w", err)
+						// 记录错误但继续处理流，不要因为单次写入失败就中断
+						logger.Warn("Callback error during streaming, continuing",
+							logger.ErrorField(err),
+							logger.Int("contentLenSoFar", fullContent.Len()))
 					}
 				}
 			}
