@@ -33,6 +33,8 @@ jobs:
 
     - name: Install dependencies
       working-directory: web/ui
+      env:
+        YARN_ENABLE_IMMUTABLE_INSTALLS: false
       run: yarn install
 
     - name: Build
