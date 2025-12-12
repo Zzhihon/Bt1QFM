@@ -33,7 +33,7 @@ jobs:
 
     - name: Install dependencies
       working-directory: web/ui
-      run: yarn install --immutable
+      run: yarn install
 
     - name: Build
       working-directory: web/ui
