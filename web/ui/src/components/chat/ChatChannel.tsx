@@ -90,6 +90,9 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
     }
   }, [authToken]);
 
+  // 用 ref 保存累积的流式内容，避免闭包问题
+  const streamingContentRef = useRef('');
+
   // 连接WebSocket
   const connectWebSocket = useCallback(() => {
     if (!authToken || wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -118,20 +121,24 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
           case 'start':
             setIsStreaming(true);
             setStreamingContent('');
+            streamingContentRef.current = '';
             break;
           case 'content':
-            setStreamingContent(prev => prev + msg.content);
+            streamingContentRef.current += msg.content;
+            setStreamingContent(streamingContentRef.current);
             break;
           case 'end':
             // 将流式内容添加到消息列表
+            const finalContent = streamingContentRef.current + (msg.content || '');
             setMessages(prev => [...prev, {
               id: Date.now(),
               sessionId: 0,
               role: 'assistant',
-              content: streamingContent + (msg.content || ''),
+              content: finalContent,
               createdAt: new Date().toISOString(),
             }]);
             setStreamingContent('');
+            streamingContentRef.current = '';
             setIsStreaming(false);
             setIsLoading(false);
             break;
@@ -168,7 +175,7 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
       console.error('WebSocket error:', error);
       setIsConnected(false);
     };
-  }, [authToken, addToast, streamingContent]);
+  }, [authToken, addToast]);
 
   // 初始化
   useEffect(() => {
