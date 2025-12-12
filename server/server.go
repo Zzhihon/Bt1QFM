@@ -100,6 +100,13 @@ func Start() {
 		MaxTokens:   cfg.AgentMaxTokens,
 		Temperature: cfg.AgentTemperature,
 	}
+
+	logger.Info("Agent config initialized",
+		logger.String("model", agentConfig.Model),
+		logger.Int("maxTokens", agentConfig.MaxTokens),
+		logger.Float64("temperature", agentConfig.Temperature),
+		logger.String("apiBaseURL", agentConfig.APIBaseURL))
+
 	chatHandler := NewChatHandler(chatRepo, agentConfig)
 
 	// 使用 gorilla/mux 创建路由器

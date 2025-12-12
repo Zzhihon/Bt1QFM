@@ -195,6 +195,7 @@ func (a *MusicAgent) chatStreamInternal(ctx context.Context, history []*model.Ch
 	logger.Info("Sending streaming chat request",
 		logger.String("model", a.config.Model),
 		logger.Int("historyCount", len(history)),
+		logger.Int("maxTokens", a.config.MaxTokens),
 		logger.String("apiUrl", a.config.APIBaseURL))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", a.config.APIBaseURL+"/chat/completions", bytes.NewBuffer(jsonBody))
