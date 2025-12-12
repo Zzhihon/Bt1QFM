@@ -24,6 +24,14 @@ type ChatHandler struct {
 	connections sync.Map // map[int64]*websocket.Conn - userID to connection
 }
 
+const (
+	// WebSocket 配置
+	writeWait      = 10 * time.Second    // 写入超时
+	pongWait       = 60 * time.Second    // 等待 pong 响应超时
+	pingPeriod     = (pongWait * 9) / 10 // ping 间隔 (必须小于 pongWait)
+	maxMessageSize = 8192                // 最大消息大小
+)
+
 // NewChatHandler creates a new ChatHandler.
 func NewChatHandler(chatRepo repository.ChatRepository, agentConfig *agent.MusicAgentConfig) *ChatHandler {
 	return &ChatHandler{
@@ -143,6 +151,14 @@ func (h *ChatHandler) WebSocketChatHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Configure connection
+	conn.SetReadLimit(maxMessageSize)
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
 	// Store connection
 	h.connections.Store(userID, conn)
 	defer func() {
@@ -163,17 +179,25 @@ func (h *ChatHandler) WebSocketChatHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Start ping goroutine to keep connection alive
+	done := make(chan struct{})
+	go h.pingLoop(conn, done)
+	defer close(done)
+
 	// Handle messages
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) {
 				logger.Warn("WebSocket unexpected close",
 					logger.Int64("userID", userID),
 					logger.ErrorField(err))
 			}
 			break
 		}
+
+		// Reset read deadline after receiving message
+		conn.SetReadDeadline(time.Now().Add(pongWait))
 
 		// Parse message
 		var msgReq model.ChatMessageRequest
@@ -189,6 +213,24 @@ func (h *ChatHandler) WebSocketChatHandler(w http.ResponseWriter, r *http.Reques
 
 		// Process the message
 		h.handleChatMessage(conn, session, userID, msgReq.Content)
+	}
+}
+
+// pingLoop sends periodic pings to keep the connection alive.
+func (h *ChatHandler) pingLoop(conn *websocket.Conn, done chan struct{}) {
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		case <-done:
+			return
+		}
 	}
 }
 
