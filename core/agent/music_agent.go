@@ -147,7 +147,36 @@ func (a *MusicAgent) Chat(ctx context.Context, history []*model.ChatMessage, use
 type StreamCallback func(chunk string) error
 
 // ChatStream sends a message and streams the response.
+// If streaming fails to produce content, it falls back to non-streaming mode.
 func (a *MusicAgent) ChatStream(ctx context.Context, history []*model.ChatMessage, userMessage string, callback StreamCallback) (string, error) {
+	// Try streaming first
+	result, err := a.chatStreamInternal(ctx, history, userMessage, callback)
+	if err != nil {
+		logger.Warn("Streaming chat failed, falling back to non-streaming",
+			logger.ErrorField(err))
+		// Fall back to non-streaming
+		return a.Chat(ctx, history, userMessage)
+	}
+
+	// If streaming returned empty, fall back to non-streaming
+	if result == "" {
+		logger.Warn("Streaming returned empty response, falling back to non-streaming")
+		nonStreamResult, err := a.Chat(ctx, history, userMessage)
+		if err != nil {
+			return "", err
+		}
+		// Send the full response as a single chunk
+		if callback != nil {
+			callback(nonStreamResult)
+		}
+		return nonStreamResult, nil
+	}
+
+	return result, nil
+}
+
+// chatStreamInternal is the internal streaming implementation.
+func (a *MusicAgent) chatStreamInternal(ctx context.Context, history []*model.ChatMessage, userMessage string, callback StreamCallback) (string, error) {
 	messages := a.buildMessages(history, userMessage)
 
 	reqBody := model.OpenAIChatRequest{
@@ -188,8 +217,13 @@ func (a *MusicAgent) ChatStream(ctx context.Context, history []*model.ChatMessag
 		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
+	logger.Info("Stream response started",
+		logger.Int("statusCode", resp.StatusCode),
+		logger.String("contentType", resp.Header.Get("Content-Type")))
+
 	var fullContent strings.Builder
 	reader := bufio.NewReader(resp.Body)
+	lineCount := 0
 
 	for {
 		select {
@@ -201,18 +235,31 @@ func (a *MusicAgent) ChatStream(ctx context.Context, history []*model.ChatMessag
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
+				logger.Info("Stream ended with EOF",
+					logger.Int("linesRead", lineCount),
+					logger.Int("contentLength", fullContent.Len()))
 				break
 			}
 			return fullContent.String(), fmt.Errorf("failed to read stream: %w", err)
 		}
 
+		lineCount++
+		rawLine := line
 		line = strings.TrimSpace(line)
+
 		if line == "" {
 			continue
 		}
 
+		logger.Debug("Stream line received",
+			logger.Int("lineNum", lineCount),
+			logger.String("rawLine", rawLine),
+			logger.String("trimmedLine", line))
+
 		// Skip non-data lines
 		if !strings.HasPrefix(line, "data: ") {
+			logger.Debug("Skipping non-data line",
+				logger.String("line", line))
 			continue
 		}
 
@@ -220,6 +267,9 @@ func (a *MusicAgent) ChatStream(ctx context.Context, history []*model.ChatMessag
 
 		// Check for stream end
 		if data == "[DONE]" {
+			logger.Info("Stream completed with [DONE]",
+				logger.Int("totalLines", lineCount),
+				logger.Int("contentLength", fullContent.Len()))
 			break
 		}
 
@@ -231,17 +281,24 @@ func (a *MusicAgent) ChatStream(ctx context.Context, history []*model.ChatMessag
 			continue
 		}
 
-		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
-			content := chunk.Choices[0].Delta.Content
-			fullContent.WriteString(content)
+		if len(chunk.Choices) > 0 {
+			delta := chunk.Choices[0].Delta
+			if delta.Content != "" {
+				content := delta.Content
+				fullContent.WriteString(content)
 
-			if callback != nil {
-				if err := callback(content); err != nil {
-					return fullContent.String(), fmt.Errorf("callback error: %w", err)
+				if callback != nil {
+					if err := callback(content); err != nil {
+						return fullContent.String(), fmt.Errorf("callback error: %w", err)
+					}
 				}
 			}
 		}
 	}
+
+	logger.Info("ChatStream completed",
+		logger.Int("totalLinesRead", lineCount),
+		logger.Int("finalContentLength", fullContent.Len()))
 
 	return fullContent.String(), nil
 }
