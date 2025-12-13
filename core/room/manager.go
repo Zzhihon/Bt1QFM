@@ -616,16 +616,30 @@ func (m *RoomManager) broadcastSongRemove(roomID string, position int) {
 
 // HandleMessage 处理 WebSocket 消息
 func (m *RoomManager) HandleMessage(ctx context.Context, client *Client, msg *WSMessage) {
+	// 处理前端双重序列化的 data 字段
+	data := msg.Data
+	if len(data) > 0 && data[0] == '"' {
+		// data 是一个 JSON 字符串，需要先解码
+		var decoded string
+		if err := json.Unmarshal(data, &decoded); err == nil {
+			data = json.RawMessage(decoded)
+		}
+	}
+
 	switch msg.Type {
 	case MsgTypeChat:
 		var chatData ChatData
-		if err := json.Unmarshal(msg.Data, &chatData); err == nil {
+		if err := json.Unmarshal(data, &chatData); err == nil {
 			m.SendMessage(ctx, client.RoomID, client.UserID, client.Username, chatData.Content)
+		} else {
+			logger.Warn("解析聊天消息失败",
+				logger.ErrorField(err),
+				logger.String("data", string(data)))
 		}
 
 	case MsgTypePlay, MsgTypePause, MsgTypeSeek:
 		var playbackData PlaybackData
-		if err := json.Unmarshal(msg.Data, &playbackData); err == nil {
+		if err := json.Unmarshal(data, &playbackData); err == nil {
 			state := &model.RoomPlaybackState{
 				Position:  playbackData.Position,
 				IsPlaying: msg.Type == MsgTypePlay,
@@ -667,7 +681,7 @@ func (m *RoomManager) HandleMessage(ctx context.Context, client *Client, msg *WS
 
 	case MsgTypeSongAdd:
 		var songData SongData
-		if err := json.Unmarshal(msg.Data, &songData); err == nil {
+		if err := json.Unmarshal(data, &songData); err == nil {
 			m.AddSong(ctx, client.RoomID, client.UserID, &songData)
 		}
 
@@ -675,7 +689,7 @@ func (m *RoomManager) HandleMessage(ctx context.Context, client *Client, msg *WS
 		var delData struct {
 			Position int `json:"position"`
 		}
-		if err := json.Unmarshal(msg.Data, &delData); err == nil {
+		if err := json.Unmarshal(data, &delData); err == nil {
 			m.RemoveSong(ctx, client.RoomID, client.UserID, delData.Position)
 		}
 
@@ -683,19 +697,19 @@ func (m *RoomManager) HandleMessage(ctx context.Context, client *Client, msg *WS
 		var modeData struct {
 			Mode string `json:"mode"`
 		}
-		if err := json.Unmarshal(msg.Data, &modeData); err == nil {
+		if err := json.Unmarshal(data, &modeData); err == nil {
 			m.SwitchMode(ctx, client.RoomID, client.UserID, modeData.Mode)
 		}
 
 	case MsgTypeTransferOwner:
 		var controlData ControlData
-		if err := json.Unmarshal(msg.Data, &controlData); err == nil {
+		if err := json.Unmarshal(data, &controlData); err == nil {
 			m.TransferOwner(ctx, client.RoomID, client.UserID, controlData.TargetUserID)
 		}
 
 	case MsgTypeGrantControl:
 		var controlData ControlData
-		if err := json.Unmarshal(msg.Data, &controlData); err == nil {
+		if err := json.Unmarshal(data, &controlData); err == nil {
 			m.GrantControl(ctx, client.RoomID, client.UserID, controlData.TargetUserID, controlData.CanControl)
 		}
 	}
