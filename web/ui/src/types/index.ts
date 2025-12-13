@@ -274,7 +274,8 @@ export type RoomWSMessageType =
   | 'master_sync'     // 房主播放状态同步（服务端 -> 听歌用户）
   | 'master_report'   // 房主上报播放状态（房主 -> 服务端）
   | 'master_request'  // 请求房主播放状态（用户 -> 服务端 -> 房主）
-  | 'master_mode';    // 房主模式变更通知
+  | 'master_mode'     // 房主模式变更通知
+  | 'room_disband';   // 房间解散通知
 
 // 房主播放同步数据
 export interface MasterSyncData {

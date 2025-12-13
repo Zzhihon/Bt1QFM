@@ -28,7 +28,8 @@ interface RoomContextType {
   // 房间操作
   createRoom: (name: string) => Promise<Room | null>;
   joinRoom: (roomId: string) => Promise<boolean>;
-  leaveRoom: (transferTo?: number) => Promise<void>;
+  leaveRoom: () => Promise<void>;
+  disbandRoom: () => Promise<void>; // 解散房间（仅房主）
 
   // 模式切换
   switchMode: (mode: 'chat' | 'listen') => Promise<void>;
@@ -285,6 +286,11 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             window.dispatchEvent(new CustomEvent('room-master-mode-change', { detail: modeData }));
           }
           break;
+
+        case 'room_disband':
+          // 房间被解散 - 通知所有用户
+          window.dispatchEvent(new CustomEvent('room-disbanded'));
+          break;
       }
     } catch (err) {
       console.error('解析 WebSocket 消息失败:', err);
@@ -510,8 +516,8 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [authToken, connectWebSocket]);
 
-  // 离开房间
-  const leaveRoom = useCallback(async (transferTo?: number): Promise<void> => {
+  // 离开房间（暂时离开，房间仍然存在）
+  const leaveRoom = useCallback(async (): Promise<void> => {
     if (!authToken || !currentRoom) return;
 
     try {
@@ -523,11 +529,43 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         },
         body: JSON.stringify({
           roomId: currentRoom.id,
-          transferTo,
         }),
       });
     } catch (err) {
       console.error('离开房间失败:', err);
+    } finally {
+      cleanup();
+      setCurrentRoom(null);
+      setMembers([]);
+      setPlaylist([]);
+      setPlaybackState(null);
+      setMyMember(null);
+    }
+  }, [authToken, currentRoom, cleanup]);
+
+  // 解散房间（仅房主可操作，房间将被关闭）
+  const disbandRoom = useCallback(async (): Promise<void> => {
+    if (!authToken || !currentRoom) return;
+
+    try {
+      const response = await fetch('/api/rooms/disband', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          roomId: currentRoom.id,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        throw new Error(errorData || '解散房间失败');
+      }
+    } catch (err) {
+      console.error('解散房间失败:', err);
+      throw err;
     } finally {
       cleanup();
       setCurrentRoom(null);
@@ -672,6 +710,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     createRoom,
     joinRoom,
     leaveRoom,
+    disbandRoom,
     switchMode,
     play,
     pause,

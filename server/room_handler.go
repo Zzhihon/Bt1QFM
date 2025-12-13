@@ -353,6 +353,42 @@ func (h *RoomHandler) GetMyRoomsHandler(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(rooms)
 }
 
+// DisbandRoomRequest 解散房间请求
+type DisbandRoomRequest struct {
+	RoomID string `json:"roomId"`
+}
+
+// DisbandRoomHandler 解散房间（仅房主可操作）
+func (h *RoomHandler) DisbandRoomHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	userID, ok := ctx.Value("userID").(int64)
+	if !ok {
+		http.Error(w, "未授权", http.StatusUnauthorized)
+		return
+	}
+
+	var req DisbandRoomRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "无效的请求", http.StatusBadRequest)
+		return
+	}
+
+	if req.RoomID == "" {
+		http.Error(w, "房间ID不能为空", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.manager.DisbandRoom(ctx, req.RoomID, userID); err != nil {
+		logger.Warn("解散房间失败", logger.ErrorField(err))
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "房间已解散"})
+}
+
 // ========== WebSocket 处理器 ==========
 
 // WebSocketHandler 处理 WebSocket 连接
@@ -431,6 +467,7 @@ func RegisterRoomRoutes(router *mux.Router, handler *RoomHandler, authMiddleware
 	router.HandleFunc("/api/rooms/my", authMiddleware(handler.GetMyRoomsHandler)).Methods(http.MethodGet)
 	router.HandleFunc("/api/rooms/join", authMiddleware(handler.JoinRoomHandler)).Methods(http.MethodPost)
 	router.HandleFunc("/api/rooms/leave", authMiddleware(handler.LeaveRoomHandler)).Methods(http.MethodPost)
+	router.HandleFunc("/api/rooms/disband", authMiddleware(handler.DisbandRoomHandler)).Methods(http.MethodPost)
 	router.HandleFunc("/api/rooms/{room_id}", authMiddleware(handler.GetRoomHandler)).Methods(http.MethodGet)
 	router.HandleFunc("/api/rooms/{room_id}/playlist", authMiddleware(handler.GetPlaylistHandler)).Methods(http.MethodGet)
 	router.HandleFunc("/api/rooms/{room_id}/playback", authMiddleware(handler.GetPlaybackHandler)).Methods(http.MethodGet)
@@ -443,5 +480,5 @@ func RegisterRoomRoutes(router *mux.Router, handler *RoomHandler, authMiddleware
 	router.HandleFunc("/ws/room/{room_id}", handler.WebSocketHandler)
 
 	logger.Info("房间系统API端点注册完成",
-		logger.String("endpoints", "POST /api/rooms, GET /api/rooms/my, POST /api/rooms/join, POST /api/rooms/leave, GET /api/rooms/{id}, WS /ws/room/{id}"))
+		logger.String("endpoints", "POST /api/rooms, GET /api/rooms/my, POST /api/rooms/join, POST /api/rooms/leave, POST /api/rooms/disband, GET /api/rooms/{id}, WS /ws/room/{id}"))
 }

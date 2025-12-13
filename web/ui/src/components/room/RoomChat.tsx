@@ -30,7 +30,7 @@ interface ChatMessage {
 const RoomChat: React.FC = () => {
   const { currentUser, authToken } = useAuth();
   const { sendMessage, isConnected, currentRoom, addSong } = useRoom();
-  const { playTrack, playerState, updatePlaylist, showPlaylist, setShowPlaylist } = usePlayer();
+  const { playTrack } = usePlayer();
   const { addToast } = useToast();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -193,41 +193,12 @@ const RoomChat: React.FC = () => {
     }
   };
 
-  // 添加到播放列表
+  // 添加到播放列表（仅添加到房间歌单，不影响个人播放列表）
   const handleAddToPlaylist = async (song: SongCard) => {
     try {
       const artistStr = Array.isArray(song.artists) ? song.artists.join(', ') : (song.artists || '未知艺术家');
 
-      // 检查是否已在播放列表
-      const isInPlaylist = playerState.playlist.some(track => track.id === song.id);
-      if (isInPlaylist) {
-        addToast({
-          type: 'info',
-          message: '歌曲已在播放列表中',
-          duration: 2000,
-        });
-        return;
-      }
-
-      const trackData = {
-        id: song.id,
-        neteaseId: song.id,
-        title: song.name,
-        artist: artistStr,
-        album: song.album || '未知专辑',
-        coverArtPath: song.coverUrl || song.picUrl || '',
-        hlsPlaylistUrl: `/streams/netease/${song.id}/playlist.m3u8`,
-        position: playerState.playlist.length,
-      };
-
-      const newPlaylist = [...playerState.playlist, trackData];
-      updatePlaylist(newPlaylist);
-
-      if (!showPlaylist) {
-        setShowPlaylist(true);
-      }
-
-      // 同时添加到房间歌单
+      // 添加到房间歌单（通过 WebSocket 广播给所有人）
       addSong({
         songId: String(song.id),
         name: song.name,
@@ -239,7 +210,7 @@ const RoomChat: React.FC = () => {
 
       addToast({
         type: 'success',
-        message: '已添加到播放列表',
+        message: '已添加到房间歌单',
         duration: 2000,
       });
     } catch (error) {

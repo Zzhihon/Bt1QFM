@@ -40,7 +40,8 @@ const RoomPlaylist: React.FC = () => {
       const response = await fetch(`/api/netease/search?keywords=${encodeURIComponent(searchQuery)}&limit=20`);
       if (response.ok) {
         const data = await response.json();
-        setSearchResults(data.result?.songs || []);
+        // API 返回格式: { success: true, data: [...] }
+        setSearchResults(data.data || []);
       } else {
         addToast({ type: 'error', message: '搜索失败', duration: 3000 });
       }
@@ -57,8 +58,10 @@ const RoomPlaylist: React.FC = () => {
     const item: Omit<RoomPlaylistItem, 'position' | 'addedBy' | 'addedAt'> = {
       songId: `netease_${song.id}`,
       name: song.name,
-      artist: song.artists?.map((a: any) => a.name).join(', ') || '未知艺人',
-      cover: song.album?.picUrl || '',
+      // API 返回的 artists 是字符串数组
+      artist: song.artists?.join(', ') || '未知艺人',
+      // API 返回的 picUrl 直接在 song 对象上
+      cover: song.picUrl || '',
       duration: Math.floor((song.duration || 0) / 1000),
       source: 'netease',
     };
@@ -237,9 +240,9 @@ const RoomPlaylist: React.FC = () => {
                     >
                       {/* 封面 */}
                       <div className="w-10 h-10 rounded overflow-hidden bg-cyber-bg-darker/50 flex-shrink-0 mr-3">
-                        {song.album?.picUrl ? (
+                        {song.picUrl ? (
                           <img
-                            src={song.album.picUrl}
+                            src={song.picUrl}
                             alt={song.name}
                             className="w-full h-full object-cover"
                           />
@@ -256,7 +259,7 @@ const RoomPlaylist: React.FC = () => {
                           {song.name}
                         </p>
                         <p className="text-xs text-cyber-secondary/70 truncate">
-                          {song.artists?.map((a: any) => a.name).join(', ') || '未知艺人'}
+                          {song.artists?.join(', ') || '未知艺人'}
                         </p>
                       </div>
 

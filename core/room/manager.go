@@ -187,7 +187,7 @@ func (m *RoomManager) JoinRoom(ctx context.Context, roomID string, userID int64,
 	return room, member, nil
 }
 
-// LeaveRoom 离开房间
+// LeaveRoom 离开房间（暂时离开，不会解散房间）
 func (m *RoomManager) LeaveRoom(ctx context.Context, roomID string, userID int64, transferTo *int64) error {
 	// 获取成员信息
 	member, err := m.repo.GetMember(ctx, roomID, userID)
@@ -202,51 +202,19 @@ func (m *RoomManager) LeaveRoom(ctx context.Context, roomID string, userID int64
 	room, _ := m.GetRoom(ctx, roomID)
 	isOwner := room != nil && room.OwnerID == userID
 
-	// 清理订阅
+	// 清理该用户的订阅（如果是订阅者）
 	subMgr := GetSubscriptionManager()
 	subMgr.Unsubscribe(roomID, userID)
-	if isOwner {
-		subMgr.ClearMaster(roomID)
-	}
 
-	// 如果是房主且需要转让
-	if member.Role == model.RoomRoleOwner {
-		if transferTo != nil && *transferTo != userID {
-			// 转让房主
-			if err := m.TransferOwner(ctx, roomID, userID, *transferTo); err != nil {
-				return fmt.Errorf("转让房主失败: %w", err)
-			}
-		} else {
-			// 检查是否还有其他成员
-			members, err := m.cache.GetMembersOnline(ctx, roomID)
-			if err == nil && len(members) > 1 {
-				// 自动选择一个成员转让
-				for _, member := range members {
-					if member.UserID != userID {
-						if err := m.repo.TransferOwner(ctx, roomID, userID, member.UserID); err == nil {
-							// 更新缓存
-							m.cache.UpdateMemberRole(ctx, roomID, member.UserID, model.RoomRoleOwner)
-							m.hub.UpdateClientRole(roomID, member.UserID, model.RoomRoleOwner)
-							m.broadcastRoleUpdate(roomID, member.UserID, model.RoomRoleOwner)
-						}
-						break
-					}
-				}
-			} else {
-				// 没有其他成员，关闭房间
-				if err := m.CloseRoom(ctx, roomID); err != nil {
-					logger.Warn("关闭房间失败", logger.ErrorField(err))
-				}
-			}
-		}
-	}
+	// 注意：房主离开房间时 **不** 清除 Master 状态
+	// 这样听歌模式可以继续，房主回来后可以继续上报
+	// 只有房主主动切换到聊天模式时才清除 Master
 
-	// 移除成员
-	if err := m.repo.RemoveMember(ctx, roomID, userID); err != nil {
-		return fmt.Errorf("移除成员失败: %w", err)
-	}
+	// 注意：离开房间不再自动转让房主或关闭房间
+	// 房主离开后仍然是房主，房间保持存在
+	// 只有调用 DisbandRoom 才会真正解散房间
 
-	// 移除在线状态
+	// 移除在线状态（但保留成员记录，方便重新加入）
 	if err := m.cache.RemoveMemberOnline(ctx, roomID, userID); err != nil {
 		logger.Warn("移除在线状态失败", logger.ErrorField(err))
 	}
@@ -256,7 +224,39 @@ func (m *RoomManager) LeaveRoom(ctx context.Context, roomID string, userID int64
 
 	logger.Info("用户离开房间",
 		logger.String("roomId", roomID),
-		logger.Int64("userId", userID))
+		logger.Int64("userId", userID),
+		logger.Bool("isOwner", isOwner))
+
+	return nil
+}
+
+// DisbandRoom 解散房间（仅房主可操作）
+func (m *RoomManager) DisbandRoom(ctx context.Context, roomID string, userID int64) error {
+	// 获取房间信息
+	room, err := m.GetRoom(ctx, roomID)
+	if err != nil {
+		return fmt.Errorf("获取房间失败: %w", err)
+	}
+	if room == nil {
+		return fmt.Errorf("房间不存在")
+	}
+
+	// 验证是否是房主
+	if room.OwnerID != userID {
+		return fmt.Errorf("只有房主可以解散房间")
+	}
+
+	// 广播房间解散消息
+	m.broadcastRoomDisband(roomID)
+
+	// 关闭房间
+	if err := m.CloseRoom(ctx, roomID); err != nil {
+		return fmt.Errorf("解散房间失败: %w", err)
+	}
+
+	logger.Info("房间已解散",
+		logger.String("roomId", roomID),
+		logger.Int64("ownerId", userID))
 
 	return nil
 }
@@ -824,6 +824,14 @@ func (m *RoomManager) broadcastSongRemove(roomID string, position int) {
 	m.hub.BroadcastWSMessage(roomID, msg, 0, "")
 }
 
+func (m *RoomManager) broadcastRoomDisband(roomID string) {
+	msg := &WSMessage{
+		Type:   MsgTypeRoomDisband,
+		RoomID: roomID,
+	}
+	m.hub.BroadcastWSMessage(roomID, msg, 0, "")
+}
+
 // ========== 消息处理器 ==========
 
 // HandleMessage 处理 WebSocket 消息
@@ -994,14 +1002,6 @@ func (m *RoomManager) handleMasterReport(ctx context.Context, client *Client, da
 		return
 	}
 
-	// 检查房主是否在听歌模式（通过订阅管理器）
-	subMgr := GetSubscriptionManager()
-	if !subMgr.IsMasterInListenMode(client.RoomID) {
-		logger.Debug("房主不在一起听模式，忽略上报",
-			logger.String("roomId", client.RoomID))
-		return
-	}
-
 	// 解析上报数据
 	var syncData MasterSyncData
 	if err := json.Unmarshal(data, &syncData); err != nil {
@@ -1039,8 +1039,37 @@ func (m *RoomManager) handleMasterReport(ctx context.Context, client *Client, da
 			logger.String("roomId", client.RoomID))
 	}
 
-	// ========== 使用订阅发布机制推送 ==========
-	subMgr.Publish(client.RoomID, &syncData, client.UserID)
+	// 广播给所有听歌模式的用户（无论房主是否在听歌模式）
+	// 这样即使房主在聊天模式，听歌模式的用户也能同步
+	m.broadcastMasterSyncToListeners(client.RoomID, &syncData, client.UserID)
+}
+
+// broadcastMasterSyncToListeners 广播房主播放状态给所有听歌模式的用户
+func (m *RoomManager) broadcastMasterSyncToListeners(roomID string, syncData *MasterSyncData, excludeUserID int64) {
+	// 首先尝试通过订阅管理器推送（如果房主在听歌模式）
+	subMgr := GetSubscriptionManager()
+	if subMgr.HasSubscribers(roomID) {
+		subMgr.Publish(roomID, syncData, excludeUserID)
+		return
+	}
+
+	// 如果没有订阅者，则广播给所有听歌模式的用户
+	data, err := json.Marshal(syncData)
+	if err != nil {
+		return
+	}
+
+	msg := &WSMessage{
+		Type:      MsgTypeMasterSync,
+		RoomID:    roomID,
+		UserID:    syncData.MasterID,
+		Username:  syncData.MasterName,
+		Data:      data,
+		Timestamp: time.Now().UnixMilli(),
+	}
+
+	// 只发送给听歌模式的用户
+	m.hub.BroadcastWSMessage(roomID, msg, excludeUserID, model.RoomModeListen)
 }
 
 // handleMasterRequest 处理用户请求房主播放状态，通知房主上报

@@ -52,6 +52,9 @@ const (
 	MsgTypeTransferOwner MessageType = "transfer_owner" // 转让房主
 	MsgTypeGrantControl  MessageType = "grant_control"  // 授权控制
 	MsgTypeRoleUpdate    MessageType = "role_update"    // 角色更新
+
+	// 房间管理消息
+	MsgTypeRoomDisband MessageType = "room_disband" // 房间解散
 )
 
 // WSMessage WebSocket 消息结构
