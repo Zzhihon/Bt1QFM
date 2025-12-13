@@ -1,6 +1,6 @@
 module Bt1QFM
 
-go 1.24.0
+go 1.23.3
 
 require (
 	github.com/fsnotify/fsnotify v1.7.0
