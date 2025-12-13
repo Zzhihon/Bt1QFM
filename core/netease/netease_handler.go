@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-
+	"strconv"
 
 	"Bt1QFM/config"
 	"Bt1QFM/core/audio"
@@ -58,8 +58,11 @@ type SearchSongItem struct {
 
 // HandleSearch 处理搜索请求
 func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
-	// 获取查询参数
+	// 获取查询参数 - 同时支持 q 和 keywords 两种参数名
 	query := r.URL.Query().Get("q")
+	if query == "" {
+		query = r.URL.Query().Get("keywords")
+	}
 	if query == "" {
 		logger.Error("[HandleSearch] 错误: 缺少搜索关键词")
 		json.NewEncoder(w).Encode(SearchResponse{
@@ -69,10 +72,21 @@ func (h *NeteaseHandler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.Info("[HandleSearch] 开始搜索歌曲", logger.String("query", query))
+	// 获取 limit 参数，默认为 3
+	limit := 3
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := parseLimit(limitStr); err == nil && l > 0 {
+			limit = l
+			if limit > 50 {
+				limit = 50 // 最大限制50
+			}
+		}
+	}
+
+	logger.Info("[HandleSearch] 开始搜索歌曲", logger.String("query", query), logger.Int("limit", limit))
 
 	// 使用已实现的SearchSongs函数
-	result, err := h.client.SearchSongs(query, 3, 0, h.mp3Processor, h.config.StaticDir)
+	result, err := h.client.SearchSongs(query, limit, 0, h.mp3Processor, h.config.StaticDir)
 	if err != nil {
 		logger.Error("[HandleSearch] 搜索失败", logger.ErrorField(err))
 		json.NewEncoder(w).Encode(SearchResponse{
@@ -348,4 +362,9 @@ func (h *NeteaseHandler) HandleDynamicCover(w http.ResponseWriter, r *http.Reque
 	}
 
 	logger.Info("[HandleDynamicCover] Successfully returned dynamic cover", logger.String("id", ids))
+}
+
+// parseLimit 解析limit参数
+func parseLimit(s string) (int, error) {
+	return strconv.Atoi(s)
 }
