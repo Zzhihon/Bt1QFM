@@ -31,14 +31,19 @@ const RoomChat: React.FC = () => {
   // 监听 WebSocket 消息（通过全局事件）
   useEffect(() => {
     const handleRoomMessage = (event: CustomEvent<ChatMessage>) => {
-      setMessages((prev) => [...prev, event.detail]);
+      const newMessage = event.detail;
+      // 过滤掉自己发送的消息（已通过乐观更新显示）
+      if (newMessage.userId === currentUser?.id) {
+        return;
+      }
+      setMessages((prev) => [...prev, newMessage]);
     };
 
     window.addEventListener('room-chat-message', handleRoomMessage as EventListener);
     return () => {
       window.removeEventListener('room-chat-message', handleRoomMessage as EventListener);
     };
-  }, []);
+  }, [currentUser?.id]);
 
   // 发送消息
   const handleSend = () => {

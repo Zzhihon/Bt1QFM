@@ -141,8 +141,19 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           break;
 
         case 'chat':
-          // 聊天消息 - 可以通过事件分发或状态管理处理
-          // 这里暂时不处理，由组件自己监听
+          // 聊天消息 - 通过自定义事件分发给 RoomChat 组件
+          if (message.userId && message.username && message.data) {
+            const chatData = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
+            const chatMessage = {
+              id: message.timestamp,
+              userId: message.userId,
+              username: message.username,
+              content: chatData.content,
+              timestamp: message.timestamp,
+              type: 'chat' as const,
+            };
+            window.dispatchEvent(new CustomEvent('room-chat-message', { detail: chatMessage }));
+          }
           break;
 
         case 'sync':
