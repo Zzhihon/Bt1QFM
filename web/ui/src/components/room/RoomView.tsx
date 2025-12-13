@@ -486,9 +486,9 @@ const RoomView: React.FC = () => {
 
   // 房间视图 - 左右分栏布局
   return (
-    <div className="flex flex-col h-full bg-cyber-bg overflow-hidden">
+    <div className="h-[calc(100vh-64px-114px)] md:h-[calc(100vh-64px-84px)] flex flex-col bg-cyber-bg overflow-hidden">
       {/* 顶部信息栏 - 固定 */}
-      <div className="flex-shrink-0 bg-cyber-bg-darker/60 backdrop-blur-md border-b border-cyber-secondary/20 p-3 z-10">
+      <div className="flex-shrink-0 bg-cyber-bg-darker/60 backdrop-blur-md border-b border-cyber-secondary/20 p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             {/* 连接状态 */}
@@ -622,12 +622,12 @@ const RoomView: React.FC = () => {
         )}
       </div>
 
-      {/* 主内容区域 - 左右分栏，底部为播放器预留空间 */}
-      <div className="flex-1 flex overflow-hidden pb-[100px] md:pb-[84px]">
+      {/* 主内容区域 - 左右分栏 */}
+      <div className="flex-1 flex overflow-hidden">
         {/* 左侧面板 - 歌单/成员 */}
         <div className="w-72 flex-shrink-0 border-r border-cyber-secondary/20 flex flex-col bg-cyber-bg-darker/30">
           {/* 左侧标签切换 - 固定在顶部 */}
-          <div className="flex-shrink-0 flex border-b border-cyber-secondary/20 bg-cyber-bg-darker/30 z-10">
+          <div className="flex-shrink-0 flex border-b border-cyber-secondary/20 bg-cyber-bg-darker/50">
             <button
               onClick={() => setLeftTab('playlist')}
               className={`flex-1 py-2.5 flex items-center justify-center space-x-1.5 text-sm font-medium transition-colors ${
@@ -664,7 +664,7 @@ const RoomView: React.FC = () => {
         {/* 右侧面板 - 聊天 */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* 聊天标题 - 固定在顶部 */}
-          <div className="flex-shrink-0 px-4 py-2.5 border-b border-cyber-secondary/20 bg-cyber-bg-darker/20 z-10">
+          <div className="flex-shrink-0 px-4 py-2.5 border-b border-cyber-secondary/20 bg-cyber-bg-darker/30">
             <div className="flex items-center space-x-2">
               <MessageSquare className="w-4 h-4 text-cyber-primary" />
               <span className="text-sm font-medium text-cyber-text">聊天</span>
