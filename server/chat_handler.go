@@ -307,18 +307,25 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 		logger.Error("Failed to get AI response",
 			logger.Int64("userID", userID),
 			logger.ErrorField(err))
-		h.sendWebSocketError(conn, "Failed to get AI response: "+err.Error())
+			h.sendWebSocketError(conn, "Failed to get AI response: "+err.Error())
 		return
 	}
 
 	// 解析 AI 响应中的音乐搜索标签
 	cleanContent, searchQuery := h.musicAgent.ParseSearchMusic(fullResponse)
 
-	// Save assistant message (保存清理后的内容)
+	// 如果有音乐搜索请求，先执行搜索获取歌曲数据
+	var songCards []model.SongCard
+	if searchQuery != "" {
+		songCards = h.handleMusicSearchAndGetCards(conn, userID, searchQuery)
+	}
+
+	// Save assistant message (保存清理后的内容和歌曲数据)
 	assistantMsg := &model.ChatMessage{
 		SessionID: session.ID,
 		Role:      "assistant",
 		Content:   cleanContent, // 保存不含标签的内容
+		Songs:     songCards,    // 保存歌曲卡片数据
 	}
 	assistantMsgID, err := h.chatRepo.CreateMessage(assistantMsg)
 	if err != nil {
@@ -330,11 +337,6 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 	assistantMsg.ID = assistantMsgID
 	assistantMsg.CreatedAt = time.Now()
 
-	// 如果有音乐搜索请求，执行搜索并发送歌曲卡片
-	if searchQuery != "" {
-		h.handleMusicSearch(conn, userID, searchQuery)
-	}
-
 	// Send end signal
 	h.sendWebSocketMessage(conn, model.WebSocketMessage{
 		Type:    "end",
@@ -344,7 +346,8 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 	logger.Info("Chat message processed",
 		logger.Int64("userID", userID),
 		logger.Int("responseLength", len(fullResponse)),
-		logger.String("musicQuery", searchQuery))
+		logger.String("musicQuery", searchQuery),
+		logger.Int("songsCount", len(songCards)))
 }
 
 // timeoutWatcher 监控首响应超时，发送分层超时提示
@@ -404,8 +407,8 @@ func (h *ChatHandler) sendWebSocketError(conn *websocket.Conn, errMsg string) {
 	})
 }
 
-// handleMusicSearch 执行音乐搜索并发送歌曲卡片
-func (h *ChatHandler) handleMusicSearch(conn *websocket.Conn, userID int64, query string) {
+// handleMusicSearchAndGetCards 执行音乐搜索，发送歌曲卡片，并返回卡片数据用于持久化
+func (h *ChatHandler) handleMusicSearchAndGetCards(conn *websocket.Conn, userID int64, query string) []model.SongCard {
 	logger.Info("[ChatHandler] 执行音乐搜索",
 		logger.Int64("userID", userID),
 		logger.String("query", query))
@@ -417,18 +420,18 @@ func (h *ChatHandler) handleMusicSearch(conn *websocket.Conn, userID int64, quer
 			logger.Int64("userID", userID),
 			logger.String("query", query),
 			logger.ErrorField(err))
-		return
+		return nil
 	}
 
 	if len(songs) == 0 {
 		logger.Info("[ChatHandler] 未找到歌曲",
 			logger.Int64("userID", userID),
 			logger.String("query", query))
-		return
+		return nil
 	}
 
-	// 转换为 SongCard 格式
-	songCards := h.convertToSongCards(songs)
+	// 转换为 SongCard 格式，并获取详细封面
+	songCards := h.convertToSongCardsWithDetail(songs)
 
 	// 发送歌曲卡片消息
 	songsMsg := model.ChatMessageWithSongs{
@@ -442,15 +445,49 @@ func (h *ChatHandler) handleMusicSearch(conn *websocket.Conn, userID int64, quer
 		logger.Error("[ChatHandler] 发送歌曲卡片失败",
 			logger.Int64("userID", userID),
 			logger.ErrorField(err))
-		return
+		return songCards // 即使发送失败也返回数据用于持久化
 	}
 
 	logger.Info("[ChatHandler] 歌曲卡片已发送",
 		logger.Int64("userID", userID),
 		logger.Int("count", len(songCards)))
+
+	return songCards
 }
 
-// convertToSongCards 将 PluginSong 转换为 SongCard
+// handleMusicSearch 执行音乐搜索并发送歌曲卡片 (保留兼容性)
+func (h *ChatHandler) handleMusicSearch(conn *websocket.Conn, userID int64, query string) {
+	h.handleMusicSearchAndGetCards(conn, userID, query)
+}
+
+// convertToSongCardsWithDetail 将 PluginSong 转换为 SongCard，并获取详细封面
+func (h *ChatHandler) convertToSongCardsWithDetail(songs []plugin.PluginSong) []model.SongCard {
+	cards := make([]model.SongCard, len(songs))
+	for i, song := range songs {
+		coverURL := song.CoverURL
+
+		// 尝试获取更详细的封面（通过歌曲详情接口）
+		if detail, err := h.musicAgent.GetMusicPlugin().GetDetail(song.ID); err == nil && detail != nil {
+			if detail.CoverURL != "" {
+				coverURL = detail.CoverURL
+			}
+		}
+
+		cards[i] = model.SongCard{
+			ID:       song.ID,
+			Name:     song.Name,
+			Artists:  song.Artists,
+			Album:    song.Album,
+			Duration: song.Duration,
+			CoverURL: coverURL,
+			HLSURL:   song.HLSURL,
+			Source:   song.Source,
+		}
+	}
+	return cards
+}
+
+// convertToSongCards 将 PluginSong 转换为 SongCard (简单版本)
 func (h *ChatHandler) convertToSongCards(songs []plugin.PluginSong) []model.SongCard {
 	cards := make([]model.SongCard, len(songs))
 	for i, song := range songs {

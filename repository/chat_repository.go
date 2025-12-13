@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"Bt1QFM/model"
@@ -114,14 +115,24 @@ func (r *mysqlChatRepository) DeleteSession(sessionID int64) error {
 
 // CreateMessage adds a new message to a session.
 func (r *mysqlChatRepository) CreateMessage(message *model.ChatMessage) (int64, error) {
-	query := "INSERT INTO chat_messages (session_id, role, content) VALUES (?, ?, ?)"
+	// 将 songs 序列化为 JSON
+	var songsJSON []byte
+	var err error
+	if len(message.Songs) > 0 {
+		songsJSON, err = json.Marshal(message.Songs)
+		if err != nil {
+			return 0, fmt.Errorf("failed to marshal songs: %w", err)
+		}
+	}
+
+	query := "INSERT INTO chat_messages (session_id, role, content, songs) VALUES (?, ?, ?, ?)"
 	stmt, err := r.db.Prepare(query)
 	if err != nil {
 		return 0, fmt.Errorf("failed to prepare create message statement: %w", err)
 	}
 	defer stmt.Close()
 
-	res, err := stmt.Exec(message.SessionID, message.Role, message.Content)
+	res, err := stmt.Exec(message.SessionID, message.Role, message.Content, songsJSON)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute create message statement: %w", err)
 	}
@@ -142,7 +153,7 @@ func (r *mysqlChatRepository) CreateMessage(message *model.ChatMessage) (int64, 
 func (r *mysqlChatRepository) GetMessagesBySessionID(sessionID int64, limit int) ([]*model.ChatMessage, error) {
 	// Get the most recent messages, ordered by created_at ASC for conversation flow
 	query := `
-		SELECT id, session_id, role, content, created_at
+		SELECT id, session_id, role, content, songs, created_at
 		FROM chat_messages
 		WHERE session_id = ?
 		ORDER BY created_at DESC
@@ -158,10 +169,20 @@ func (r *mysqlChatRepository) GetMessagesBySessionID(sessionID int64, limit int)
 	var messages []*model.ChatMessage
 	for rows.Next() {
 		msg := &model.ChatMessage{}
-		err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.CreatedAt)
+		var songsJSON sql.NullString
+		err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &songsJSON, &msg.CreatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan message row: %w", err)
 		}
+
+		// 解析 songs JSON
+		if songsJSON.Valid && songsJSON.String != "" {
+			if err := json.Unmarshal([]byte(songsJSON.String), &msg.Songs); err != nil {
+				// 解析失败不阻断，只记录日志
+				msg.Songs = nil
+			}
+		}
+
 		messages = append(messages, msg)
 	}
 

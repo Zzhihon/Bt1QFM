@@ -16,11 +16,12 @@ type ChatSession struct {
 
 // ChatMessage represents a single message in a chat session.
 type ChatMessage struct {
-	ID        int64     `json:"id"`
-	SessionID int64     `json:"sessionId"`
-	Role      string    `json:"role"` // "user", "assistant", or "system"
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID        int64      `json:"id"`
+	SessionID int64      `json:"sessionId"`
+	Role      string     `json:"role"` // "user", "assistant", or "system"
+	Content   string     `json:"content"`
+	Songs     []SongCard `json:"songs,omitempty"` // 关联的歌曲卡片
+	CreatedAt time.Time  `json:"createdAt"`
 }
 
 // ChatMessageRequest represents the request body for sending a message.
