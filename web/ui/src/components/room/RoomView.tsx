@@ -141,8 +141,8 @@ const RoomView: React.FC = () => {
   // 房间视图
   return (
     <div className="flex flex-col h-full bg-cyber-bg">
-      {/* 顶部信息栏 */}
-      <div className="bg-cyber-bg-darker/60 backdrop-blur-md border-b border-cyber-secondary/20 p-3">
+      {/* 顶部信息栏 - 固定不滚动 */}
+      <div className="flex-shrink-0 bg-cyber-bg-darker/60 backdrop-blur-md border-b border-cyber-secondary/20 p-3 sticky top-0 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             {/* 连接状态 */}
@@ -244,8 +244,8 @@ const RoomView: React.FC = () => {
         )}
       </div>
 
-      {/* 标签切换 */}
-      <div className="flex border-b border-cyber-secondary/20 bg-cyber-bg-darker/30">
+      {/* 标签切换 - 固定不滚动 */}
+      <div className="flex-shrink-0 flex border-b border-cyber-secondary/20 bg-cyber-bg-darker/30 sticky top-[auto] z-10">
         <button
           onClick={() => setActiveTab('chat')}
           className={`flex-1 py-3 flex items-center justify-center space-x-2 text-sm font-medium transition-colors ${
