@@ -533,6 +533,11 @@ func (m *RoomManager) GetMessages(ctx context.Context, roomID string, limit, off
 	return m.repo.GetMessagesWithUser(ctx, roomID, limit, offset)
 }
 
+// GetUserRooms 获取用户参与的房间列表
+func (m *RoomManager) GetUserRooms(ctx context.Context, userID int64) ([]*model.UserRoomInfo, error) {
+	return m.repo.GetUserRooms(ctx, userID)
+}
+
 // ========== 广播辅助方法 ==========
 
 func (m *RoomManager) broadcastMemberJoin(roomID string, userID int64, username string) {

@@ -7,6 +7,7 @@ import RoomMembers from './RoomMembers';
 import RoomPlaylist from './RoomPlaylist';
 import RoomCreate from './RoomCreate';
 import RoomJoin from './RoomJoin';
+import MyRoomList from './MyRoomList';
 import {
   Users,
   Music2,
@@ -113,6 +114,7 @@ const RoomView: React.FC = () => {
                 </div>
               </div>
               <RoomJoin />
+              <MyRoomList />
             </div>
           </div>
         </div>

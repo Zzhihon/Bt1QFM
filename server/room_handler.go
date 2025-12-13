@@ -332,6 +332,27 @@ func (h *RoomHandler) GetMessagesHandler(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(messages)
 }
 
+// GetMyRoomsHandler 获取当前用户参与的房间列表
+func (h *RoomHandler) GetMyRoomsHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	userID, ok := ctx.Value("userID").(int64)
+	if !ok {
+		http.Error(w, "未授权", http.StatusUnauthorized)
+		return
+	}
+
+	rooms, err := h.manager.GetUserRooms(ctx, userID)
+	if err != nil {
+		logger.Warn("获取用户房间列表失败", logger.ErrorField(err))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(rooms)
+}
+
 // ========== WebSocket 处理器 ==========
 
 // WebSocketHandler 处理 WebSocket 连接
@@ -407,6 +428,7 @@ func (h *RoomHandler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 func RegisterRoomRoutes(router *mux.Router, handler *RoomHandler, authMiddleware func(http.HandlerFunc) http.HandlerFunc) {
 	// HTTP API 路由
 	router.HandleFunc("/api/rooms", authMiddleware(handler.CreateRoomHandler)).Methods(http.MethodPost)
+	router.HandleFunc("/api/rooms/my", authMiddleware(handler.GetMyRoomsHandler)).Methods(http.MethodGet)
 	router.HandleFunc("/api/rooms/join", authMiddleware(handler.JoinRoomHandler)).Methods(http.MethodPost)
 	router.HandleFunc("/api/rooms/leave", authMiddleware(handler.LeaveRoomHandler)).Methods(http.MethodPost)
 	router.HandleFunc("/api/rooms/{room_id}", authMiddleware(handler.GetRoomHandler)).Methods(http.MethodGet)
@@ -421,5 +443,5 @@ func RegisterRoomRoutes(router *mux.Router, handler *RoomHandler, authMiddleware
 	router.HandleFunc("/ws/room/{room_id}", handler.WebSocketHandler)
 
 	logger.Info("房间系统API端点注册完成",
-		logger.String("endpoints", "POST /api/rooms, POST /api/rooms/join, POST /api/rooms/leave, GET /api/rooms/{id}, WS /ws/room/{id}"))
+		logger.String("endpoints", "POST /api/rooms, GET /api/rooms/my, POST /api/rooms/join, POST /api/rooms/leave, GET /api/rooms/{id}, WS /ws/room/{id}"))
 }

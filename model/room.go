@@ -95,6 +95,18 @@ type RoomMessageWithUser struct {
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
+// UserRoomInfo 用户参与的房间信息（API 响应用）
+type UserRoomInfo struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	OwnerID     int64     `json:"ownerId"`
+	OwnerName   string    `json:"ownerName"`
+	MemberCount int       `json:"memberCount"`
+	IsOwner     bool      `json:"isOwner"`
+	JoinedAt    time.Time `json:"joinedAt"`
+	Status      string    `json:"status"`
+}
+
 // ========== 常量定义 ==========
 
 const (

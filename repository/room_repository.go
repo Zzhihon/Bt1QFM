@@ -35,6 +35,9 @@ type RoomRepository interface {
 	CreateMessage(ctx context.Context, msg *model.RoomMessage) error
 	GetMessages(ctx context.Context, roomID string, limit, offset int) ([]*model.RoomMessage, error)
 	GetMessagesWithUser(ctx context.Context, roomID string, limit, offset int) ([]*model.RoomMessageWithUser, error)
+
+	// 用户房间
+	GetUserRooms(ctx context.Context, userID int64) ([]*model.UserRoomInfo, error)
 }
 
 // gormRoomRepository GORM 实现
@@ -250,4 +253,36 @@ func (r *gormRoomRepository) GetMessagesWithUser(ctx context.Context, roomID str
 	}
 
 	return messages, nil
+}
+
+// GetUserRooms 获取用户参与的房间列表
+func (r *gormRoomRepository) GetUserRooms(ctx context.Context, userID int64) ([]*model.UserRoomInfo, error) {
+	var rooms []*model.UserRoomInfo
+	err := r.db.WithContext(ctx).
+		Table("room_members").
+		Select(`
+			rooms.id,
+			rooms.name,
+			rooms.owner_id,
+			users.username as owner_name,
+			rooms.status,
+			room_members.joined_at,
+			(SELECT COUNT(*) FROM room_members rm WHERE rm.room_id = rooms.id AND rm.left_at IS NULL) as member_count
+		`).
+		Joins("JOIN rooms ON room_members.room_id = rooms.id").
+		Joins("LEFT JOIN users ON rooms.owner_id = users.id").
+		Where("room_members.user_id = ? AND room_members.left_at IS NULL AND rooms.status = ?", userID, model.RoomStatusActive).
+		Order("room_members.joined_at DESC").
+		Scan(&rooms).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 标记是否是房主
+	for _, room := range rooms {
+		room.IsOwner = room.OwnerID == userID
+	}
+
+	return rooms, nil
 }
