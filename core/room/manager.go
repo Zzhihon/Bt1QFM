@@ -545,8 +545,8 @@ func (m *RoomManager) handleNeteaseSearch(ctx context.Context, roomID string, us
 		logger.Int64("userId", userID),
 		logger.String("keyword", keyword))
 
-	// 搜索歌曲
-	result, err := m.neteaseClient.SearchSongs(keyword, 5, 0, nil, "")
+	// 搜索歌曲，限制返回 3 首
+	result, err := m.neteaseClient.SearchSongs(keyword, 3, 0, nil, "")
 	if err != nil {
 		logger.Warn("网易云搜索失败",
 			logger.String("keyword", keyword),
@@ -561,7 +561,7 @@ func (m *RoomManager) handleNeteaseSearch(ctx context.Context, roomID string, us
 		return
 	}
 
-	// 转换搜索结果为 SongCard 格式
+	// 转换搜索结果为 SongCard 格式，并获取详细封面
 	songs := make(model.SongCardList, 0, len(result.Songs))
 	for _, song := range result.Songs {
 		// 提取艺术家名称
@@ -570,13 +570,24 @@ func (m *RoomManager) handleNeteaseSearch(ctx context.Context, roomID string, us
 			artistNames = append(artistNames, artist.Name)
 		}
 
+		// 默认使用搜索结果中的封面
+		coverURL := song.Album.PicURL
+
+		// 尝试通过详情接口获取更准确的封面
+		songIDStr := strconv.FormatInt(song.ID, 10)
+		if detail, err := m.neteaseClient.GetSongDetail(songIDStr); err == nil && detail != nil {
+			if detail.Album.PicURL != "" {
+				coverURL = detail.Album.PicURL
+			}
+		}
+
 		songs = append(songs, model.SongCard{
-			ID:       strconv.FormatInt(song.ID, 10),
+			ID:       songIDStr,
 			Name:     song.Name,
 			Artists:  artistNames,
 			Album:    song.Album.Name,
 			Duration: song.Duration,
-			CoverURL: song.Album.PicURL,
+			CoverURL: coverURL,
 			HLSURL:   fmt.Sprintf("/streams/netease/%d/playlist.m3u8", song.ID),
 			Source:   "netease",
 		})
