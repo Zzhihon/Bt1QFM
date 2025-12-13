@@ -856,6 +856,10 @@ func (m *RoomManager) HandleMessage(ctx context.Context, client *Client, msg *WS
 	case MsgTypeMasterReport:
 		// 房主上报播放状态，转发给房间内所有听歌模式的用户
 		m.handleMasterReport(ctx, client, data)
+
+	case MsgTypeMasterRequest:
+		// 用户请求房主播放状态，转发给房主
+		m.handleMasterRequest(ctx, client)
 	}
 }
 
@@ -915,4 +919,32 @@ func (m *RoomManager) handleMasterReport(ctx context.Context, client *Client, da
 		logger.String("songId", syncData.SongID),
 		logger.Float64("position", syncData.Position),
 		logger.Bool("isPlaying", syncData.IsPlaying))
+}
+
+// handleMasterRequest 处理用户请求房主播放状态，通知房主上报
+func (m *RoomManager) handleMasterRequest(ctx context.Context, client *Client) {
+	// 获取房间信息
+	room, err := m.GetRoom(ctx, client.RoomID)
+	if err != nil || room == nil {
+		logger.Warn("请求房主状态失败：房间不存在",
+			logger.String("roomId", client.RoomID))
+		return
+	}
+
+	// 构建请求消息，发送给房主
+	msg := &WSMessage{
+		Type:      MsgTypeMasterRequest,
+		RoomID:    client.RoomID,
+		UserID:    client.UserID,
+		Username:  client.Username,
+		Timestamp: time.Now().UnixMilli(),
+	}
+
+	// 只发送给房主
+	m.hub.SendToUser(client.RoomID, room.OwnerID, msg)
+
+	logger.Debug("已转发播放状态请求给房主",
+		logger.String("roomId", client.RoomID),
+		logger.Int64("requesterId", client.UserID),
+		logger.Int64("ownerId", room.OwnerID))
 }

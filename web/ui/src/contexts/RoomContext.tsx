@@ -53,6 +53,8 @@ interface RoomContextType {
 
   // 房主同步上报
   reportMasterPlayback: (data: Omit<MasterSyncData, 'serverTime' | 'masterId' | 'masterName'>) => void;
+  // 请求房主播放状态
+  requestMasterPlayback: () => void;
 }
 
 const RoomContext = createContext<RoomContextType | undefined>(undefined);
@@ -269,6 +271,11 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const syncData = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
             window.dispatchEvent(new CustomEvent('room-master-sync', { detail: syncData }));
           }
+          break;
+
+        case 'master_request':
+          // 收到请求房主播放状态的消息 - 通过自定义事件通知房主立即上报
+          window.dispatchEvent(new CustomEvent('room-master-request'));
           break;
       }
     } catch (err) {
@@ -601,6 +608,11 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     sendWSMessage('master_report', data);
   }, [sendWSMessage]);
 
+  // 请求房主播放状态
+  const requestMasterPlayback = useCallback(() => {
+    sendWSMessage('master_request');
+  }, [sendWSMessage]);
+
   // 计算是否是房主
   const isOwner = currentRoom?.ownerId === currentUser?.id;
 
@@ -664,6 +676,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     transferOwner,
     grantControl,
     reportMasterPlayback,
+    requestMasterPlayback,
   };
 
   return (

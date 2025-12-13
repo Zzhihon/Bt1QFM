@@ -49,6 +49,7 @@ const RoomView: React.FC = () => {
     prevSong,
     isOwner,
     reportMasterPlayback,
+    requestMasterPlayback,
   } = useRoom();
 
   const [activeTab, setActiveTab] = useState<'chat' | 'playlist' | 'members'>('chat');
@@ -103,6 +104,14 @@ const RoomView: React.FC = () => {
     }
 
     await switchMode(newMode);
+
+    // 如果切换到听歌模式且不是房主，请求房主当前播放状态
+    if (newMode === 'listen' && !isOwner) {
+      setTimeout(() => {
+        requestMasterPlayback();
+      }, 500); // 延迟 500ms 确保模式切换完成
+    }
+
     addToast({
       type: 'success',
       message: newMode === 'listen' ? '已切换到听歌模式' : '已切换到聊天模式',

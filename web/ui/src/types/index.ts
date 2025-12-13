@@ -271,7 +271,8 @@ export type RoomWSMessageType =
   | 'grant_control'
   | 'role_update'
   | 'master_sync'    // 房主播放状态同步（服务端 -> 听歌用户）
-  | 'master_report'; // 房主上报播放状态（房主 -> 服务端）
+  | 'master_report'  // 房主上报播放状态（房主 -> 服务端）
+  | 'master_request'; // 请求房主播放状态（用户 -> 服务端 -> 房主）
 
 // 房主播放同步数据
 export interface MasterSyncData {

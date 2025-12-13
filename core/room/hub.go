@@ -30,18 +30,19 @@ const (
 	MsgTypeSongSearch MessageType = "song_search" // 歌曲搜索结果
 
 	// 播放控制消息
-	MsgTypePlay         MessageType = "play"          // 播放
-	MsgTypePause        MessageType = "pause"         // 暂停
-	MsgTypeSeek         MessageType = "seek"          // 跳转
-	MsgTypeNext         MessageType = "next"          // 下一首
-	MsgTypePrev         MessageType = "prev"          // 上一首
-	MsgTypePlayback     MessageType = "playback"      // 播放状态更新
-	MsgTypeSongAdd      MessageType = "song_add"      // 添加歌曲
-	MsgTypeSongDel      MessageType = "song_del"      // 删除歌曲
-	MsgTypePlaylist     MessageType = "playlist"      // 歌单更新
-	MsgTypeModeSync     MessageType = "mode_sync"     // 模式同步
-	MsgTypeMasterSync   MessageType = "master_sync"   // 房主播放状态同步（房主 -> 其他用户）
-	MsgTypeMasterReport MessageType = "master_report" // 房主上报播放状态（房主 -> 服务端）
+	MsgTypePlay          MessageType = "play"           // 播放
+	MsgTypePause         MessageType = "pause"          // 暂停
+	MsgTypeSeek          MessageType = "seek"           // 跳转
+	MsgTypeNext          MessageType = "next"           // 下一首
+	MsgTypePrev          MessageType = "prev"           // 上一首
+	MsgTypePlayback      MessageType = "playback"       // 播放状态更新
+	MsgTypeSongAdd       MessageType = "song_add"       // 添加歌曲
+	MsgTypeSongDel       MessageType = "song_del"       // 删除歌曲
+	MsgTypePlaylist      MessageType = "playlist"       // 歌单更新
+	MsgTypeModeSync      MessageType = "mode_sync"      // 模式同步
+	MsgTypeMasterSync    MessageType = "master_sync"    // 房主播放状态同步（房主 -> 其他用户）
+	MsgTypeMasterReport  MessageType = "master_report"  // 房主上报播放状态（房主 -> 服务端）
+	MsgTypeMasterRequest MessageType = "master_request" // 请求房主播放状态（用户 -> 服务端 -> 房主）
 
 	// 权限消息
 	MsgTypeTransferOwner MessageType = "transfer_owner" // 转让房主
@@ -376,6 +377,30 @@ func (h *RoomHub) GetClient(roomID string, userID int64) *Client {
 	defer h.mu.RUnlock()
 
 	return h.userClients[h.userKey(roomID, userID)]
+}
+
+// SendToUser 发送消息给指定用户
+func (h *RoomHub) SendToUser(roomID string, userID int64, msg *WSMessage) error {
+	h.mu.RLock()
+	client := h.userClients[h.userKey(roomID, userID)]
+	h.mu.RUnlock()
+
+	if client == nil {
+		return fmt.Errorf("user not found: %d", userID)
+	}
+
+	msg.Timestamp = time.Now().UnixMilli()
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	select {
+	case client.Send <- data:
+		return nil
+	default:
+		return fmt.Errorf("send buffer full for user: %d", userID)
+	}
 }
 
 // UpdateClientMode 更新客户端模式
