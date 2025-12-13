@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -16,11 +17,12 @@ import (
 	"Bt1QFM/core/agent"
 	"Bt1QFM/core/audio"
 	"Bt1QFM/core/netease"
+	"Bt1QFM/core/room"
 	"Bt1QFM/db"
 	"Bt1QFM/logger"
+	"Bt1QFM/model"
 	"Bt1QFM/repository"
 	"Bt1QFM/storage"
-	"fmt"
 
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7"
@@ -66,6 +68,18 @@ func Start() {
 	defer cache.CloseRedis()
 	logger.Info("成功连接到 Redis")
 
+	// Connect to GORM database (for new room module)
+	if err := db.ConnectGormDB(cfg); err != nil {
+		logger.Fatal("连接 GORM 数据库失败", logger.ErrorField(err))
+	}
+	defer db.CloseGormDB()
+	logger.Info("成功连接到 GORM 数据库")
+
+	// Auto migrate room models
+	if err := db.AutoMigrateModels(&model.Room{}, &model.RoomMember{}, &model.RoomMessage{}); err != nil {
+		logger.Fatal("房间模型迁移失败", logger.ErrorField(err))
+	}
+
 	// Initialize database schema
 	if err := db.InitDB(); err != nil {
 		logger.Fatal("初始化数据库失败", logger.ErrorField(err))
@@ -108,6 +122,16 @@ func Start() {
 		logger.String("apiBaseURL", agentConfig.APIBaseURL))
 
 	chatHandler := NewChatHandler(chatRepo, agentConfig)
+
+	// 🏠 初始化房间系统
+	logger.Info("初始化房间系统...")
+	roomRepo := repository.NewGormRoomRepository(db.GormDB)
+	roomCache := cache.NewRoomCache()
+	roomHub := room.NewRoomHub()
+	go roomHub.Run() // 启动 Hub 主循环
+	roomManager := room.NewRoomManager(roomRepo, roomCache, roomHub)
+	roomHandler := NewRoomHandler(roomManager)
+	logger.Info("房间系统初始化完成")
 
 	// 使用 gorilla/mux 创建路由器
 	router := mux.NewRouter()
@@ -186,6 +210,10 @@ func Start() {
 	router.HandleFunc("/ws/chat", chatHandler.WebSocketChatHandler)
 	logger.Info("AI聊天助手API端点注册完成",
 		logger.String("endpoints", "GET /api/chat/history, DELETE /api/chat/clear, WS /ws/chat"))
+
+	// 🏠 房间系统相关的API端点
+	logger.Info("注册房间系统API端点...")
+	RegisterRoomRoutes(router, roomHandler, apiHandler.AuthMiddleware)
 
 	// 添加MinIO文件服务路由
 	router.PathPrefix("/streams/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -424,6 +452,10 @@ func Start() {
 	// 等待中断信号
 	<-stop
 	logger.Info("正在关闭服务器...")
+
+	// 停止房间 Hub
+	roomHub.Stop()
+	logger.Info("房间系统已停止")
 
 	// 创建一个5秒超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

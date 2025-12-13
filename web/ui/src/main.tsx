@@ -5,6 +5,7 @@ import './index.css'
 import { AuthProvider } from './contexts/AuthContext.tsx';
 import { PlayerProvider } from './contexts/PlayerContext.tsx';
 import { ToastProvider } from './contexts/ToastContext.tsx';
+import { RoomProvider } from './contexts/RoomContext.tsx';
 
 // 初始化主题
 const initializeTheme = () => {
@@ -38,7 +39,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <AuthProvider>
       <ToastProvider>
         <PlayerProvider>
-          <App />
+          <RoomProvider>
+            <App />
+          </RoomProvider>
         </PlayerProvider>
       </ToastProvider>
     </AuthProvider>

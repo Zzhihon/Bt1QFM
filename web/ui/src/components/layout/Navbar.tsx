@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { LogIn, LogOut, Music, UserCircle, ListMusic, Disc, Bot, Settings, Mail, Phone, CalendarDays, Menu, Heart } from 'lucide-react';
+import { LogIn, LogOut, Music, UserCircle, ListMusic, Disc, Bot, Settings, Mail, Phone, CalendarDays, Menu, Heart, Users } from 'lucide-react';
 import AnnouncementBell from '../announcement/AnnouncementBell';
 import AnnouncementModal from '../announcement/AnnouncementModal';
 import type { Announcement } from '../../types/announcement';
@@ -84,15 +84,23 @@ const Navbar: React.FC = () => {
       <button
         onClick={() => handleNavigate('/bot')}
         className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center border-2 ${
-          location.pathname === '/bot' 
-            ? 'bg-cyber-primary text-cyber-bg-darker border-cyber-primary shadow-glow' 
+          location.pathname === '/bot'
+            ? 'bg-cyber-primary text-cyber-bg-darker border-cyber-primary shadow-glow'
             : 'text-cyber-text hover:text-cyber-primary hover:bg-cyber-primary/10 border-transparent hover:border-cyber-primary/50'
         }`}
       >
         <Bot className="mr-2 h-5 w-5" /> Bot
       </button>
-
-
+      <button
+        onClick={() => handleNavigate('/room')}
+        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center border-2 ${
+          location.pathname === '/room'
+            ? 'bg-cyber-primary text-cyber-bg-darker border-cyber-primary shadow-glow'
+            : 'text-cyber-text hover:text-cyber-primary hover:bg-cyber-primary/10 border-transparent hover:border-cyber-primary/50'
+        }`}
+      >
+        <Users className="mr-2 h-5 w-5" /> Room
+      </button>
 
       {/* 设置按钮 */}
       <div className="relative">

@@ -13,10 +13,17 @@ import (
 type PlaylistItem struct {
     TrackID   int64  `json:"trackId,omitempty"`   // 本地音乐ID
     NeteaseID int64  `json:"neteaseId,omitempty"` // 网易云音乐ID
+    SongID    string `json:"songId,omitempty"`    // 通用歌曲ID（房间歌单用）
     Title     string `json:"title"`
+    Name      string `json:"name,omitempty"`      // 歌曲名称（房间歌单用）
     Artist    string `json:"artist"`
-    Album     string `json:"album"`
-    Position  int    `json:"position"` // 在播放列表中的位置
+    Album     string `json:"album,omitempty"`
+    Cover     string `json:"cover,omitempty"`     // 封面URL
+    Duration  int    `json:"duration,omitempty"`  // 时长（秒）
+    Source    string `json:"source,omitempty"`    // 来源：local, netease
+    Position  int    `json:"position"`            // 在播放列表中的位置
+    AddedBy   int64  `json:"addedBy,omitempty"`   // 添加者ID
+    AddedAt   int64  `json:"addedAt,omitempty"`   // 添加时间戳
 }
 
 // GetPlaylistKey 根据用户ID生成播放列表的Redis键
