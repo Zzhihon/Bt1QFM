@@ -852,10 +852,67 @@ func (m *RoomManager) HandleMessage(ctx context.Context, client *Client, msg *WS
 		if err := json.Unmarshal(data, &controlData); err == nil {
 			m.GrantControl(ctx, client.RoomID, client.UserID, controlData.TargetUserID, controlData.CanControl)
 		}
+
+	case MsgTypeMasterReport:
+		// 房主上报播放状态，转发给房间内所有听歌模式的用户
+		m.handleMasterReport(ctx, client, data)
 	}
 }
 
 // GetHub 获取 Hub 实例
 func (m *RoomManager) GetHub() *RoomHub {
 	return m.hub
+}
+
+// handleMasterReport 处理房主上报的播放状态，转发给听歌模式的用户
+func (m *RoomManager) handleMasterReport(ctx context.Context, client *Client, data json.RawMessage) {
+	// 验证是否是房主
+	room, err := m.GetRoom(ctx, client.RoomID)
+	if err != nil || room == nil {
+		logger.Warn("房主上报失败：房间不存在",
+			logger.String("roomId", client.RoomID))
+		return
+	}
+
+	if room.OwnerID != client.UserID {
+		logger.Warn("房主上报失败：非房主用户",
+			logger.String("roomId", client.RoomID),
+			logger.Int64("userId", client.UserID),
+			logger.Int64("ownerId", room.OwnerID))
+		return
+	}
+
+	// 解析上报数据
+	var syncData MasterSyncData
+	if err := json.Unmarshal(data, &syncData); err != nil {
+		logger.Warn("解析房主同步数据失败",
+			logger.ErrorField(err),
+			logger.String("data", string(data)))
+		return
+	}
+
+	// 补充服务器信息
+	syncData.ServerTime = time.Now().UnixMilli()
+	syncData.MasterID = client.UserID
+	syncData.MasterName = client.Username
+
+	// 构建同步消息
+	syncDataBytes, _ := json.Marshal(syncData)
+	msg := &WSMessage{
+		Type:      MsgTypeMasterSync,
+		RoomID:    client.RoomID,
+		UserID:    client.UserID,
+		Username:  client.Username,
+		Data:      syncDataBytes,
+		Timestamp: time.Now().UnixMilli(),
+	}
+
+	// 只广播给听歌模式的用户（不包括房主自己）
+	m.hub.BroadcastWSMessage(client.RoomID, msg, client.UserID, "listen")
+
+	logger.Debug("房主播放状态已同步",
+		logger.String("roomId", client.RoomID),
+		logger.String("songId", syncData.SongID),
+		logger.Float64("position", syncData.Position),
+		logger.Bool("isPlaying", syncData.IsPlaying))
 }

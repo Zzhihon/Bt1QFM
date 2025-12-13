@@ -9,6 +9,7 @@ import {
   RoomPlaylistItem,
   RoomWSMessage,
   RoomWSMessageType,
+  MasterSyncData,
 } from '../types';
 
 interface RoomContextType {
@@ -22,6 +23,7 @@ interface RoomContextType {
   isLoading: boolean;
   error: string | null;
   reconnectAttempt: number; // 新增：重连尝试次数
+  isOwner: boolean; // 是否是房主
 
   // 房间操作
   createRoom: (name: string) => Promise<Room | null>;
@@ -48,6 +50,9 @@ interface RoomContextType {
   // 权限管理
   transferOwner: (targetUserId: number) => void;
   grantControl: (targetUserId: number, canControl: boolean) => void;
+
+  // 房主同步上报
+  reportMasterPlayback: (data: Omit<MasterSyncData, 'serverTime' | 'masterId' | 'masterName'>) => void;
 }
 
 const RoomContext = createContext<RoomContextType | undefined>(undefined);
@@ -255,6 +260,14 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (message.data) {
             const data = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
             setError((data as { message: string }).message || '发生错误');
+          }
+          break;
+
+        case 'master_sync':
+          // 房主播放同步 - 通过自定义事件分发给播放器同步
+          if (message.data) {
+            const syncData = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
+            window.dispatchEvent(new CustomEvent('room-master-sync', { detail: syncData }));
           }
           break;
       }
@@ -583,6 +596,14 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     sendWSMessage('grant_control', { targetUserId, canControl });
   }, [sendWSMessage]);
 
+  // 房主同步上报
+  const reportMasterPlayback = useCallback((data: Omit<MasterSyncData, 'serverTime' | 'masterId' | 'masterName'>) => {
+    sendWSMessage('master_report', data);
+  }, [sendWSMessage]);
+
+  // 计算是否是房主
+  const isOwner = currentRoom?.ownerId === currentUser?.id;
+
   // 组件卸载时清理
   useEffect(() => {
     return () => {
@@ -627,6 +648,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isLoading,
     error,
     reconnectAttempt,
+    isOwner,
     createRoom,
     joinRoom,
     leaveRoom,
@@ -641,6 +663,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     sendMessage,
     transferOwner,
     grantControl,
+    reportMasterPlayback,
   };
 
   return (

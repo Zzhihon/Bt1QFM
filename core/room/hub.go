@@ -30,16 +30,18 @@ const (
 	MsgTypeSongSearch MessageType = "song_search" // 歌曲搜索结果
 
 	// 播放控制消息
-	MsgTypePlay     MessageType = "play"      // 播放
-	MsgTypePause    MessageType = "pause"     // 暂停
-	MsgTypeSeek     MessageType = "seek"      // 跳转
-	MsgTypeNext     MessageType = "next"      // 下一首
-	MsgTypePrev     MessageType = "prev"      // 上一首
-	MsgTypePlayback MessageType = "playback"  // 播放状态更新
-	MsgTypeSongAdd  MessageType = "song_add"  // 添加歌曲
-	MsgTypeSongDel  MessageType = "song_del"  // 删除歌曲
-	MsgTypePlaylist MessageType = "playlist"  // 歌单更新
-	MsgTypeModeSync MessageType = "mode_sync" // 模式同步
+	MsgTypePlay         MessageType = "play"          // 播放
+	MsgTypePause        MessageType = "pause"         // 暂停
+	MsgTypeSeek         MessageType = "seek"          // 跳转
+	MsgTypeNext         MessageType = "next"          // 下一首
+	MsgTypePrev         MessageType = "prev"          // 上一首
+	MsgTypePlayback     MessageType = "playback"      // 播放状态更新
+	MsgTypeSongAdd      MessageType = "song_add"      // 添加歌曲
+	MsgTypeSongDel      MessageType = "song_del"      // 删除歌曲
+	MsgTypePlaylist     MessageType = "playlist"      // 歌单更新
+	MsgTypeModeSync     MessageType = "mode_sync"     // 模式同步
+	MsgTypeMasterSync   MessageType = "master_sync"   // 房主播放状态同步（房主 -> 其他用户）
+	MsgTypeMasterReport MessageType = "master_report" // 房主上报播放状态（房主 -> 服务端）
 
 	// 权限消息
 	MsgTypeTransferOwner MessageType = "transfer_owner" // 转让房主
@@ -86,6 +88,21 @@ type PlaybackData struct {
 	IsPlaying    bool        `json:"isPlaying,omitempty"`
 	CurrentIndex int         `json:"currentIndex,omitempty"`
 	CurrentSong  interface{} `json:"currentSong,omitempty"`
+}
+
+// MasterSyncData 房主播放同步数据
+type MasterSyncData struct {
+	SongID      string  `json:"songId"`              // 当前歌曲ID
+	SongName    string  `json:"songName"`            // 歌曲名称
+	Artist      string  `json:"artist"`              // 艺术家
+	Cover       string  `json:"cover,omitempty"`     // 封面
+	Duration    int     `json:"duration"`            // 歌曲总时长（毫秒）
+	Position    float64 `json:"position"`            // 当前播放位置（秒）
+	IsPlaying   bool    `json:"isPlaying"`           // 是否正在播放
+	HlsURL      string  `json:"hlsUrl,omitempty"`    // HLS 播放地址
+	ServerTime  int64   `json:"serverTime"`          // 服务器时间戳（毫秒）
+	MasterID    int64   `json:"masterId"`            // 房主用户ID
+	MasterName  string  `json:"masterName"`          // 房主用户名
 }
 
 // SongData 歌曲操作数据

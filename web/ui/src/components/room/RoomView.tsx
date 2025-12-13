@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRoom } from '../../contexts/RoomContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -9,6 +9,7 @@ import RoomPlaylist from './RoomPlaylist';
 import RoomCreate from './RoomCreate';
 import RoomJoin from './RoomJoin';
 import MyRoomList from './MyRoomList';
+import { MasterSyncData } from '../../types';
 import {
   Users,
   Music2,
@@ -30,7 +31,7 @@ import {
 const RoomView: React.FC = () => {
   useAuth();
   const { addToast } = useToast();
-  const { enterRoomMode, exitRoomMode, isInRoomMode } = usePlayer();
+  const { enterRoomMode, exitRoomMode, isInRoomMode, playerState, playTrack, seekTo } = usePlayer();
   const {
     currentRoom,
     members,
@@ -46,11 +47,16 @@ const RoomView: React.FC = () => {
     pause,
     nextSong,
     prevSong,
+    isOwner,
+    reportMasterPlayback,
   } = useRoom();
 
   const [activeTab, setActiveTab] = useState<'chat' | 'playlist' | 'members'>('chat');
   const [copied, setCopied] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false); // 是否正在同步中
+  const masterSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastSyncRef = useRef<{ songId: string; position: number } | null>(null);
 
   // 显示错误
   useEffect(() => {
@@ -106,6 +112,105 @@ const RoomView: React.FC = () => {
 
   // 检查是否可以控制播放
   const canControl = myMember?.role === 'owner' || myMember?.role === 'admin' || myMember?.canControl;
+
+  // 房主定期上报播放状态 (每 2 秒)
+  useEffect(() => {
+    if (!isOwner || !isConnected || !currentRoom) {
+      if (masterSyncIntervalRef.current) {
+        clearInterval(masterSyncIntervalRef.current);
+        masterSyncIntervalRef.current = null;
+      }
+      return;
+    }
+
+    // 上报当前播放状态
+    const reportPlayback = () => {
+      if (!playerState.currentTrack) return;
+
+      const syncData = {
+        songId: String(playerState.currentTrack.id || playerState.currentTrack.neteaseId),
+        songName: playerState.currentTrack.title,
+        artist: playerState.currentTrack.artist,
+        cover: playerState.currentTrack.coverArtPath,
+        duration: playerState.duration * 1000, // 转为毫秒
+        position: playerState.currentTime,
+        isPlaying: playerState.isPlaying,
+        hlsUrl: playerState.currentTrack.hlsPlaylistUrl,
+      };
+
+      reportMasterPlayback(syncData);
+    };
+
+    // 立即上报一次
+    reportPlayback();
+
+    // 每 2 秒上报一次
+    masterSyncIntervalRef.current = setInterval(reportPlayback, 2000);
+
+    return () => {
+      if (masterSyncIntervalRef.current) {
+        clearInterval(masterSyncIntervalRef.current);
+        masterSyncIntervalRef.current = null;
+      }
+    };
+  }, [isOwner, isConnected, currentRoom, playerState.currentTrack, playerState.isPlaying, playerState.currentTime, playerState.duration, reportMasterPlayback]);
+
+  // 处理房主同步消息的回调
+  const handleMasterSync = useCallback((event: CustomEvent<MasterSyncData>) => {
+    // 只有听歌模式的非房主用户才需要同步
+    if (isOwner || myMember?.mode !== 'listen') return;
+
+    const syncData = event.detail;
+    setIsSyncing(true);
+
+    // 检查是否需要切换歌曲
+    const currentSongId = String(playerState.currentTrack?.id || playerState.currentTrack?.neteaseId || '');
+    if (syncData.songId !== currentSongId) {
+      // 需要切换歌曲
+      const trackData = {
+        id: syncData.songId,
+        neteaseId: syncData.songId,
+        title: syncData.songName,
+        artist: syncData.artist,
+        album: '',
+        coverArtPath: syncData.cover || '',
+        hlsPlaylistUrl: syncData.hlsUrl || `/streams/netease/${syncData.songId}/playlist.m3u8`,
+        position: 0,
+        source: 'netease',
+      };
+      playTrack(trackData);
+      // 切换歌曲后需要等待加载完成再 seek
+      setTimeout(() => {
+        seekTo(syncData.position);
+      }, 500);
+    } else {
+      // 同一首歌，检查位置差异
+      const positionDiff = Math.abs(playerState.currentTime - syncData.position);
+      // 如果差异超过 3 秒，进行 seek 同步
+      if (positionDiff > 3) {
+        seekTo(syncData.position);
+      }
+    }
+
+    // 同步播放状态
+    // 注意：这里暂时不强制同步播放/暂停，避免频繁操作
+
+    // 更新最后同步记录
+    lastSyncRef.current = {
+      songId: syncData.songId,
+      position: syncData.position,
+    };
+
+    setTimeout(() => setIsSyncing(false), 500);
+  }, [isOwner, myMember?.mode, playerState.currentTrack, playerState.currentTime, playTrack, seekTo]);
+
+  // 监听房主同步事件
+  useEffect(() => {
+    window.addEventListener('room-master-sync', handleMasterSync as EventListener);
+    return () => {
+      window.removeEventListener('room-master-sync', handleMasterSync as EventListener);
+    };
+  }, [handleMasterSync]);
 
   // 如果不在房间中，显示创建/加入界面
   if (!currentRoom) {
@@ -172,6 +277,27 @@ const RoomView: React.FC = () => {
           </div>
 
           <div className="flex items-center space-x-2">
+            {/* 同步状态指示 */}
+            {myMember?.mode === 'listen' && !isOwner && (
+              <div className={`flex items-center space-x-1 px-2 py-1 rounded-lg text-xs ${
+                isSyncing
+                  ? 'bg-yellow-500/20 text-yellow-400'
+                  : 'bg-green-500/20 text-green-400'
+              }`}>
+                <div className={`w-2 h-2 rounded-full ${
+                  isSyncing ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'
+                }`} />
+                <span>{isSyncing ? '同步中' : '已同步'}</span>
+              </div>
+            )}
+
+            {/* 房主标识 */}
+            {isOwner && (
+              <div className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs bg-cyber-primary/20 text-cyber-primary">
+                <span>房主</span>
+              </div>
+            )}
+
             {/* 模式切换 */}
             <button
               onClick={handleSwitchMode}

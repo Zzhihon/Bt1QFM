@@ -269,7 +269,24 @@ export type RoomWSMessageType =
   | 'mode_sync'
   | 'transfer_owner'
   | 'grant_control'
-  | 'role_update';
+  | 'role_update'
+  | 'master_sync'    // 房主播放状态同步（服务端 -> 听歌用户）
+  | 'master_report'; // 房主上报播放状态（房主 -> 服务端）
+
+// 房主播放同步数据
+export interface MasterSyncData {
+  songId: string;
+  songName: string;
+  artist: string;
+  cover?: string;
+  duration: number;      // 毫秒
+  position: number;      // 秒
+  isPlaying: boolean;
+  hlsUrl?: string;
+  serverTime: number;    // 毫秒
+  masterId: number;
+  masterName: string;
+}
 
 // WebSocket 消息
 export interface RoomWSMessage {
