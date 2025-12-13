@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"time"
 
 	"Bt1QFM/model"
@@ -232,18 +234,68 @@ func (r *gormRoomRepository) GetMessages(ctx context.Context, roomID string, lim
 
 // GetMessagesWithUser 获取带用户名的消息列表
 func (r *gormRoomRepository) GetMessagesWithUser(ctx context.Context, roomID string, limit, offset int) ([]*model.RoomMessageWithUser, error) {
-	var messages []*model.RoomMessageWithUser
-	err := r.db.WithContext(ctx).
-		Table("room_messages").
-		Select("room_messages.id, room_messages.room_id, room_messages.user_id, users.username, room_messages.content, room_messages.message_type, room_messages.songs, room_messages.created_at").
-		Joins("LEFT JOIN users ON room_messages.user_id = users.id").
-		Where("room_messages.room_id = ?", roomID).
-		Order("room_messages.created_at DESC").
-		Limit(limit).
-		Offset(offset).
-		Scan(&messages).Error
+	// 使用原生 SQL 查询，手动处理 songs JSON 字段
+	// GORM 的 .Table().Select().Scan() 不会自动调用自定义类型的 Scan 方法
+	query := `
+		SELECT
+			room_messages.id,
+			room_messages.room_id,
+			room_messages.user_id,
+			users.username,
+			room_messages.content,
+			room_messages.message_type,
+			room_messages.songs,
+			room_messages.created_at
+		FROM room_messages
+		LEFT JOIN users ON room_messages.user_id = users.id
+		WHERE room_messages.room_id = ?
+		ORDER BY room_messages.created_at DESC
+		LIMIT ? OFFSET ?
+	`
 
+	rows, err := r.db.WithContext(ctx).Raw(query, roomID, limit, offset).Rows()
 	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []*model.RoomMessageWithUser
+	for rows.Next() {
+		var msg model.RoomMessageWithUser
+		var songsJSON sql.NullString
+		var username sql.NullString
+
+		err := rows.Scan(
+			&msg.ID,
+			&msg.RoomID,
+			&msg.UserID,
+			&username,
+			&msg.Content,
+			&msg.MessageType,
+			&songsJSON,
+			&msg.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// 处理可能为 NULL 的 username
+		if username.Valid {
+			msg.Username = username.String
+		}
+
+		// 手动解析 songs JSON 字段
+		if songsJSON.Valid && songsJSON.String != "" && songsJSON.String != "null" {
+			if err := json.Unmarshal([]byte(songsJSON.String), &msg.Songs); err != nil {
+				// 解析失败时设为 nil，不影响其他字段
+				msg.Songs = nil
+			}
+		}
+
+		messages = append(messages, &msg)
+	}
+
+	if err = rows.Err(); err != nil {
 		return nil, err
 	}
 
