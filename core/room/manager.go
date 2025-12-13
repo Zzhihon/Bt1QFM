@@ -900,6 +900,29 @@ func (m *RoomManager) handleMasterReport(ctx context.Context, client *Client, da
 	syncData.MasterID = client.UserID
 	syncData.MasterName = client.Username
 
+	// 将播放状态保存到 Redis 缓存，以便 HTTP API 可以获取
+	playbackState := &model.RoomPlaybackState{
+		CurrentIndex: 0, // master_report 不含 index，默认 0
+		CurrentSong: map[string]interface{}{
+			"songId":   syncData.SongID,
+			"name":     syncData.SongName,
+			"artist":   syncData.Artist,
+			"cover":    syncData.Cover,
+			"duration": syncData.Duration,
+			"hlsUrl":   syncData.HlsURL,
+		},
+		Position:  syncData.Position,
+		IsPlaying: syncData.IsPlaying,
+		UpdatedAt: syncData.ServerTime,
+		UpdatedBy: client.UserID,
+	}
+
+	if err := m.cache.SetPlaybackState(ctx, client.RoomID, playbackState); err != nil {
+		logger.Warn("保存房主播放状态到缓存失败",
+			logger.ErrorField(err),
+			logger.String("roomId", client.RoomID))
+	}
+
 	// 构建同步消息
 	syncDataBytes, _ := json.Marshal(syncData)
 	msg := &WSMessage{
