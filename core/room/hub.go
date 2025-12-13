@@ -3,6 +3,7 @@ package room
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -278,7 +279,7 @@ func (h *RoomHub) cleanup() {
 
 // userKey 生成用户键
 func (h *RoomHub) userKey(roomID string, userID int64) string {
-	return roomID + ":" + string(rune(userID))
+	return fmt.Sprintf("%s:%d", roomID, userID)
 }
 
 // Register 注册客户端
