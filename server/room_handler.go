@@ -47,7 +47,7 @@ func (h *RoomHandler) CreateRoomHandler(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 
 	// 从上下文获取用户信息
-	userID, ok := ctx.Value("user_id").(int64)
+	userID, ok := ctx.Value("userID").(int64)
 	if !ok {
 		http.Error(w, "未授权", http.StatusUnauthorized)
 		return
@@ -90,7 +90,7 @@ type JoinRoomResponse struct {
 func (h *RoomHandler) JoinRoomHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	userID, ok := ctx.Value("user_id").(int64)
+	userID, ok := ctx.Value("userID").(int64)
 	if !ok {
 		http.Error(w, "未授权", http.StatusUnauthorized)
 		return
@@ -130,7 +130,7 @@ type LeaveRoomRequest struct {
 func (h *RoomHandler) LeaveRoomHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	userID, ok := ctx.Value("user_id").(int64)
+	userID, ok := ctx.Value("userID").(int64)
 	if !ok {
 		http.Error(w, "未授权", http.StatusUnauthorized)
 		return
@@ -219,7 +219,7 @@ type SwitchModeRequest struct {
 func (h *RoomHandler) SwitchModeHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	userID, ok := ctx.Value("user_id").(int64)
+	userID, ok := ctx.Value("userID").(int64)
 	if !ok {
 		http.Error(w, "未授权", http.StatusUnauthorized)
 		return
@@ -250,7 +250,7 @@ type TransferOwnerRequest struct {
 func (h *RoomHandler) TransferOwnerHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	userID, ok := ctx.Value("user_id").(int64)
+	userID, ok := ctx.Value("userID").(int64)
 	if !ok {
 		http.Error(w, "未授权", http.StatusUnauthorized)
 		return
@@ -282,7 +282,7 @@ type GrantControlRequest struct {
 func (h *RoomHandler) GrantControlHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	userID, ok := ctx.Value("user_id").(int64)
+	userID, ok := ctx.Value("userID").(int64)
 	if !ok {
 		http.Error(w, "未授权", http.StatusUnauthorized)
 		return
