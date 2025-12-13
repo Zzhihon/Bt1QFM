@@ -1,7 +1,5 @@
 # ---------- 构建阶段 ----------
-FROM golang:1.23.3-alpine3.20 AS builder
-
-LABEL maintainer="AptS:1547 <esaps@esaps.net>"
+FROM golang:1.24.0-alpine3.20 AS builder
 
 WORKDIR /app
 
