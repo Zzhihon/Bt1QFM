@@ -62,10 +62,14 @@ const RoomView: React.FC = () => {
   const lastSyncRef = useRef<{ songId: string; position: number } | null>(null);
   const lastReportedTrackIdRef = useRef<string | null>(null); // 上次上报的歌曲ID
 
-  // 显示错误
+  // 显示错误（排除重连过程中的状态信息）
   useEffect(() => {
     if (error) {
-      addToast({ type: 'error', message: error, duration: 4000 });
+      // 重连过程中的状态信息不弹 toast，只在顶部显示状态即可
+      const isReconnectingStatus = error.includes('秒后重连') || error.includes('等待恢复');
+      if (!isReconnectingStatus) {
+        addToast({ type: 'error', message: error, duration: 4000 });
+      }
     }
   }, [error, addToast]);
 
@@ -622,8 +626,8 @@ const RoomView: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         {/* 左侧面板 - 歌单/成员 */}
         <div className="w-72 flex-shrink-0 border-r border-cyber-secondary/20 flex flex-col bg-cyber-bg-darker/30">
-          {/* 左侧标签切换 */}
-          <div className="flex border-b border-cyber-secondary/20">
+          {/* 左侧标签切换 - 固定在顶部 */}
+          <div className="flex-shrink-0 flex border-b border-cyber-secondary/20">
             <button
               onClick={() => setLeftTab('playlist')}
               className={`flex-1 py-2.5 flex items-center justify-center space-x-1.5 text-sm font-medium transition-colors ${
@@ -650,8 +654,8 @@ const RoomView: React.FC = () => {
             </button>
           </div>
 
-          {/* 左侧内容 */}
-          <div className="flex-1 overflow-hidden">
+          {/* 左侧内容 - 可滚动 */}
+          <div className="flex-1 overflow-y-auto">
             {leftTab === 'playlist' && <RoomPlaylist />}
             {leftTab === 'members' && <RoomMembers />}
           </div>
@@ -659,7 +663,7 @@ const RoomView: React.FC = () => {
 
         {/* 右侧面板 - 聊天 */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* 聊天标题 */}
+          {/* 聊天标题 - 固定在顶部 */}
           <div className="flex-shrink-0 px-4 py-2.5 border-b border-cyber-secondary/20 bg-cyber-bg-darker/20">
             <div className="flex items-center space-x-2">
               <MessageSquare className="w-4 h-4 text-cyber-primary" />
@@ -667,7 +671,7 @@ const RoomView: React.FC = () => {
             </div>
           </div>
 
-          {/* 聊天内容 */}
+          {/* 聊天内容 - 可滚动 */}
           <div className="flex-1 overflow-hidden">
             <RoomChat />
           </div>
