@@ -94,6 +94,25 @@ type OpenAIStreamChunk struct {
 
 // WebSocketMessage represents a message sent over WebSocket.
 type WebSocketMessage struct {
-	Type    string `json:"type"`    // "start", "content", "end", "error"
+	Type    string `json:"type"`    // "start", "content", "end", "error", "songs"
 	Content string `json:"content"` // Message content or error message
+}
+
+// SongCard 歌曲卡片结构，用于在聊天中展示可播放的歌曲
+type SongCard struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Artists  []string `json:"artists"`
+	Album    string   `json:"album"`
+	Duration int      `json:"duration"` // 毫秒
+	CoverURL string   `json:"coverUrl"`
+	HLSURL   string   `json:"hlsUrl"`
+	Source   string   `json:"source"` // "netease" 等
+}
+
+// ChatMessageWithSongs 带歌曲卡片的聊天消息
+type ChatMessageWithSongs struct {
+	Type    string     `json:"type"`    // "songs"
+	Content string     `json:"content"` // 文本内容
+	Songs   []SongCard `json:"songs"`   // 歌曲列表
 }

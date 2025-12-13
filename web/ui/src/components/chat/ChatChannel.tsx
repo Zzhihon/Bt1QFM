@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { Bot, User, Send, Trash2, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
+import SongCard, { SongCardData } from '../common/SongCard';
 
 interface ChatMessage {
   id: number;
@@ -9,6 +10,7 @@ interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   createdAt: string;
+  songs?: SongCardData[]; // AI 推荐的歌曲
 }
 
 interface ChatSession {
@@ -20,8 +22,9 @@ interface ChatSession {
 }
 
 interface WebSocketMessage {
-  type: 'start' | 'content' | 'end' | 'error' | 'slow' | 'timeout';
+  type: 'start' | 'content' | 'end' | 'error' | 'slow' | 'timeout' | 'songs';
   content: string;
+  songs?: SongCardData[];
 }
 
 // 获取后端 URL
@@ -57,6 +60,7 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
   const [slowHint, setSlowHint] = useState('');      // 慢响应提示
   const [showRetry, setShowRetry] = useState(false); // 显示重试按钮
   const [lastMessage, setLastMessage] = useState(''); // 保存最后发送的消息用于重试
+  const [pendingSongs, setPendingSongs] = useState<SongCardData[]>([]); // 待附加到消息的歌曲
 
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -134,6 +138,7 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
             streamingContentRef.current = '';
             setSlowHint('');      // 清除慢响应提示
             setShowRetry(false);  // 隐藏重试按钮
+            setPendingSongs([]);  // 清除待附加的歌曲
             break;
           case 'content':
             setSlowHint('');      // 收到内容后清除慢响应提示
@@ -141,16 +146,26 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
             streamingContentRef.current += msg.content;
             setStreamingContent(streamingContentRef.current);
             break;
+          case 'songs':
+            // 收到歌曲卡片，暂存等待 end 消息
+            if (msg.songs && msg.songs.length > 0) {
+              setPendingSongs(msg.songs);
+            }
+            break;
           case 'end':
-            // 将流式内容添加到消息列表
+            // 将流式内容添加到消息列表（包含歌曲）
             const finalContent = streamingContentRef.current + (msg.content || '');
-            setMessages(prev => [...prev, {
-              id: Date.now(),
-              sessionId: 0,
-              role: 'assistant',
-              content: finalContent,
-              createdAt: new Date().toISOString(),
-            }]);
+            setPendingSongs(currentSongs => {
+              setMessages(prev => [...prev, {
+                id: Date.now(),
+                sessionId: 0,
+                role: 'assistant',
+                content: finalContent,
+                createdAt: new Date().toISOString(),
+                songs: currentSongs.length > 0 ? currentSongs : undefined,
+              }]);
+              return [];
+            });
             setStreamingContent('');
             streamingContentRef.current = '';
             setIsStreaming(false);
@@ -366,6 +381,14 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
                   }`}
                 >
                   <p className="text-xs md:text-sm whitespace-pre-wrap">{message.content}</p>
+                  {/* 歌曲卡片 */}
+                  {message.songs && message.songs.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {message.songs.map((song) => (
+                        <SongCard key={song.id} song={song} compact />
+                      ))}
+                    </div>
+                  )}
                   <span className="text-xs opacity-50 mt-1 md:mt-2 block">
                     {formatTime(message.createdAt)}
                   </span>

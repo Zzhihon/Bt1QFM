@@ -9,6 +9,7 @@ import (
 
 	"Bt1QFM/core/agent"
 	"Bt1QFM/core/auth"
+	"Bt1QFM/core/plugin"
 	"Bt1QFM/logger"
 	"Bt1QFM/model"
 	"Bt1QFM/repository"
@@ -310,11 +311,14 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 		return
 	}
 
-	// Save assistant message
+	// 解析 AI 响应中的音乐搜索标签
+	cleanContent, searchQuery := h.musicAgent.ParseSearchMusic(fullResponse)
+
+	// Save assistant message (保存清理后的内容)
 	assistantMsg := &model.ChatMessage{
 		SessionID: session.ID,
 		Role:      "assistant",
-		Content:   fullResponse,
+		Content:   cleanContent, // 保存不含标签的内容
 	}
 	assistantMsgID, err := h.chatRepo.CreateMessage(assistantMsg)
 	if err != nil {
@@ -326,6 +330,11 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 	assistantMsg.ID = assistantMsgID
 	assistantMsg.CreatedAt = time.Now()
 
+	// 如果有音乐搜索请求，执行搜索并发送歌曲卡片
+	if searchQuery != "" {
+		h.handleMusicSearch(conn, userID, searchQuery)
+	}
+
 	// Send end signal
 	h.sendWebSocketMessage(conn, model.WebSocketMessage{
 		Type:    "end",
@@ -334,7 +343,8 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 
 	logger.Info("Chat message processed",
 		logger.Int64("userID", userID),
-		logger.Int("responseLength", len(fullResponse)))
+		logger.Int("responseLength", len(fullResponse)),
+		logger.String("musicQuery", searchQuery))
 }
 
 // timeoutWatcher 监控首响应超时，发送分层超时提示
@@ -392,4 +402,68 @@ func (h *ChatHandler) sendWebSocketError(conn *websocket.Conn, errMsg string) {
 		Type:    "error",
 		Content: errMsg,
 	})
+}
+
+// handleMusicSearch 执行音乐搜索并发送歌曲卡片
+func (h *ChatHandler) handleMusicSearch(conn *websocket.Conn, userID int64, query string) {
+	logger.Info("[ChatHandler] 执行音乐搜索",
+		logger.Int64("userID", userID),
+		logger.String("query", query))
+
+	// 执行搜索
+	songs, err := h.musicAgent.SearchMusic(query, 3)
+	if err != nil {
+		logger.Error("[ChatHandler] 音乐搜索失败",
+			logger.Int64("userID", userID),
+			logger.String("query", query),
+			logger.ErrorField(err))
+		return
+	}
+
+	if len(songs) == 0 {
+		logger.Info("[ChatHandler] 未找到歌曲",
+			logger.Int64("userID", userID),
+			logger.String("query", query))
+		return
+	}
+
+	// 转换为 SongCard 格式
+	songCards := h.convertToSongCards(songs)
+
+	// 发送歌曲卡片消息
+	songsMsg := model.ChatMessageWithSongs{
+		Type:    "songs",
+		Content: "",
+		Songs:   songCards,
+	}
+
+	conn.SetWriteDeadline(time.Now().Add(writeWait))
+	if err := conn.WriteJSON(songsMsg); err != nil {
+		logger.Error("[ChatHandler] 发送歌曲卡片失败",
+			logger.Int64("userID", userID),
+			logger.ErrorField(err))
+		return
+	}
+
+	logger.Info("[ChatHandler] 歌曲卡片已发送",
+		logger.Int64("userID", userID),
+		logger.Int("count", len(songCards)))
+}
+
+// convertToSongCards 将 PluginSong 转换为 SongCard
+func (h *ChatHandler) convertToSongCards(songs []plugin.PluginSong) []model.SongCard {
+	cards := make([]model.SongCard, len(songs))
+	for i, song := range songs {
+		cards[i] = model.SongCard{
+			ID:       song.ID,
+			Name:     song.Name,
+			Artists:  song.Artists,
+			Album:    song.Album,
+			Duration: song.Duration,
+			CoverURL: song.CoverURL,
+			HLSURL:   song.HLSURL,
+			Source:   song.Source,
+		}
+	}
+	return cards
 }

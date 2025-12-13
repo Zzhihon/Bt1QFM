@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
+	"Bt1QFM/core/plugin"
 	"Bt1QFM/logger"
 	"Bt1QFM/model"
 )
@@ -26,8 +28,21 @@ type MusicAgentConfig struct {
 
 // MusicAgent handles chat interactions with the AI model.
 type MusicAgent struct {
-	config     *MusicAgentConfig
-	httpClient *http.Client
+	config      *MusicAgentConfig
+	httpClient  *http.Client
+	musicPlugin plugin.MusicPlugin
+}
+
+// ToolCall 工具调用结构
+type ToolCall struct {
+	Name string                 `json:"name"`
+	Args map[string]interface{} `json:"args"`
+}
+
+// SongSearchResult 歌曲搜索结果回调
+type SongSearchResult struct {
+	Query string             `json:"query"`
+	Songs []plugin.PluginSong `json:"songs"`
 }
 
 // System prompt for the music agent.
@@ -43,20 +58,38 @@ const MusicAgentSystemPrompt = `你是1QFM音乐电台的AI助手"小Q"，一个
 2. **个性化推荐**：根据用户喜好推荐歌曲，记住用户的音乐偏好
 3. **音乐故事**：分享有趣的音乐幕后故事和冷知识
 4. **聊天陪伴**：可以进行轻松的日常对话
+5. **歌曲搜索**：可以直接搜索歌曲并展示给用户播放
 
-## 推荐歌曲格式
-当你推荐歌曲时，请使用以下格式方便用户搜索：
-🎵 **歌曲名** - 艺术家名
-   专辑：专辑名（发行年份）
-   风格：音乐风格
-   推荐理由：简短说明
+## 歌曲搜索工具
+当用户想听歌、让你推荐歌曲、问某首歌、或者表达想听音乐的意图时，你可以使用歌曲搜索工具。
+
+使用格式（必须严格遵守）：
+<search_music>歌曲名或关键词</search_music>
+
+示例：
+- 用户说"我想听周杰伦的歌" → 你回复包含 <search_music>周杰伦</search_music>
+- 用户说"放首稻香" → 你回复包含 <search_music>稻香 周杰伦</search_music>
+- 用户说"有什么治愈的歌推荐吗" → 你回复包含 <search_music>治愈 轻音乐</search_music>
+- 用户问"起风了这首歌怎么样" → 你回复包含 <search_music>起风了</search_music>
+
+重要规则：
+1. 当检测到用户有听歌意图时，必须使用 <search_music> 标签
+2. 标签内只放搜索关键词，不要放其他内容
+3. 可以在标签前后添加你的评论或介绍
+4. 每次最多使用一个 <search_music> 标签
+
+## 回复示例
+用户：我想听点轻松的歌
+你：好的！给你找一首轻松愉快的歌～ <search_music>轻松 愉快 流行</search_music> 希望能让你心情更好！
+
+用户：周杰伦的晴天好听吗
+你：《晴天》是周杰伦2003年发行的经典之作，旋律优美，歌词充满青春回忆，绝对值得一听！<search_music>晴天 周杰伦</search_music>
 
 ## 注意事项
 - 保持友好和专业的态度
 - 回答要简洁但有深度
-- 鼓励用户使用 /netease 歌曲名 命令来搜索和播放推荐的歌曲
-- 记住用户之前提到的音乐偏好
-- 如果用户想听歌，告诉他们可以切换到"音乐搜索"频道使用 /netease 命令搜索`
+- 主动使用搜索工具为用户找歌
+- 记住用户之前提到的音乐偏好`
 
 // NewMusicAgent creates a new music agent.
 func NewMusicAgent(config *MusicAgentConfig) *MusicAgent {
@@ -65,7 +98,49 @@ func NewMusicAgent(config *MusicAgentConfig) *MusicAgent {
 		httpClient: &http.Client{
 			Timeout: 120 * time.Second, // Longer timeout for streaming
 		},
+		musicPlugin: plugin.NewNeteasePlugin(),
 	}
+}
+
+// searchMusicPattern 用于匹配 <search_music>...</search_music> 标签
+var searchMusicPattern = regexp.MustCompile(`<search_music>(.*?)</search_music>`)
+
+// ParseSearchMusic 解析回复中的音乐搜索标签
+// 返回：清理后的文本、搜索关键词（如果有）
+func (a *MusicAgent) ParseSearchMusic(content string) (string, string) {
+	matches := searchMusicPattern.FindStringSubmatch(content)
+	if len(matches) < 2 {
+		return content, ""
+	}
+
+	query := strings.TrimSpace(matches[1])
+	// 移除标签，保留前后文本
+	cleanContent := searchMusicPattern.ReplaceAllString(content, "")
+	cleanContent = strings.TrimSpace(cleanContent)
+
+	return cleanContent, query
+}
+
+// SearchMusic 执行音乐搜索
+func (a *MusicAgent) SearchMusic(query string, limit int) ([]plugin.PluginSong, error) {
+	if a.musicPlugin == nil {
+		return nil, fmt.Errorf("music plugin not initialized")
+	}
+
+	if limit <= 0 {
+		limit = 3
+	}
+
+	logger.Info("[MusicAgent] 执行音乐搜索",
+		logger.String("query", query),
+		logger.Int("limit", limit))
+
+	return a.musicPlugin.Search(query, limit)
+}
+
+// GetMusicPlugin 获取音乐插件实例
+func (a *MusicAgent) GetMusicPlugin() plugin.MusicPlugin {
+	return a.musicPlugin
 }
 
 // buildMessages constructs the message array for the API call.
