@@ -84,6 +84,17 @@ type RoomInfo struct {
 	Members     []RoomMemberOnline `json:"members,omitempty"`
 }
 
+// RoomMessageWithUser 带用户名的消息（API 响应用）
+type RoomMessageWithUser struct {
+	ID          int64     `json:"id"`
+	RoomID      string    `json:"roomId"`
+	UserID      int64     `json:"userId"`
+	Username    string    `json:"username"`
+	Content     string    `json:"content"`
+	MessageType string    `json:"messageType"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
 // ========== 常量定义 ==========
 
 const (

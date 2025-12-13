@@ -34,6 +34,7 @@ type RoomRepository interface {
 	// 消息管理
 	CreateMessage(ctx context.Context, msg *model.RoomMessage) error
 	GetMessages(ctx context.Context, roomID string, limit, offset int) ([]*model.RoomMessage, error)
+	GetMessagesWithUser(ctx context.Context, roomID string, limit, offset int) ([]*model.RoomMessageWithUser, error)
 }
 
 // gormRoomRepository GORM 实现
@@ -213,6 +214,31 @@ func (r *gormRoomRepository) GetMessages(ctx context.Context, roomID string, lim
 		Limit(limit).
 		Offset(offset).
 		Find(&messages).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 反转为时间正序
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
+	}
+
+	return messages, nil
+}
+
+// GetMessagesWithUser 获取带用户名的消息列表
+func (r *gormRoomRepository) GetMessagesWithUser(ctx context.Context, roomID string, limit, offset int) ([]*model.RoomMessageWithUser, error) {
+	var messages []*model.RoomMessageWithUser
+	err := r.db.WithContext(ctx).
+		Table("room_messages").
+		Select("room_messages.id, room_messages.room_id, room_messages.user_id, users.username, room_messages.content, room_messages.message_type, room_messages.created_at").
+		Joins("LEFT JOIN users ON room_messages.user_id = users.id").
+		Where("room_messages.room_id = ?", roomID).
+		Order("room_messages.created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Scan(&messages).Error
 
 	if err != nil {
 		return nil, err

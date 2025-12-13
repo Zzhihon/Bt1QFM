@@ -528,9 +528,9 @@ func (m *RoomManager) SendMessage(ctx context.Context, roomID string, userID int
 	return nil
 }
 
-// GetMessages 获取历史消息
-func (m *RoomManager) GetMessages(ctx context.Context, roomID string, limit, offset int) ([]*model.RoomMessage, error) {
-	return m.repo.GetMessages(ctx, roomID, limit, offset)
+// GetMessages 获取历史消息（带用户名）
+func (m *RoomManager) GetMessages(ctx context.Context, roomID string, limit, offset int) ([]*model.RoomMessageWithUser, error) {
+	return m.repo.GetMessagesWithUser(ctx, roomID, limit, offset)
 }
 
 // ========== 广播辅助方法 ==========
