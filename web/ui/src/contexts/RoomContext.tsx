@@ -277,6 +277,14 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           // 收到请求房主播放状态的消息 - 通过自定义事件通知房主立即上报
           window.dispatchEvent(new CustomEvent('room-master-request'));
           break;
+
+        case 'master_mode':
+          // 房主模式变更通知 - 通过自定义事件通知
+          if (message.data) {
+            const modeData = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
+            window.dispatchEvent(new CustomEvent('room-master-mode-change', { detail: modeData }));
+          }
+          break;
       }
     } catch (err) {
       console.error('解析 WebSocket 消息失败:', err);

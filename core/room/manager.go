@@ -198,6 +198,17 @@ func (m *RoomManager) LeaveRoom(ctx context.Context, roomID string, userID int64
 		return fmt.Errorf("用户不在房间中")
 	}
 
+	// 获取房间信息判断是否是房主
+	room, _ := m.GetRoom(ctx, roomID)
+	isOwner := room != nil && room.OwnerID == userID
+
+	// 清理订阅
+	subMgr := GetSubscriptionManager()
+	subMgr.Unsubscribe(roomID, userID)
+	if isOwner {
+		subMgr.ClearMaster(roomID)
+	}
+
 	// 如果是房主且需要转让
 	if member.Role == model.RoomRoleOwner {
 		if transferTo != nil && *transferTo != userID {
@@ -252,6 +263,9 @@ func (m *RoomManager) LeaveRoom(ctx context.Context, roomID string, userID int64
 
 // CloseRoom 关闭房间
 func (m *RoomManager) CloseRoom(ctx context.Context, roomID string) error {
+	// 清理订阅
+	GetSubscriptionManager().CleanupRoom(roomID)
+
 	// 关闭数据库记录
 	if err := m.repo.Close(ctx, roomID); err != nil {
 		return fmt.Errorf("关闭房间失败: %w", err)
@@ -387,17 +401,86 @@ func (m *RoomManager) SwitchMode(ctx context.Context, roomID string, userID int6
 	// 更新 Hub
 	m.hub.UpdateClientMode(roomID, userID, mode)
 
-	// 如果切换到 listen 模式，同步当前播放状态
+	// 获取房间信息判断是否是房主
+	room, _ := m.GetRoom(ctx, roomID)
+	isOwner := room != nil && room.OwnerID == userID
+	client := m.hub.GetClient(roomID, userID)
+
+	// ========== 订阅管理 ==========
+	subMgr := GetSubscriptionManager()
+
 	if mode == model.RoomModeListen {
-		m.syncPlaybackToUser(ctx, roomID, userID)
+		// 切换到听歌模式 → 订阅
+		if client != nil {
+			subMgr.Subscribe(roomID, client)
+		}
+
+		if isOwner {
+			// 房主进入听歌模式，注册为发布者
+			if client != nil {
+				subMgr.SetMaster(roomID, client)
+			}
+			// 广播房主模式变更
+			m.broadcastMasterModeChange(roomID, mode)
+		} else {
+			// 非房主，检查房主是否在听歌模式，如果是则请求同步
+			if subMgr.IsMasterInListenMode(roomID) {
+				m.requestMasterStateForUser(ctx, roomID, userID)
+			}
+		}
+	} else {
+		// 切换到聊天模式 → 取消订阅
+		subMgr.Unsubscribe(roomID, userID)
+
+		if isOwner {
+			// 房主退出听歌模式，清除发布者
+			subMgr.ClearMaster(roomID)
+			// 广播房主模式变更
+			m.broadcastMasterModeChange(roomID, mode)
+		}
 	}
 
 	logger.Info("用户切换模式",
 		logger.String("roomId", roomID),
 		logger.Int64("userId", userID),
-		logger.String("mode", mode))
+		logger.String("mode", mode),
+		logger.Bool("isOwner", isOwner))
 
 	return nil
+}
+
+// broadcastMasterModeChange 广播房主模式变更
+func (m *RoomManager) broadcastMasterModeChange(roomID string, mode string) {
+	data, _ := json.Marshal(map[string]interface{}{
+		"mode": mode,
+	})
+	msg := &WSMessage{
+		Type:   MsgTypeMasterModeChange,
+		RoomID: roomID,
+		Data:   data,
+	}
+	m.hub.BroadcastWSMessage(roomID, msg, 0, "")
+}
+
+// requestMasterStateForUser 为特定用户请求房主状态
+func (m *RoomManager) requestMasterStateForUser(ctx context.Context, roomID string, userID int64) {
+	room, err := m.GetRoom(ctx, roomID)
+	if err != nil || room == nil {
+		return
+	}
+
+	// 通知房主有用户需要同步
+	msg := &WSMessage{
+		Type:   MsgTypeMasterRequest,
+		RoomID: roomID,
+		UserID: userID,
+	}
+	m.hub.SendToUser(roomID, room.OwnerID, msg)
+
+	logger.Debug("请求房主上报状态给新订阅用户",
+		logger.String("roomId", roomID),
+		logger.Int64("requesterId", userID),
+		logger.Int64("ownerId", room.OwnerID))
 }
 
 // ========== 播放控制 ==========
@@ -825,6 +908,31 @@ func (m *RoomManager) HandleMessage(ctx context.Context, client *Client, msg *WS
 			m.AddSong(ctx, client.RoomID, client.UserID, &songData)
 		}
 
+	case MsgTypeSongPlay:
+		// 播放歌曲：添加到歌单并立即播放（仅房主可触发播放）
+		var songData SongData
+		if err := json.Unmarshal(data, &songData); err == nil {
+			// 添加到歌单
+			m.AddSong(ctx, client.RoomID, client.UserID, &songData)
+
+			// 如果是房主且在听歌模式，更新当前播放为这首歌
+			room, _ := m.GetRoom(ctx, client.RoomID)
+			subMgr := GetSubscriptionManager()
+			if room != nil && room.OwnerID == client.UserID && subMgr.IsMasterInListenMode(client.RoomID) {
+				playlist, _ := m.GetPlaylist(ctx, client.RoomID)
+				if len(playlist) > 0 {
+					newIndex := len(playlist) - 1
+					state := &model.RoomPlaybackState{
+						CurrentIndex: newIndex,
+						CurrentSong:  playlist[newIndex],
+						Position:     0,
+						IsPlaying:    true,
+					}
+					m.UpdatePlayback(ctx, client.RoomID, client.UserID, state)
+				}
+			}
+		}
+
 	case MsgTypeSongDel:
 		var delData struct {
 			Position int `json:"position"`
@@ -868,7 +976,7 @@ func (m *RoomManager) GetHub() *RoomHub {
 	return m.hub
 }
 
-// handleMasterReport 处理房主上报的播放状态，转发给听歌模式的用户
+// handleMasterReport 处理房主上报的播放状态，通过订阅发布机制推送给听歌模式的用户
 func (m *RoomManager) handleMasterReport(ctx context.Context, client *Client, data json.RawMessage) {
 	// 验证是否是房主
 	room, err := m.GetRoom(ctx, client.RoomID)
@@ -883,6 +991,14 @@ func (m *RoomManager) handleMasterReport(ctx context.Context, client *Client, da
 			logger.String("roomId", client.RoomID),
 			logger.Int64("userId", client.UserID),
 			logger.Int64("ownerId", room.OwnerID))
+		return
+	}
+
+	// 检查房主是否在听歌模式（通过订阅管理器）
+	subMgr := GetSubscriptionManager()
+	if !subMgr.IsMasterInListenMode(client.RoomID) {
+		logger.Debug("房主不在一起听模式，忽略上报",
+			logger.String("roomId", client.RoomID))
 		return
 	}
 
@@ -902,7 +1018,7 @@ func (m *RoomManager) handleMasterReport(ctx context.Context, client *Client, da
 
 	// 将播放状态保存到 Redis 缓存，以便 HTTP API 可以获取
 	playbackState := &model.RoomPlaybackState{
-		CurrentIndex: 0, // master_report 不含 index，默认 0
+		CurrentIndex: 0,
 		CurrentSong: map[string]interface{}{
 			"songId":   syncData.SongID,
 			"name":     syncData.SongName,
@@ -923,25 +1039,8 @@ func (m *RoomManager) handleMasterReport(ctx context.Context, client *Client, da
 			logger.String("roomId", client.RoomID))
 	}
 
-	// 构建同步消息
-	syncDataBytes, _ := json.Marshal(syncData)
-	msg := &WSMessage{
-		Type:      MsgTypeMasterSync,
-		RoomID:    client.RoomID,
-		UserID:    client.UserID,
-		Username:  client.Username,
-		Data:      syncDataBytes,
-		Timestamp: time.Now().UnixMilli(),
-	}
-
-	// 只广播给听歌模式的用户（不包括房主自己）
-	m.hub.BroadcastWSMessage(client.RoomID, msg, client.UserID, "listen")
-
-	logger.Debug("房主播放状态已同步",
-		logger.String("roomId", client.RoomID),
-		logger.String("songId", syncData.SongID),
-		logger.Float64("position", syncData.Position),
-		logger.Bool("isPlaying", syncData.IsPlaying))
+	// ========== 使用订阅发布机制推送 ==========
+	subMgr.Publish(client.RoomID, &syncData, client.UserID)
 }
 
 // handleMasterRequest 处理用户请求房主播放状态，通知房主上报

@@ -44,6 +44,10 @@ const (
 	MsgTypeMasterReport  MessageType = "master_report"  // 房主上报播放状态（房主 -> 服务端）
 	MsgTypeMasterRequest MessageType = "master_request" // 请求房主播放状态（用户 -> 服务端 -> 房主）
 
+	// 订阅相关消息
+	MsgTypeMasterModeChange MessageType = "master_mode" // 房主模式变更通知
+	MsgTypeSongPlay         MessageType = "song_play"   // 播放歌曲（添加到歌单并播放）
+
 	// 权限消息
 	MsgTypeTransferOwner MessageType = "transfer_owner" // 转让房主
 	MsgTypeGrantControl  MessageType = "grant_control"  // 授权控制
@@ -258,6 +262,9 @@ func (h *RoomHub) removeClient(client *Client) {
 	}
 
 	delete(h.userClients, userKey)
+
+	// 清理订阅管理器中的订阅（WebSocket 断开时自动清理）
+	GetSubscriptionManager().Unsubscribe(roomID, client.UserID)
 
 	logger.Info("client unregistered",
 		logger.String("room", roomID),

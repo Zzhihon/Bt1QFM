@@ -265,14 +265,16 @@ export type RoomWSMessageType =
   | 'song_add'
   | 'song_del'
   | 'song_search'
+  | 'song_play'       // 播放歌曲（添加到歌单并播放）
   | 'playlist'
   | 'mode_sync'
   | 'transfer_owner'
   | 'grant_control'
   | 'role_update'
-  | 'master_sync'    // 房主播放状态同步（服务端 -> 听歌用户）
-  | 'master_report'  // 房主上报播放状态（房主 -> 服务端）
-  | 'master_request'; // 请求房主播放状态（用户 -> 服务端 -> 房主）
+  | 'master_sync'     // 房主播放状态同步（服务端 -> 听歌用户）
+  | 'master_report'   // 房主上报播放状态（房主 -> 服务端）
+  | 'master_request'  // 请求房主播放状态（用户 -> 服务端 -> 房主）
+  | 'master_mode';    // 房主模式变更通知
 
 // 房主播放同步数据
 export interface MasterSyncData {
@@ -287,6 +289,11 @@ export interface MasterSyncData {
   serverTime: number;    // 毫秒
   masterId: number;
   masterName: string;
+}
+
+// 房主模式变更数据
+export interface MasterModeData {
+  mode: 'chat' | 'listen';
 }
 
 // WebSocket 消息

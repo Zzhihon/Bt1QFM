@@ -9,7 +9,7 @@ import RoomPlaylist from './RoomPlaylist';
 import RoomCreate from './RoomCreate';
 import RoomJoin from './RoomJoin';
 import MyRoomList from './MyRoomList';
-import { MasterSyncData } from '../../types';
+import type { MasterSyncData, MasterModeData, Track } from '../../types';
 import {
   Users,
   Music2,
@@ -31,7 +31,7 @@ import {
 const RoomView: React.FC = () => {
   useAuth();
   const { addToast } = useToast();
-  const { enterRoomMode, exitRoomMode, isInRoomMode, playerState, playTrack, seekTo } = usePlayer();
+  const { enterRoomMode, exitRoomMode, isInRoomMode, playerState, playTrack, seekTo, pauseTrack, resumeTrack, audioRef } = usePlayer();
   const {
     currentRoom,
     members,
@@ -56,8 +56,10 @@ const RoomView: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false); // 是否正在同步中
+  const [masterInListenMode, setMasterInListenMode] = useState(false); // 房主是否在听歌模式
   const masterSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastSyncRef = useRef<{ songId: string; position: number } | null>(null);
+  const lastReportedTrackIdRef = useRef<string | null>(null); // 上次上报的歌曲ID
 
   // 显示错误
   useEffect(() => {
@@ -122,9 +124,25 @@ const RoomView: React.FC = () => {
   // 检查是否可以控制播放
   const canControl = myMember?.role === 'owner' || myMember?.role === 'admin' || myMember?.canControl;
 
-  // 房主定期上报播放状态 (每 2 秒)
+  // 构建同步数据的辅助函数
+  const buildSyncData = useCallback(() => {
+    if (!playerState.currentTrack) return null;
+    return {
+      songId: String(playerState.currentTrack.id || playerState.currentTrack.neteaseId),
+      songName: playerState.currentTrack.title,
+      artist: playerState.currentTrack.artist || '',
+      cover: playerState.currentTrack.coverArtPath || '',
+      duration: Math.round(playerState.duration * 1000), // 转为毫秒
+      position: playerState.currentTime,
+      isPlaying: playerState.isPlaying,
+      hlsUrl: playerState.currentTrack.hlsPlaylistUrl || '',
+    };
+  }, [playerState.currentTrack, playerState.duration, playerState.currentTime, playerState.isPlaying]);
+
+  // 房主事件驱动上报 + 兜底定时上报
   useEffect(() => {
-    if (!isOwner || !isConnected || !currentRoom) {
+    // 只有房主在听歌模式时才上报
+    if (!isOwner || !isConnected || !currentRoom || myMember?.mode !== 'listen') {
       if (masterSyncIntervalRef.current) {
         clearInterval(masterSyncIntervalRef.current);
         masterSyncIntervalRef.current = null;
@@ -132,37 +150,111 @@ const RoomView: React.FC = () => {
       return;
     }
 
-    // 上报当前播放状态
-    const reportPlayback = () => {
-      if (!playerState.currentTrack) return;
+    const audio = audioRef?.current;
+    if (!audio) return;
 
-      const syncData = {
-        songId: String(playerState.currentTrack.id || playerState.currentTrack.neteaseId),
-        songName: playerState.currentTrack.title,
-        artist: playerState.currentTrack.artist,
-        cover: playerState.currentTrack.coverArtPath,
-        duration: playerState.duration * 1000, // 转为毫秒
-        position: playerState.currentTime,
-        isPlaying: playerState.isPlaying,
-        hlsUrl: playerState.currentTrack.hlsPlaylistUrl,
-      };
+    // 上报函数
+    const doReport = () => {
+      const syncData = buildSyncData();
+      if (syncData) {
+        reportMasterPlayback(syncData);
+      }
+    };
 
-      reportMasterPlayback(syncData);
+    // 播放事件
+    const handlePlay = () => {
+      console.log('[房主上报] 播放事件');
+      doReport();
+    };
+
+    // 暂停事件
+    const handlePause = () => {
+      console.log('[房主上报] 暂停事件');
+      doReport();
+    };
+
+    // 拖动完成事件
+    const handleSeeked = () => {
+      console.log('[房主上报] 拖动事件');
+      doReport();
     };
 
     // 立即上报一次
-    reportPlayback();
+    doReport();
 
-    // 每 2 秒上报一次
-    masterSyncIntervalRef.current = setInterval(reportPlayback, 2000);
+    // 绑定事件监听
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
+    audio.addEventListener('seeked', handleSeeked);
+
+    // 兜底：每 5 秒上报一次（降低频率）
+    masterSyncIntervalRef.current = setInterval(() => {
+      if (!audio.paused) {
+        doReport();
+      }
+    }, 5000);
 
     return () => {
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('seeked', handleSeeked);
       if (masterSyncIntervalRef.current) {
         clearInterval(masterSyncIntervalRef.current);
         masterSyncIntervalRef.current = null;
       }
     };
-  }, [isOwner, isConnected, currentRoom, playerState.currentTrack, playerState.isPlaying, playerState.currentTime, playerState.duration, reportMasterPlayback]);
+  }, [isOwner, isConnected, currentRoom, myMember?.mode, audioRef, buildSyncData, reportMasterPlayback]);
+
+  // 监听歌曲变化，房主立即上报
+  useEffect(() => {
+    if (!isOwner || !isConnected || myMember?.mode !== 'listen' || !playerState.currentTrack) return;
+
+    const currentTrackId = String(playerState.currentTrack.id || playerState.currentTrack.neteaseId);
+
+    // 歌曲变化时立即上报
+    if (lastReportedTrackIdRef.current !== currentTrackId) {
+      console.log('[房主上报] 切换歌曲:', currentTrackId);
+      lastReportedTrackIdRef.current = currentTrackId;
+
+      const syncData = buildSyncData();
+      if (syncData) {
+        syncData.position = 0; // 新歌从头开始
+        reportMasterPlayback(syncData);
+      }
+    }
+  }, [isOwner, isConnected, myMember?.mode, playerState.currentTrack?.id, playerState.currentTrack?.neteaseId, buildSyncData, reportMasterPlayback]);
+
+  // 监听房主模式变更事件
+  useEffect(() => {
+    const handleMasterModeChange = (event: CustomEvent<MasterModeData>) => {
+      const { mode } = event.detail;
+      setMasterInListenMode(mode === 'listen');
+      console.log('[房间] 房主模式变更:', mode);
+    };
+
+    window.addEventListener('room-master-mode-change', handleMasterModeChange as EventListener);
+    return () => {
+      window.removeEventListener('room-master-mode-change', handleMasterModeChange as EventListener);
+    };
+  }, []);
+
+  // 监听房主请求事件（房主收到后立即上报）
+  useEffect(() => {
+    if (!isOwner) return;
+
+    const handleMasterRequest = () => {
+      console.log('[房主] 收到状态请求，立即上报');
+      const syncData = buildSyncData();
+      if (syncData) {
+        reportMasterPlayback(syncData);
+      }
+    };
+
+    window.addEventListener('room-master-request', handleMasterRequest);
+    return () => {
+      window.removeEventListener('room-master-request', handleMasterRequest);
+    };
+  }, [isOwner, buildSyncData, reportMasterPlayback]);
 
   // 处理房主同步消息的回调
   const handleMasterSync = useCallback((event: CustomEvent<MasterSyncData>) => {
@@ -172,13 +264,16 @@ const RoomView: React.FC = () => {
     const syncData = event.detail;
     setIsSyncing(true);
 
+    const audio = audioRef?.current;
+
     // 检查是否需要切换歌曲
     const currentSongId = String(playerState.currentTrack?.id || playerState.currentTrack?.neteaseId || '');
-    if (syncData.songId !== currentSongId) {
+    if (syncData.songId !== currentSongId && syncData.songId) {
       // 需要切换歌曲
-      const trackData = {
+      console.log('[听歌模式] 切换歌曲:', syncData.songName);
+      const trackData: Track = {
         id: syncData.songId,
-        neteaseId: syncData.songId,
+        neteaseId: Number(syncData.songId) || undefined,
         title: syncData.songName,
         artist: syncData.artist,
         album: '',
@@ -188,21 +283,33 @@ const RoomView: React.FC = () => {
         source: 'netease',
       };
       playTrack(trackData);
-      // 切换歌曲后需要等待加载完成再 seek
+      // 切换歌曲后需要等待加载完成再 seek 和同步播放状态
       setTimeout(() => {
         seekTo(syncData.position);
+        if (syncData.isPlaying) {
+          resumeTrack();
+        }
       }, 500);
     } else {
-      // 同一首歌，检查位置差异
-      const positionDiff = Math.abs(playerState.currentTime - syncData.position);
-      // 如果差异超过 3 秒，进行 seek 同步
-      if (positionDiff > 3) {
-        seekTo(syncData.position);
+      // 同一首歌 - 同步播放状态
+      if (audio) {
+        // 同步播放/暂停状态
+        if (syncData.isPlaying && audio.paused) {
+          console.log('[听歌模式] 同步播放');
+          resumeTrack();
+        } else if (!syncData.isPlaying && !audio.paused) {
+          console.log('[听歌模式] 同步暂停');
+          pauseTrack();
+        }
+
+        // 同步进度（差异 > 2 秒才同步，避免频繁 seek）
+        const positionDiff = Math.abs(playerState.currentTime - syncData.position);
+        if (positionDiff > 2) {
+          console.log('[听歌模式] 同步进度:', syncData.position);
+          seekTo(syncData.position);
+        }
       }
     }
-
-    // 同步播放状态
-    // 注意：这里暂时不强制同步播放/暂停，避免频繁操作
 
     // 更新最后同步记录
     lastSyncRef.current = {
@@ -211,7 +318,7 @@ const RoomView: React.FC = () => {
     };
 
     setTimeout(() => setIsSyncing(false), 500);
-  }, [isOwner, myMember?.mode, playerState.currentTrack, playerState.currentTime, playTrack, seekTo]);
+  }, [isOwner, myMember?.mode, playerState.currentTrack, playerState.currentTime, audioRef, playTrack, seekTo, pauseTrack, resumeTrack]);
 
   // 监听房主同步事件
   useEffect(() => {
