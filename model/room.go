@@ -1,8 +1,44 @@
 package model
 
 import (
+	"database/sql/driver"
+	"encoding/json"
 	"time"
 )
+
+// SongCardList 自定义类型用于 GORM JSON 字段的自动扫描
+type SongCardList []SongCard
+
+// Scan 实现 sql.Scanner 接口
+func (s *SongCardList) Scan(value interface{}) error {
+	if value == nil {
+		*s = nil
+		return nil
+	}
+	var bytes []byte
+	switch v := value.(type) {
+	case []byte:
+		bytes = v
+	case string:
+		bytes = []byte(v)
+	default:
+		*s = nil
+		return nil
+	}
+	if len(bytes) == 0 || string(bytes) == "null" {
+		*s = nil
+		return nil
+	}
+	return json.Unmarshal(bytes, s)
+}
+
+// Value 实现 driver.Valuer 接口
+func (s SongCardList) Value() (driver.Value, error) {
+	if s == nil {
+		return nil, nil
+	}
+	return json.Marshal(s)
+}
 
 // Room 聊天室
 type Room struct {
@@ -40,13 +76,13 @@ func (RoomMember) TableName() string {
 
 // RoomMessage 房间消息
 type RoomMessage struct {
-	ID          int64      `json:"id" gorm:"primaryKey;autoIncrement"`
-	RoomID      string     `json:"roomId" gorm:"size:8;index;not null"`
-	UserID      int64      `json:"userId" gorm:"not null"`
-	Content     string     `json:"content" gorm:"type:text;not null"`
-	MessageType string     `json:"messageType" gorm:"size:20;default:'text'"` // text, system, song_add, song_search
-	Songs       []SongCard `json:"songs,omitempty" gorm:"type:json"`          // 歌曲卡片列表(JSON)
-	CreatedAt   time.Time  `json:"createdAt" gorm:"index"`
+	ID          int64        `json:"id" gorm:"primaryKey;autoIncrement"`
+	RoomID      string       `json:"roomId" gorm:"size:8;index;not null"`
+	UserID      int64        `json:"userId" gorm:"not null"`
+	Content     string       `json:"content" gorm:"type:text;not null"`
+	MessageType string       `json:"messageType" gorm:"size:20;default:'text'"` // text, system, song_add, song_search
+	Songs       SongCardList `json:"songs,omitempty" gorm:"type:json"`          // 歌曲卡片列表(JSON)
+	CreatedAt   time.Time    `json:"createdAt" gorm:"index"`
 }
 
 // TableName 指定表名
@@ -87,14 +123,14 @@ type RoomInfo struct {
 
 // RoomMessageWithUser 带用户名的消息（API 响应用）
 type RoomMessageWithUser struct {
-	ID          int64      `json:"id"`
-	RoomID      string     `json:"roomId"`
-	UserID      int64      `json:"userId"`
-	Username    string     `json:"username"`
-	Content     string     `json:"content"`
-	MessageType string     `json:"messageType"`
-	Songs       []SongCard `json:"songs,omitempty"` // 歌曲卡片列表
-	CreatedAt   time.Time  `json:"createdAt"`
+	ID          int64        `json:"id"`
+	RoomID      string       `json:"roomId"`
+	UserID      int64        `json:"userId"`
+	Username    string       `json:"username"`
+	Content     string       `json:"content"`
+	MessageType string       `json:"messageType"`
+	Songs       SongCardList `json:"songs,omitempty"` // 歌曲卡片列表
+	CreatedAt   time.Time    `json:"createdAt"`
 }
 
 // UserRoomInfo 用户参与的房间信息（API 响应用）

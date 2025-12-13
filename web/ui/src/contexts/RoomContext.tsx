@@ -21,6 +21,7 @@ interface RoomContextType {
   isConnected: boolean;
   isLoading: boolean;
   error: string | null;
+  reconnectAttempt: number; // 新增：重连尝试次数
 
   // 房间操作
   createRoom: (name: string) => Promise<Room | null>;
@@ -63,11 +64,15 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
   // WebSocket 引用
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const maxReconnectAttempts = 10;
+  const currentRoomIdRef = useRef<string | null>(null);
 
   // 清理函数
   const cleanup = useCallback(() => {
@@ -84,6 +89,9 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       wsRef.current = null;
     }
     setIsConnected(false);
+    reconnectAttemptsRef.current = 0;
+    setReconnectAttempt(0);
+    currentRoomIdRef.current = null;
   }, []);
 
   // 发送 WebSocket 消息
@@ -255,14 +263,70 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
+  // 计算重连延迟（指数退避）
+  const getReconnectDelay = useCallback((attempt: number): number => {
+    // 指数退避: 1s, 2s, 4s, 8s, 16s, 最大30s
+    const baseDelay = 1000;
+    const maxDelay = 30000;
+    const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+    // 添加随机抖动 (±20%)
+    const jitter = delay * 0.2 * (Math.random() - 0.5);
+    return Math.floor(delay + jitter);
+  }, []);
+
+  // 尝试重连
+  const attemptReconnect = useCallback((roomId: string) => {
+    if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
+      console.log('已达到最大重连次数，停止重连');
+      setError('连接失败，请刷新页面重试');
+      return;
+    }
+
+    // 检查网络状态
+    if (!navigator.onLine) {
+      console.log('网络离线，等待网络恢复...');
+      setError('网络已断开，等待恢复...');
+      return;
+    }
+
+    reconnectAttemptsRef.current += 1;
+    setReconnectAttempt(reconnectAttemptsRef.current);
+
+    const delay = getReconnectDelay(reconnectAttemptsRef.current - 1);
+    console.log(`第 ${reconnectAttemptsRef.current} 次重连，${delay}ms 后尝试...`);
+    setError(`连接断开，${Math.ceil(delay / 1000)}秒后重连 (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
+
+    reconnectTimeoutRef.current = setTimeout(() => {
+      if (currentRoomIdRef.current === roomId) {
+        connectWebSocket(roomId);
+      }
+    }, delay);
+  }, [getReconnectDelay]);
+
   // 连接 WebSocket
   const connectWebSocket = useCallback((roomId: string) => {
     if (!currentUser || !authToken) return;
 
-    cleanup();
+    // 清理旧连接但保留重连计数
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    currentRoomIdRef.current = roomId;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/room/${roomId}?userId=${currentUser.id}&username=${encodeURIComponent(currentUser.username)}&token=${authToken}`;
+
+    console.log('正在连接 WebSocket...', reconnectAttemptsRef.current > 0 ? `(重连 #${reconnectAttemptsRef.current})` : '');
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -271,6 +335,9 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.log('WebSocket 连接成功');
       setIsConnected(true);
       setError(null);
+      // 重连成功后重置计数器
+      reconnectAttemptsRef.current = 0;
+      setReconnectAttempt(0);
 
       // 启动心跳
       pingIntervalRef.current = setInterval(() => {
@@ -284,19 +351,24 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.log('WebSocket 连接关闭:', event.code, event.reason);
       setIsConnected(false);
 
-      // 非正常关闭时尝试重连
-      if (event.code !== 1000 && currentRoom) {
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connectWebSocket(roomId);
-        }, 3000);
+      // 清理心跳
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
+
+      // 非正常关闭且仍在当前房间时尝试重连
+      // 1000 = 正常关闭, 1001 = 页面离开
+      if (event.code !== 1000 && event.code !== 1001 && currentRoomIdRef.current === roomId) {
+        attemptReconnect(roomId);
       }
     };
 
     ws.onerror = (err) => {
       console.error('WebSocket 错误:', err);
-      setError('连接失败');
+      // 错误后会触发 onclose，在 onclose 中处理重连
     };
-  }, [currentUser, authToken, cleanup, handleWSMessage, sendWSMessage, currentRoom]);
+  }, [currentUser, authToken, handleWSMessage, sendWSMessage, attemptReconnect]);
 
   // 创建房间
   const createRoom = useCallback(async (name: string): Promise<Room | null> => {
@@ -518,6 +590,33 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, [cleanup]);
 
+  // 网络状态监听 - 网络恢复时自动重连
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log('网络已恢复');
+      if (currentRoomIdRef.current && !isConnected) {
+        setError('网络已恢复，正在重连...');
+        // 重置重连计数，给予新的机会
+        reconnectAttemptsRef.current = 0;
+        setReconnectAttempt(0);
+        connectWebSocket(currentRoomIdRef.current);
+      }
+    };
+
+    const handleOffline = () => {
+      console.log('网络已断开');
+      setError('网络已断开，等待恢复...');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [isConnected, connectWebSocket]);
+
   const value: RoomContextType = {
     currentRoom,
     members,
@@ -527,6 +626,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isConnected,
     isLoading,
     error,
+    reconnectAttempt,
     createRoom,
     joinRoom,
     leaveRoom,

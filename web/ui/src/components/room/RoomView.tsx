@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRoom } from '../../contexts/RoomContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
+import { usePlayer } from '../../contexts/PlayerContext';
 import RoomChat from './RoomChat';
 import RoomMembers from './RoomMembers';
 import RoomPlaylist from './RoomPlaylist';
@@ -29,6 +30,7 @@ import {
 const RoomView: React.FC = () => {
   useAuth();
   const { addToast } = useToast();
+  const { enterRoomMode, exitRoomMode, isInRoomMode } = usePlayer();
   const {
     currentRoom,
     members,
@@ -73,6 +75,10 @@ const RoomView: React.FC = () => {
   // 离开房间
   const handleLeaveRoom = async () => {
     setShowLeaveConfirm(false);
+    // 如果在房间模式中，先恢复个人播放列表
+    if (isInRoomMode) {
+      exitRoomMode();
+    }
     await leaveRoom();
     addToast({ type: 'info', message: '已离开房间', duration: 2000 });
   };
@@ -80,6 +86,16 @@ const RoomView: React.FC = () => {
   // 切换模式
   const handleSwitchMode = async () => {
     const newMode = myMember?.mode === 'listen' ? 'chat' : 'listen';
+
+    // 切换播放列表模式
+    if (newMode === 'listen') {
+      // 进入听歌模式 - 切换到房间播放列表
+      enterRoomMode();
+    } else {
+      // 退出听歌模式 - 恢复个人播放列表
+      exitRoomMode();
+    }
+
     await switchMode(newMode);
     addToast({
       type: 'success',

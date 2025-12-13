@@ -50,6 +50,10 @@ interface PlayerContextType {
   resumeTrack: () => void;
   stopTrack: () => void;
   currentSongId: string | number | null; // 添加当前歌曲ID便于歌词同步
+  // 房间播放列表管理
+  enterRoomMode: (roomPlaylist?: Track[]) => void;
+  exitRoomMode: () => void;
+  isInRoomMode: boolean;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -68,10 +72,16 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const { addToast } = useToast();
   const audioRef = React.useRef<HTMLAudioElement>(new Audio());
   const hlsInstanceRef = React.useRef<Hls | null>(null);
-  
+
   const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
-  
+
+  // 房间模式相关状态
+  const [isInRoomMode, setIsInRoomMode] = useState(false);
+  const savedPersonalPlaylistRef = React.useRef<Track[] | null>(null);
+  const savedCurrentTrackRef = React.useRef<Track | null>(null);
+  const savedCurrentTimeRef = React.useRef<number>(0);
+
   // 获取后端 URL - 移动到组件顶部
   const backendUrl = getBackendUrl();
   
@@ -1303,9 +1313,85 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }))
     }));
   };
-  
+
+  // 进入房间模式 - 保存个人播放列表并切换到房间播放列表
+  const enterRoomMode = useCallback((roomPlaylist?: Track[]) => {
+    if (isInRoomMode) {
+      console.log('已在房间模式中，跳过切换');
+      return;
+    }
+
+    console.log('进入房间模式，保存个人播放列表');
+
+    // 保存当前个人播放状态
+    savedPersonalPlaylistRef.current = [...playerState.playlist];
+    savedCurrentTrackRef.current = playerState.currentTrack;
+    savedCurrentTimeRef.current = audioRef.current?.currentTime || 0;
+
+    // 暂停当前播放
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    // 切换到房间播放列表
+    setPlayerState(prev => ({
+      ...prev,
+      playlist: roomPlaylist?.map((track, index) => ({ ...track, position: index })) || [],
+      currentTrack: null,
+      isPlaying: false,
+      currentTime: 0,
+    }));
+
+    setIsInRoomMode(true);
+    addToast({
+      type: 'info',
+      message: '已切换到房间播放列表',
+      duration: 2000,
+    });
+  }, [isInRoomMode, playerState.playlist, playerState.currentTrack, addToast]);
+
+  // 退出房间模式 - 恢复个人播放列表
+  const exitRoomMode = useCallback(() => {
+    if (!isInRoomMode) {
+      console.log('不在房间模式中，跳过恢复');
+      return;
+    }
+
+    console.log('退出房间模式，恢复个人播放列表');
+
+    // 暂停当前播放
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    // 恢复个人播放状态
+    const restoredPlaylist = savedPersonalPlaylistRef.current || [];
+    const restoredTrack = savedCurrentTrackRef.current;
+    const restoredTime = savedCurrentTimeRef.current;
+
+    setPlayerState(prev => ({
+      ...prev,
+      playlist: restoredPlaylist,
+      currentTrack: restoredTrack,
+      isPlaying: false,
+      currentTime: restoredTime,
+    }));
+
+    // 清理保存的状态
+    savedPersonalPlaylistRef.current = null;
+    savedCurrentTrackRef.current = null;
+    savedCurrentTimeRef.current = 0;
+
+    setIsInRoomMode(false);
+    addToast({
+      type: 'info',
+      message: '已恢复个人播放列表',
+      duration: 2000,
+    });
+  }, [isInRoomMode, addToast]);
+
   // 获取当前歌曲ID
-  const currentSongId = playerState.currentTrack 
+  const currentSongId = playerState.currentTrack
     ? (playerState.currentTrack.neteaseId || playerState.currentTrack.id)
     : null;
 
@@ -1355,6 +1441,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           }
         },
         currentSongId,
+        enterRoomMode,
+        exitRoomMode,
+        isInRoomMode,
       }}
     >
       {children}

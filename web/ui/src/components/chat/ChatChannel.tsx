@@ -345,7 +345,7 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
       {/* 消息显示区域 */}
       <div className="flex-1 relative bg-cyber-bg">
         <div className="absolute inset-0 overflow-y-auto messages-scroll-area">
-          <div className="p-2 md:p-6 max-w-5xl mx-auto space-y-3 md:space-y-4">
+          <div className="p-2 md:p-4 space-y-3 md:space-y-4">
             {/* 欢迎消息 */}
             {messages.length === 0 && !isStreaming && (
               <div className="flex justify-center items-center h-full min-h-[200px]">
@@ -448,7 +448,7 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
 
       {/* 输入区域 */}
       <div className="h-auto p-2 md:p-3 bg-cyber-bg-darker/60 backdrop-blur-md border-t border-cyber-secondary/20 flex-shrink-0">
-        <div className="max-w-5xl mx-auto">
+        <div className="px-2 md:px-4">
           <div className="flex items-center space-x-2">
             {/* 清除历史按钮 */}
             <button

@@ -264,6 +264,7 @@ export type RoomWSMessageType =
   | 'playback'
   | 'song_add'
   | 'song_del'
+  | 'song_search'
   | 'playlist'
   | 'mode_sync'
   | 'transfer_owner'

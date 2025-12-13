@@ -562,7 +562,7 @@ func (m *RoomManager) handleNeteaseSearch(ctx context.Context, roomID string, us
 	}
 
 	// 转换搜索结果为 SongCard 格式
-	songs := make([]model.SongCard, 0, len(result.Songs))
+	songs := make(model.SongCardList, 0, len(result.Songs))
 	for _, song := range result.Songs {
 		// 提取艺术家名称
 		artistNames := make([]string, 0, len(song.Artists))
@@ -587,7 +587,7 @@ func (m *RoomManager) handleNeteaseSearch(ctx context.Context, roomID string, us
 }
 
 // SendSongSearchMessage 发送歌曲搜索结果消息
-func (m *RoomManager) SendSongSearchMessage(ctx context.Context, roomID string, userID int64, username, query string, songs []model.SongCard) error {
+func (m *RoomManager) SendSongSearchMessage(ctx context.Context, roomID string, userID int64, username, query string, songs model.SongCardList) error {
 	content := fmt.Sprintf("搜索 \"%s\" 的结果:", query)
 
 	// 保存消息到数据库
