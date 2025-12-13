@@ -190,6 +190,32 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
           break;
 
+        case 'song_search':
+          // 歌曲搜索结果 - 通过自定义事件分发给 RoomChat 组件
+          if (message.userId && message.username && message.data) {
+            const searchData = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
+            const chatMessage = {
+              id: message.timestamp || Date.now(),
+              userId: message.userId,
+              username: message.username,
+              content: `搜索「${searchData.query}」的结果：`,
+              timestamp: message.timestamp || Date.now(),
+              type: 'song_search' as const,
+              songs: searchData.songs?.map((song: { id: number; name: string; artists: string[]; album: string; duration: number; coverUrl: string; hlsUrl: string; source: string }) => ({
+                id: song.id,
+                name: song.name,
+                artists: song.artists,
+                album: song.album,
+                duration: song.duration,
+                coverUrl: song.coverUrl,
+                hlsUrl: song.hlsUrl,
+                source: song.source,
+              })),
+            };
+            window.dispatchEvent(new CustomEvent('room-chat-message', { detail: chatMessage }));
+          }
+          break;
+
         case 'role_update':
           // 角色更新
           if (message.data) {

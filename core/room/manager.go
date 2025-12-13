@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strconv"
+	"strings"
 	"time"
 
 	"Bt1QFM/cache"
+	"Bt1QFM/core/netease"
 	"Bt1QFM/logger"
 	"Bt1QFM/model"
 	"Bt1QFM/repository"
@@ -15,19 +18,21 @@ import (
 
 // RoomManager 房间业务管理器
 type RoomManager struct {
-	repo       repository.RoomRepository
-	cache      *cache.RoomCache
-	hub        *RoomHub
-	maxMembers int
+	repo          repository.RoomRepository
+	cache         *cache.RoomCache
+	hub           *RoomHub
+	neteaseClient *netease.Client
+	maxMembers    int
 }
 
 // NewRoomManager 创建房间管理器
 func NewRoomManager(repo repository.RoomRepository, roomCache *cache.RoomCache, hub *RoomHub) *RoomManager {
 	return &RoomManager{
-		repo:       repo,
-		cache:      roomCache,
-		hub:        hub,
-		maxMembers: 10,
+		repo:          repo,
+		cache:         roomCache,
+		hub:           hub,
+		neteaseClient: netease.NewClient(),
+		maxMembers:    10,
 	}
 }
 
@@ -533,6 +538,114 @@ func (m *RoomManager) GetMessages(ctx context.Context, roomID string, limit, off
 	return m.repo.GetMessagesWithUser(ctx, roomID, limit, offset)
 }
 
+// handleNeteaseSearch 处理 /netease 命令搜索歌曲
+func (m *RoomManager) handleNeteaseSearch(ctx context.Context, roomID string, userID int64, username, keyword string) {
+	logger.Info("处理 /netease 搜索命令",
+		logger.String("roomId", roomID),
+		logger.Int64("userId", userID),
+		logger.String("keyword", keyword))
+
+	// 搜索歌曲
+	result, err := m.neteaseClient.SearchSongs(keyword, 5, 0, nil, "")
+	if err != nil {
+		logger.Warn("网易云搜索失败",
+			logger.String("keyword", keyword),
+			logger.ErrorField(err))
+		// 发送错误消息
+		m.SendMessage(ctx, roomID, userID, username, "搜索失败: "+err.Error())
+		return
+	}
+
+	if len(result.Songs) == 0 {
+		m.SendMessage(ctx, roomID, userID, username, "没有找到相关歌曲: "+keyword)
+		return
+	}
+
+	// 转换搜索结果为 SongCard 格式
+	songs := make([]model.SongCard, 0, len(result.Songs))
+	for _, song := range result.Songs {
+		// 提取艺术家名称
+		artistNames := make([]string, 0, len(song.Artists))
+		for _, artist := range song.Artists {
+			artistNames = append(artistNames, artist.Name)
+		}
+
+		songs = append(songs, model.SongCard{
+			ID:       strconv.FormatInt(song.ID, 10),
+			Name:     song.Name,
+			Artists:  artistNames,
+			Album:    song.Album.Name,
+			Duration: song.Duration,
+			CoverURL: song.Album.PicURL,
+			HLSURL:   fmt.Sprintf("/streams/netease/%d/playlist.m3u8", song.ID),
+			Source:   "netease",
+		})
+	}
+
+	// 发送歌曲搜索结果消息
+	m.SendSongSearchMessage(ctx, roomID, userID, username, keyword, songs)
+}
+
+// SendSongSearchMessage 发送歌曲搜索结果消息
+func (m *RoomManager) SendSongSearchMessage(ctx context.Context, roomID string, userID int64, username, query string, songs []model.SongCard) error {
+	content := fmt.Sprintf("搜索 \"%s\" 的结果:", query)
+
+	// 保存消息到数据库
+	msg := &model.RoomMessage{
+		RoomID:      roomID,
+		UserID:      userID,
+		Content:     content,
+		MessageType: model.RoomMsgTypeSongSearch,
+		Songs:       songs,
+		CreatedAt:   time.Now(),
+	}
+	if err := m.repo.CreateMessage(ctx, msg); err != nil {
+		logger.Warn("保存歌曲搜索消息失败", logger.ErrorField(err))
+	}
+
+	// 构建 WebSocket 广播数据
+	searchData := &SongSearchData{
+		Query: query,
+		Songs: make([]SongCardData, 0, len(songs)),
+	}
+	for _, song := range songs {
+		searchData.Songs = append(searchData.Songs, SongCardData{
+			ID:       parseSongID(song.ID),
+			Name:     song.Name,
+			Artists:  song.Artists,
+			Album:    song.Album,
+			Duration: song.Duration,
+			CoverURL: song.CoverURL,
+			HLSURL:   song.HLSURL,
+			Source:   song.Source,
+		})
+	}
+
+	data, _ := json.Marshal(searchData)
+	wsMsg := &WSMessage{
+		Type:     MsgTypeSongSearch,
+		RoomID:   roomID,
+		UserID:   userID,
+		Username: username,
+		Data:     data,
+	}
+	m.hub.BroadcastWSMessage(roomID, wsMsg, 0, "")
+
+	logger.Info("歌曲搜索结果已广播",
+		logger.String("roomId", roomID),
+		logger.Int64("userId", userID),
+		logger.String("query", query),
+		logger.Int("songsCount", len(songs)))
+
+	return nil
+}
+
+// parseSongID 将字符串ID解析为int64
+func parseSongID(id string) int64 {
+	n, _ := strconv.ParseInt(id, 10, 64)
+	return n
+}
+
 // GetUserRooms 获取用户参与的房间列表
 func (m *RoomManager) GetUserRooms(ctx context.Context, userID int64) ([]*model.UserRoomInfo, error) {
 	return m.repo.GetUserRooms(ctx, userID)
@@ -635,7 +748,18 @@ func (m *RoomManager) HandleMessage(ctx context.Context, client *Client, msg *WS
 	case MsgTypeChat:
 		var chatData ChatData
 		if err := json.Unmarshal(data, &chatData); err == nil {
-			m.SendMessage(ctx, client.RoomID, client.UserID, client.Username, chatData.Content)
+			content := chatData.Content
+			// 检测 /netease 命令
+			if strings.HasPrefix(content, "/netease ") {
+				keyword := strings.TrimPrefix(content, "/netease ")
+				keyword = strings.TrimSpace(keyword)
+				if keyword != "" {
+					m.handleNeteaseSearch(ctx, client.RoomID, client.UserID, client.Username, keyword)
+				}
+			} else {
+				// 普通聊天消息
+				m.SendMessage(ctx, client.RoomID, client.UserID, client.Username, content)
+			}
 		} else {
 			logger.Warn("解析聊天消息失败",
 				logger.ErrorField(err),

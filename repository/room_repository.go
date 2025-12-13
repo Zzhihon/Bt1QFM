@@ -235,7 +235,7 @@ func (r *gormRoomRepository) GetMessagesWithUser(ctx context.Context, roomID str
 	var messages []*model.RoomMessageWithUser
 	err := r.db.WithContext(ctx).
 		Table("room_messages").
-		Select("room_messages.id, room_messages.room_id, room_messages.user_id, users.username, room_messages.content, room_messages.message_type, room_messages.created_at").
+		Select("room_messages.id, room_messages.room_id, room_messages.user_id, users.username, room_messages.content, room_messages.message_type, room_messages.songs, room_messages.created_at").
 		Joins("LEFT JOIN users ON room_messages.user_id = users.id").
 		Where("room_messages.room_id = ?", roomID).
 		Order("room_messages.created_at DESC").

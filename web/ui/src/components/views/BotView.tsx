@@ -555,21 +555,21 @@ const BotView: React.FC = () => {
       {/* 调整高度计算 - 64px导航栏 + 手机端播放栏约130px，桌面端84px */}
       <div className="h-[calc(100vh-64px-114px)] md:h-[calc(100vh-64px-84px)] grid grid-cols-12 gap-0">
         
-        {/* 左侧频道栏 - 在手机端隐藏，减少宽度 */}
-        <div className="hidden lg:flex lg:col-span-2 bg-cyber-bg-darker/50 backdrop-blur-sm border-r border-cyber-secondary/30 flex-col h-full">
+        {/* 左侧频道栏 - 在手机端隐藏，紧凑宽度 */}
+        <div className="hidden lg:flex lg:col-span-2 xl:col-span-1 bg-cyber-bg-darker/50 backdrop-blur-sm border-r border-cyber-secondary/30 flex-col h-full">
           {/* 服务器信息 */}
-          <div className="p-4 border-b border-cyber-secondary/30 flex-shrink-0">
-            <h2 className="text-xl font-bold text-cyber-primary flex items-center">
-              <Headphones className="w-6 h-6 mr-2" />
-              音乐频道
+          <div className="p-3 border-b border-cyber-secondary/30 flex-shrink-0">
+            <h2 className="text-base xl:text-lg font-bold text-cyber-primary flex items-center">
+              <Headphones className="w-5 h-5 mr-2" />
+              <span className="hidden xl:inline">音乐频道</span>
             </h2>
           </div>
 
           {/* 频道列表 */}
-          <div className="flex-1 p-3">
+          <div className="flex-1 p-2">
             <div className="space-y-2">
               <div className="text-xs font-semibold text-cyber-secondary/70 px-2 py-1 flex items-center justify-between">
-                <span>音乐频道</span>
+                <span className="hidden xl:inline">音乐频道</span>
                 <Plus className="w-4 h-4 cursor-pointer hover:text-cyber-primary transition-colors" />
               </div>
               <div className="space-y-1">
@@ -581,8 +581,8 @@ const BotView: React.FC = () => {
                       : 'hover:bg-cyber-bg/50 text-cyber-secondary/70'
                   }`}
                 >
-                  <Hash className="w-4 h-4 mr-2" />
-                  <span className="text-sm font-medium">音乐搜索</span>
+                  <Hash className="w-4 h-4 xl:mr-2" />
+                  <span className="text-sm font-medium hidden xl:inline">音乐搜索</span>
                 </div>
                 <div
                   onClick={() => setActiveChannel('chat-assistant')}
@@ -592,16 +592,16 @@ const BotView: React.FC = () => {
                       : 'hover:bg-cyber-bg/50 text-cyber-secondary/70'
                   }`}
                 >
-                  <MessageSquare className="w-4 h-4 mr-2" />
-                  <span className="text-sm font-medium">聊天助手</span>
+                  <MessageSquare className="w-4 h-4 xl:mr-2" />
+                  <span className="text-sm font-medium hidden xl:inline">聊天助手</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* 中间对话区域 - 手机端占满整个宽度，桌面端增加宽度 */}
-        <div className="col-span-12 lg:col-span-8 flex flex-col h-full">
+        {/* 中间对话区域 - 手机端占满整个宽度，桌面端最大化宽度 */}
+        <div className="col-span-12 lg:col-span-8 xl:col-span-10 flex flex-col h-full">
           {/* 频道标题 - 手机端优化 */}
           <div className="h-12 md:h-14 border-b border-cyber-secondary/30 flex items-center px-3 md:px-6 bg-cyber-bg-darker/30 backdrop-blur-sm flex-shrink-0">
             {activeChannel === 'music-search' ? (
@@ -652,7 +652,7 @@ const BotView: React.FC = () => {
               {/* 消息显示区域 - 手机端优化间距 */}
               <div className="flex-1 relative bg-cyber-bg">
                 <div className="absolute inset-0 overflow-y-auto messages-scroll-area">
-                  <div className="p-2 md:p-6 max-w-5xl mx-auto space-y-3 md:space-y-4">
+                  <div className="p-2 md:p-6 max-w-6xl mx-auto space-y-3 md:space-y-4">
                     {displayMessages.map((message, index) => (
                       <div
                         key={message.id}
@@ -750,7 +750,7 @@ const BotView: React.FC = () => {
 
               {/* 输入区域 - 优化紧凑样式 */}
               <div className="h-auto p-2 md:p-3 bg-cyber-bg-darker/60 backdrop-blur-md border-t border-cyber-secondary/20 flex-shrink-0">
-                <div className="max-w-5xl mx-auto">
+                <div className="max-w-6xl mx-auto">
                   <form onSubmit={handleCommand} className="w-full">
                     <div className="flex items-center space-x-2 bg-cyber-bg-darker/40 backdrop-blur-sm p-1.5 md:p-2 rounded-lg border border-cyber-secondary/20 shadow-sm">
                       <div className="flex-1 relative">
@@ -784,28 +784,28 @@ const BotView: React.FC = () => {
           )}
         </div>
 
-        {/* 右侧用户列表 - 在手机端隐藏，减少宽度 */}
-        <div className="hidden lg:flex lg:col-span-2 bg-cyber-bg-darker/50 backdrop-blur-sm border-l border-cyber-secondary/30 p-4 h-full overflow-hidden flex-col">
-          <div className="text-xs font-semibold text-cyber-secondary/70 mb-3 px-2">在线用户</div>
-          <div className="space-y-2">
-            <div className="flex items-center p-3 rounded-lg hover:bg-cyber-bg/50 cursor-pointer transition-colors">
-              <div className="w-10 h-10 rounded-full bg-cyber-primary/20 flex items-center justify-center mr-3">
-                <Bot className="w-6 h-6 text-cyber-primary" />
+        {/* 右侧用户列表 - 在手机端隐藏，紧凑宽度 */}
+        <div className="hidden xl:flex xl:col-span-1 bg-cyber-bg-darker/50 backdrop-blur-sm border-l border-cyber-secondary/30 p-2 h-full overflow-hidden flex-col">
+          <div className="text-xs font-semibold text-cyber-secondary/70 mb-2 px-1">在线</div>
+          <div className="space-y-1">
+            <div className="flex items-center p-2 rounded-lg hover:bg-cyber-bg/50 cursor-pointer transition-colors">
+              <div className="w-8 h-8 rounded-full bg-cyber-primary/20 flex items-center justify-center mr-2">
+                <Bot className="w-4 h-4 text-cyber-primary" />
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-cyber-text truncate">音乐助手</div>
-                <div className="text-xs text-cyber-secondary/70">机器人</div>
+              <div className="flex-1 min-w-0 hidden 2xl:block">
+                <div className="text-xs font-medium text-cyber-text truncate">音乐助手</div>
+                <div className="text-[10px] text-cyber-secondary/70">机器人</div>
               </div>
             </div>
-            <div className="flex items-center p-3 rounded-lg hover:bg-cyber-bg/50 cursor-pointer transition-colors">
-              <div className="w-10 h-10 rounded-full bg-cyber-secondary/20 flex items-center justify-center mr-3">
-                <User className="w-6 h-6 text-cyber-secondary" />
+            <div className="flex items-center p-2 rounded-lg hover:bg-cyber-bg/50 cursor-pointer transition-colors">
+              <div className="w-8 h-8 rounded-full bg-cyber-secondary/20 flex items-center justify-center mr-2">
+                <User className="w-4 h-4 text-cyber-secondary" />
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-cyber-text truncate">
+              <div className="flex-1 min-w-0 hidden 2xl:block">
+                <div className="text-xs font-medium text-cyber-text truncate">
                   {currentUser?.username || '游客'}
                 </div>
-                <div className="text-xs text-cyber-secondary/70">在线</div>
+                <div className="text-[10px] text-cyber-secondary/70">在线</div>
               </div>
             </div>
           </div>

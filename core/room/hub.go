@@ -26,7 +26,8 @@ const (
 	MsgTypeMemberList MessageType = "member_list" // 成员列表
 
 	// 聊天消息
-	MsgTypeChat MessageType = "chat" // 聊天消息
+	MsgTypeChat       MessageType = "chat"        // 聊天消息
+	MsgTypeSongSearch MessageType = "song_search" // 歌曲搜索结果
 
 	// 播放控制消息
 	MsgTypePlay     MessageType = "play"      // 播放
@@ -59,6 +60,24 @@ type WSMessage struct {
 // ChatData 聊天消息数据
 type ChatData struct {
 	Content string `json:"content"`
+}
+
+// SongSearchData 歌曲搜索结果数据
+type SongSearchData struct {
+	Query string         `json:"query"`
+	Songs []SongCardData `json:"songs"`
+}
+
+// SongCardData 歌曲卡片数据
+type SongCardData struct {
+	ID       int64    `json:"id"`
+	Name     string   `json:"name"`
+	Artists  []string `json:"artists"`
+	Album    string   `json:"album"`
+	Duration int      `json:"duration"`
+	CoverURL string   `json:"coverUrl"`
+	HLSURL   string   `json:"hlsUrl"`
+	Source   string   `json:"source"`
 }
 
 // PlaybackData 播放控制数据

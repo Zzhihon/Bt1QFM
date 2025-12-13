@@ -40,12 +40,13 @@ func (RoomMember) TableName() string {
 
 // RoomMessage 房间消息
 type RoomMessage struct {
-	ID          int64     `json:"id" gorm:"primaryKey;autoIncrement"`
-	RoomID      string    `json:"roomId" gorm:"size:8;index;not null"`
-	UserID      int64     `json:"userId" gorm:"not null"`
-	Content     string    `json:"content" gorm:"type:text;not null"`
-	MessageType string    `json:"messageType" gorm:"size:20;default:'text'"` // text, system, song_add
-	CreatedAt   time.Time `json:"createdAt" gorm:"index"`
+	ID          int64      `json:"id" gorm:"primaryKey;autoIncrement"`
+	RoomID      string     `json:"roomId" gorm:"size:8;index;not null"`
+	UserID      int64      `json:"userId" gorm:"not null"`
+	Content     string     `json:"content" gorm:"type:text;not null"`
+	MessageType string     `json:"messageType" gorm:"size:20;default:'text'"` // text, system, song_add, song_search
+	Songs       []SongCard `json:"songs,omitempty" gorm:"type:json"`          // 歌曲卡片列表(JSON)
+	CreatedAt   time.Time  `json:"createdAt" gorm:"index"`
 }
 
 // TableName 指定表名
@@ -86,13 +87,14 @@ type RoomInfo struct {
 
 // RoomMessageWithUser 带用户名的消息（API 响应用）
 type RoomMessageWithUser struct {
-	ID          int64     `json:"id"`
-	RoomID      string    `json:"roomId"`
-	UserID      int64     `json:"userId"`
-	Username    string    `json:"username"`
-	Content     string    `json:"content"`
-	MessageType string    `json:"messageType"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID          int64      `json:"id"`
+	RoomID      string     `json:"roomId"`
+	UserID      int64      `json:"userId"`
+	Username    string     `json:"username"`
+	Content     string     `json:"content"`
+	MessageType string     `json:"messageType"`
+	Songs       []SongCard `json:"songs,omitempty"` // 歌曲卡片列表
+	CreatedAt   time.Time  `json:"createdAt"`
 }
 
 // UserRoomInfo 用户参与的房间信息（API 响应用）
@@ -124,7 +126,8 @@ const (
 	RoomModeListen = "listen"
 
 	// 消息类型
-	RoomMsgTypeText    = "text"
-	RoomMsgTypeSystem  = "system"
-	RoomMsgTypeSongAdd = "song_add"
+	RoomMsgTypeText       = "text"
+	RoomMsgTypeSystem     = "system"
+	RoomMsgTypeSongAdd    = "song_add"
+	RoomMsgTypeSongSearch = "song_search" // 歌曲搜索结果
 )

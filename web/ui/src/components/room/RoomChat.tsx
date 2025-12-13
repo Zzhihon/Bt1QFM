@@ -3,16 +3,18 @@ import { useRoom } from '../../contexts/RoomContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePlayer } from '../../contexts/PlayerContext';
 import { useToast } from '../../contexts/ToastContext';
-import { Send, User, Music2, PlayCircle, Plus, Loader2 } from 'lucide-react';
+import { Send, User, Music2, PlayCircle, Plus } from 'lucide-react';
 
 interface SongCard {
-  id: number;
+  id: number | string;
   name: string;
   artists: string[];
   album: string;
   duration: number;
   picUrl?: string;
   coverUrl?: string;
+  hlsUrl?: string;
+  source?: string;
 }
 
 interface ChatMessage {
@@ -21,7 +23,7 @@ interface ChatMessage {
   username: string;
   content: string;
   timestamp: number;
-  type: 'chat' | 'system' | 'song';
+  type: 'chat' | 'system' | 'song' | 'song_search';
   songs?: SongCard[];
 }
 
@@ -32,7 +34,6 @@ const RoomChat: React.FC = () => {
   const { addToast } = useToast();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasLoadedHistory = useRef(false);
 
@@ -66,15 +67,29 @@ const RoomChat: React.FC = () => {
               username: string;
               content: string;
               createdAt: string;
-              messageType: string
-            }) => ({
-              id: msg.id,
-              userId: msg.userId,
-              username: msg.username || '未知用户',
-              content: msg.content,
-              timestamp: new Date(msg.createdAt).getTime(),
-              type: msg.messageType === 'system' ? 'system' : 'chat',
-            }));
+              messageType: string;
+              songs?: SongCard[];
+            }) => {
+              // 判断消息类型
+              let msgType: 'chat' | 'system' | 'song' | 'song_search' = 'chat';
+              if (msg.messageType === 'system') {
+                msgType = 'system';
+              } else if (msg.messageType === 'song_search') {
+                msgType = 'song_search';
+              } else if (msg.messageType === 'song_add') {
+                msgType = 'song';
+              }
+
+              return {
+                id: msg.id,
+                userId: msg.userId,
+                username: msg.username || '未知用户',
+                content: msg.content,
+                timestamp: new Date(msg.createdAt).getTime(),
+                type: msgType,
+                songs: msg.songs,
+              };
+            });
             setMessages(formattedMessages);
             hasLoadedHistory.current = true;
           }
@@ -97,8 +112,9 @@ const RoomChat: React.FC = () => {
   useEffect(() => {
     const handleRoomMessage = (event: CustomEvent<ChatMessage>) => {
       const newMessage = event.detail;
-      // 过滤掉自己发送的消息（已通过乐观更新显示）
-      if (newMessage.userId === currentUser?.id) {
+      // 过滤掉自己发送的普通聊天消息（已通过乐观更新显示）
+      // 但 song_search 类型需要显示（包含歌曲卡片数据）
+      if (newMessage.userId === currentUser?.id && newMessage.type !== 'song_search') {
         return;
       }
       setMessages((prev) => [...prev, newMessage]);
@@ -110,83 +126,6 @@ const RoomChat: React.FC = () => {
     };
   }, [currentUser?.id]);
 
-  // 搜索网易云音乐
-  const searchNetease = async (keyword: string) => {
-    setIsSearching(true);
-    try {
-      const response = await fetch(`/api/netease/search?q=${encodeURIComponent(keyword)}&limit=3`);
-      if (!response.ok) throw new Error('搜索失败');
-
-      const data = await response.json();
-      if (data.success && data.data && data.data.length > 0) {
-        // 获取详情以拿到更准确的封面
-        const songIds = data.data.map((s: any) => s.id).join(',');
-        let detailsMap = new Map();
-
-        try {
-          const detailResponse = await fetch(`/api/netease/song/detail?ids=${songIds}`);
-          const detailData = await detailResponse.json();
-          if (detailData.success && detailData.data) {
-            const detail = detailData.data;
-            if (detail && detail.id) {
-              detailsMap.set(detail.id, detail);
-            }
-          }
-        } catch (e) {
-          console.warn('获取歌曲详情失败:', e);
-        }
-
-        const songs: SongCard[] = data.data.map((item: any) => {
-          const detail = detailsMap.get(item.id);
-          return {
-            id: item.id,
-            name: item.name,
-            artists: item.artists || [],
-            album: item.album || '',
-            duration: item.duration || 0,
-            picUrl: item.picUrl || '',
-            coverUrl: detail?.al?.picUrl || item.picUrl || '',
-          };
-        });
-
-        // 添加歌曲卡片消息
-        const songMessage: ChatMessage = {
-          id: Date.now() + 1,
-          userId: currentUser?.id as number,
-          username: currentUser?.username || '我',
-          content: `搜索「${keyword}」的结果：`,
-          timestamp: Date.now(),
-          type: 'song',
-          songs,
-        };
-        setMessages((prev) => [...prev, songMessage]);
-      } else {
-        const noResultMessage: ChatMessage = {
-          id: Date.now() + 1,
-          userId: currentUser?.id as number,
-          username: currentUser?.username || '我',
-          content: `未找到「${keyword}」相关歌曲`,
-          timestamp: Date.now(),
-          type: 'chat',
-        };
-        setMessages((prev) => [...prev, noResultMessage]);
-      }
-    } catch (error) {
-      console.error('搜索失败:', error);
-      const errorMessage: ChatMessage = {
-        id: Date.now() + 1,
-        userId: currentUser?.id as number,
-        username: currentUser?.username || '我',
-        content: '搜索失败，请稍后重试',
-        timestamp: Date.now(),
-        type: 'chat',
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
   // 发送消息
   const handleSend = async () => {
     if (!inputValue.trim() || !isConnected) return;
@@ -194,40 +133,22 @@ const RoomChat: React.FC = () => {
     const content = inputValue.trim();
     setInputValue('');
 
-    // 检查是否是 /netease 命令
-    if (content.startsWith('/netease ')) {
-      const keyword = content.replace('/netease ', '').trim();
-      if (keyword) {
-        // 先显示用户发送的命令
-        const userMessage: ChatMessage = {
-          id: Date.now(),
-          userId: currentUser?.id as number,
-          username: currentUser?.username || '我',
-          content,
-          timestamp: Date.now(),
-          type: 'chat',
-        };
-        setMessages((prev) => [...prev, userMessage]);
-
-        // 执行搜索
-        await searchNetease(keyword);
-        return;
-      }
-    }
-
-    // 普通消息：发送到服务器
+    // 所有消息都发送到服务器（包括 /netease 命令）
     sendMessage(content);
 
-    // 本地显示（乐观更新）
-    const localMessage: ChatMessage = {
-      id: Date.now(),
-      userId: currentUser?.id as number,
-      username: currentUser?.username || '我',
-      content,
-      timestamp: Date.now(),
-      type: 'chat',
-    };
-    setMessages((prev) => [...prev, localMessage]);
+    // 本地显示（乐观更新）- 只对非命令消息显示
+    // /netease 命令的结果会通过 WebSocket 广播回来
+    if (!content.startsWith('/')) {
+      const localMessage: ChatMessage = {
+        id: Date.now(),
+        userId: currentUser?.id as number,
+        username: currentUser?.username || '我',
+        content,
+        timestamp: Date.now(),
+        type: 'chat',
+      };
+      setMessages((prev) => [...prev, localMessage]);
+    }
   };
 
   // 播放歌曲
@@ -420,7 +341,7 @@ const RoomChat: React.FC = () => {
         {messages.map((msg) => {
           const isMe = msg.userId === currentUser?.id;
           const isSystem = msg.type === 'system';
-          const isSong = msg.type === 'song';
+          const hasSongs = (msg.type === 'song' || msg.type === 'song_search') && msg.songs && msg.songs.length > 0;
 
           if (isSystem) {
             return (
@@ -471,7 +392,7 @@ const RoomChat: React.FC = () => {
                   <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>
 
                   {/* 歌曲卡片 */}
-                  {isSong && msg.songs && msg.songs.map(song => renderSongCard(song))}
+                  {hasSongs && msg.songs && msg.songs.map(song => renderSongCard(song))}
                 </div>
 
                 {/* 时间戳 */}
@@ -487,14 +408,6 @@ const RoomChat: React.FC = () => {
           );
         })}
 
-        {/* 搜索中提示 */}
-        {isSearching && (
-          <div className="flex justify-center items-center gap-2 text-cyber-primary">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">搜索中...</span>
-          </div>
-        )}
-
         <div ref={messagesEndRef} />
       </div>
 
@@ -509,18 +422,14 @@ const RoomChat: React.FC = () => {
               placeholder="发送消息或 /netease 歌曲名..."
               className="flex-1 px-4 py-1.5 text-sm bg-transparent text-cyber-text placeholder:text-cyber-secondary/40 focus:outline-none resize-none"
               rows={1}
-              disabled={!isConnected || isSearching}
+              disabled={!isConnected}
             />
             <button
               onClick={handleSend}
-              disabled={!inputValue.trim() || !isConnected || isSearching}
+              disabled={!inputValue.trim() || !isConnected}
               className="p-2 mr-1 text-cyber-primary hover:bg-cyber-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-all rounded-full"
             >
-              {isSearching ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
+              <Send className="w-4 h-4" />
             </button>
           </div>
         </div>
