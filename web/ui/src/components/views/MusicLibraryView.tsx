@@ -30,7 +30,7 @@ const MusicLibraryView: React.FC = () => {
     showPlaylist,
     setShowPlaylist
   } = usePlayer();
-  const { addSong, currentRoom } = useRoom();
+  const { addSongToRoom } = useRoom();
 
   const [tracks, setTracks] = useState<Track[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -237,12 +237,13 @@ const MusicLibraryView: React.FC = () => {
     }
   }, [trackToAdd, selectedTracks, tracks, addToPlaylist, addToast]);
 
-  // 添加到聊天室
+  // 添加到聊天室（使用 HTTP API）
   const handleAddToRoom = useCallback(async (roomId: string) => {
     const tracksToAdd = trackToAdd ? [trackToAdd] : tracks.filter(t => selectedTracks.has(t.id));
 
+    let successCount = 0;
     for (const track of tracksToAdd) {
-      addSong({
+      const success = await addSongToRoom(roomId, {
         songId: `local_${track.id}`,
         name: track.title,
         artist: track.artist || 'Unknown Artist',
@@ -251,19 +252,28 @@ const MusicLibraryView: React.FC = () => {
         source: 'local',
         hlsUrl: `/streams/${track.id}/playlist.m3u8`,
       });
+      if (success) successCount++;
     }
 
-    addToast({
-      message: `已添加 ${tracksToAdd.length} 首歌曲到房间`,
-      type: 'success',
-      duration: 3000,
-    });
+    if (successCount > 0) {
+      addToast({
+        message: `已添加 ${successCount} 首歌曲到房间`,
+        type: 'success',
+        duration: 3000,
+      });
+    } else {
+      addToast({
+        message: '添加歌曲失败',
+        type: 'error',
+        duration: 3000,
+      });
+    }
 
     if (!trackToAdd) {
       setSelectedTracks(new Set());
       setIsSelectMode(false);
     }
-  }, [trackToAdd, selectedTracks, tracks, addSong, addToast]);
+  }, [trackToAdd, selectedTracks, tracks, addSongToRoom, addToast]);
 
   if (isLoading) {
     return <div className="min-h-[calc(100vh-150px)] flex items-center justify-center p-4 text-cyber-primary text-xl">Loading music library...</div>;

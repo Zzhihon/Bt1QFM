@@ -209,6 +209,94 @@ func (h *RoomHandler) GetPlaybackHandler(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(state)
 }
 
+// AddSongRequest 添加歌曲请求
+type AddSongRequest struct {
+	SongID   string `json:"songId"`
+	Name     string `json:"name"`
+	Artist   string `json:"artist"`
+	Cover    string `json:"cover,omitempty"`
+	Duration int    `json:"duration,omitempty"`
+	Source   string `json:"source,omitempty"`
+	HlsURL   string `json:"hlsUrl,omitempty"`
+}
+
+// AddSongHandler 添加歌曲到房间歌单 (HTTP API)
+func (h *RoomHandler) AddSongHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	roomID := vars["room_id"]
+
+	// 从上下文获取用户信息
+	userID, ok := ctx.Value("userID").(int64)
+	if !ok {
+		http.Error(w, "未授权", http.StatusUnauthorized)
+		return
+	}
+	username, _ := ctx.Value("username").(string)
+
+	if roomID == "" {
+		http.Error(w, "房间ID不能为空", http.StatusBadRequest)
+		return
+	}
+
+	var req AddSongRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "无效的请求", http.StatusBadRequest)
+		return
+	}
+
+	if req.SongID == "" || req.Name == "" {
+		http.Error(w, "歌曲ID和名称不能为空", http.StatusBadRequest)
+		return
+	}
+
+	// 验证用户是否是房间成员
+	isMember, err := h.manager.IsMember(ctx, roomID, userID)
+	if err != nil {
+		logger.Warn("验证房间成员失败", logger.ErrorField(err))
+		http.Error(w, "验证房间成员失败", http.StatusInternalServerError)
+		return
+	}
+	if !isMember {
+		http.Error(w, "您不是该房间的成员", http.StatusForbidden)
+		return
+	}
+
+	// 添加歌曲到歌单
+	songData := &room.SongData{
+		SongID:   req.SongID,
+		Name:     req.Name,
+		Artist:   req.Artist,
+		Cover:    req.Cover,
+		Duration: req.Duration,
+		Source:   req.Source,
+	}
+
+	if err := h.manager.AddSong(ctx, roomID, userID, songData); err != nil {
+		logger.Error("添加歌曲失败", logger.ErrorField(err))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	logger.Info("HTTP API 添加歌曲成功",
+		logger.String("roomId", roomID),
+		logger.Int64("userId", userID),
+		logger.String("username", username),
+		logger.String("songId", req.SongID),
+		logger.String("songName", req.Name))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "歌曲添加成功",
+		"song": map[string]interface{}{
+			"songId": req.SongID,
+			"name":   req.Name,
+			"artist": req.Artist,
+		},
+	})
+}
+
 // SwitchModeRequest 切换模式请求
 type SwitchModeRequest struct {
 	RoomID string `json:"roomId"`
@@ -470,6 +558,7 @@ func RegisterRoomRoutes(router *mux.Router, handler *RoomHandler, authMiddleware
 	router.HandleFunc("/api/rooms/disband", authMiddleware(handler.DisbandRoomHandler)).Methods(http.MethodPost)
 	router.HandleFunc("/api/rooms/{room_id}", authMiddleware(handler.GetRoomHandler)).Methods(http.MethodGet)
 	router.HandleFunc("/api/rooms/{room_id}/playlist", authMiddleware(handler.GetPlaylistHandler)).Methods(http.MethodGet)
+	router.HandleFunc("/api/rooms/{room_id}/playlist", authMiddleware(handler.AddSongHandler)).Methods(http.MethodPost)
 	router.HandleFunc("/api/rooms/{room_id}/playback", authMiddleware(handler.GetPlaybackHandler)).Methods(http.MethodGet)
 	router.HandleFunc("/api/rooms/{room_id}/messages", authMiddleware(handler.GetMessagesHandler)).Methods(http.MethodGet)
 	router.HandleFunc("/api/rooms/mode", authMiddleware(handler.SwitchModeHandler)).Methods(http.MethodPost)
@@ -480,5 +569,5 @@ func RegisterRoomRoutes(router *mux.Router, handler *RoomHandler, authMiddleware
 	router.HandleFunc("/ws/room/{room_id}", handler.WebSocketHandler)
 
 	logger.Info("房间系统API端点注册完成",
-		logger.String("endpoints", "POST /api/rooms, GET /api/rooms/my, POST /api/rooms/join, POST /api/rooms/leave, POST /api/rooms/disband, GET /api/rooms/{id}, WS /ws/room/{id}"))
+		logger.String("endpoints", "POST /api/rooms, GET /api/rooms/my, POST /api/rooms/join, POST /api/rooms/leave, POST /api/rooms/disband, GET /api/rooms/{id}, POST /api/rooms/{id}/playlist, WS /ws/room/{id}"))
 }

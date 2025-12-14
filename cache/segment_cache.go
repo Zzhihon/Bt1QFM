@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"Bt1QFM/logger"
+
+	"github.com/go-redis/redis/v8"
 )
 
 // SetSegmentCache 设置分片缓存
@@ -129,6 +131,86 @@ func DeleteSegmentPattern(pattern string) error {
 		logger.Int("deletedCount", len(keys)))
 
 	return nil
+}
+
+// SetSegmentCacheBatch 批量写入分片缓存（使用 Pipeline 优化）
+// 相比串行写入，网络往返从 N 次减少到 1 次，性能提升约 10x
+func SetSegmentCacheBatch(segments map[string][]byte, expiration time.Duration) error {
+	if RedisClient == nil {
+		return nil // Redis 未初始化时静默跳过
+	}
+
+	if len(segments) == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	pipe := RedisClient.Pipeline()
+
+	for key, data := range segments {
+		pipe.Set(ctx, key, data, expiration)
+	}
+
+	results, err := pipe.Exec(ctx)
+	if err != nil {
+		logger.Error("批量写入分片缓存失败",
+			logger.Int("segmentCount", len(segments)),
+			logger.ErrorField(err))
+		return err
+	}
+
+	// 统计成功/失败数量
+	successCount := 0
+	for _, result := range results {
+		if result.Err() == nil {
+			successCount++
+		}
+	}
+
+	logger.Info("批量写入分片缓存完成",
+		logger.Int("totalCount", len(segments)),
+		logger.Int("successCount", successCount),
+		logger.Duration("expiration", expiration))
+
+	return nil
+}
+
+// GetSegmentCacheBatch 批量读取分片缓存（使用 Pipeline 优化）
+func GetSegmentCacheBatch(keys []string) (map[string][]byte, error) {
+	if RedisClient == nil || len(keys) == 0 {
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pipe := RedisClient.Pipeline()
+	cmds := make(map[string]*redis.StringCmd, len(keys))
+
+	for _, key := range keys {
+		cmds[key] = pipe.Get(ctx, key)
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil && err != redis.Nil {
+		logger.Warn("批量读取分片缓存部分失败", logger.ErrorField(err))
+	}
+
+	result := make(map[string][]byte)
+	for key, cmd := range cmds {
+		data, err := cmd.Bytes()
+		if err == nil {
+			result[key] = data
+		}
+	}
+
+	logger.Debug("批量读取分片缓存完成",
+		logger.Int("requestCount", len(keys)),
+		logger.Int("hitCount", len(result)))
+
+	return result, nil
 }
 
 // GetSegmentCacheInfo 获取分片缓存信息

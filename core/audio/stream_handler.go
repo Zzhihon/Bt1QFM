@@ -23,10 +23,12 @@ import (
 
 // StreamProcessor 流处理器
 type StreamProcessor struct {
-	mp3Processor *MP3Processor
-	cfg          *config.Config
-	processingMu sync.RWMutex
-	processing   map[string]*ProcessingState
+	mp3Processor      *MP3Processor
+	pipelineProcessor *PipelineProcessor
+	cfg               *config.Config
+	processingMu      sync.RWMutex
+	processing        map[string]*ProcessingState
+	usePipeline       bool // 是否启用流水线处理模式
 }
 
 // ProcessingState 处理状态
@@ -41,11 +43,23 @@ type ProcessingState struct {
 
 // NewStreamProcessor 创建流处理器
 func NewStreamProcessor(mp3Processor *MP3Processor, cfg *config.Config) *StreamProcessor {
+	// 创建 FFmpeg 处理器用于流水线
+	ffmpegProc := NewFFmpegProcessor(mp3Processor.GetFFmpegPath())
+	// 创建流水线处理器（默认使用 CPU 核心数的 worker）
+	pipelineProc := NewPipelineProcessor(ffmpegProc, cfg, 0)
+
 	return &StreamProcessor{
-		mp3Processor: mp3Processor,
-		cfg:          cfg,
-		processing:   make(map[string]*ProcessingState),
+		mp3Processor:      mp3Processor,
+		pipelineProcessor: pipelineProc,
+		cfg:               cfg,
+		processing:        make(map[string]*ProcessingState),
+		usePipeline:       true, // 默认启用流水线模式
 	}
+}
+
+// SetPipelineMode 设置是否使用流水线处理模式
+func (sp *StreamProcessor) SetPipelineMode(enabled bool) {
+	sp.usePipeline = enabled
 }
 
 // StreamProcess 处理音频文件，分四个阶段：FFmpeg分片 -> temp存储 -> Redis缓存 -> MinIO持久化
@@ -167,17 +181,55 @@ func (sp *StreamProcessor) processStream(ctx context.Context, streamID, inputPat
 			logger.Int64("fileSize", fileInfo.Size()))
 	}
 
-	// 阶段1：创建临时目录并开始FFmpeg分片处理
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		return fmt.Errorf("创建临时目录失败: %w", err)
-	}
-
 	// 设置定时清理（900秒后）
 	go func() {
 		time.Sleep(900 * time.Second)
 		os.RemoveAll(tempDir)
 		logger.Info("临时目录已清理", logger.String("streamId", streamID))
 	}()
+
+	// 根据配置选择处理模式
+	if sp.usePipeline {
+		return sp.processStreamPipeline(ctx, streamID, inputPath, tempDir, isNetease)
+	}
+	return sp.processStreamLegacy(ctx, streamID, inputPath, tempDir, isNetease)
+}
+
+// processStreamPipeline 使用流水线模式处理（边转码边上传）
+func (sp *StreamProcessor) processStreamPipeline(ctx context.Context, streamID, inputPath, tempDir string, isNetease bool) error {
+	logger.Info("使用流水线模式处理",
+		logger.String("streamId", streamID))
+
+	result, err := sp.pipelineProcessor.ProcessWithPipeline(ctx, streamID, inputPath, tempDir, isNetease)
+	if err != nil {
+		return fmt.Errorf("流水线处理失败: %w", err)
+	}
+
+	// 更新进度
+	sp.processingMu.Lock()
+	if state, exists := sp.processing[streamID]; exists {
+		state.Progress = 1.0
+	}
+	sp.processingMu.Unlock()
+
+	logger.Info("流水线处理完成",
+		logger.String("streamId", streamID),
+		logger.Int("segmentCount", result.SegmentCount),
+		logger.Float64("duration", float64(result.Duration)),
+		logger.Duration("totalTime", result.TotalTime))
+
+	return nil
+}
+
+// processStreamLegacy 使用传统模式处理（先转码完成再上传）
+func (sp *StreamProcessor) processStreamLegacy(ctx context.Context, streamID, inputPath, tempDir string, isNetease bool) error {
+	logger.Info("使用传统模式处理",
+		logger.String("streamId", streamID))
+
+	// 阶段1：创建临时目录
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return fmt.Errorf("创建临时目录失败: %w", err)
+	}
 
 	// 设置HLS输出路径
 	outputM3U8 := filepath.Join(tempDir, "playlist.m3u8")
@@ -190,13 +242,13 @@ func (sp *StreamProcessor) processStream(ctx context.Context, streamID, inputPat
 		hlsBaseURL = fmt.Sprintf("/streams/%s/", streamID)
 	}
 
-	// 阶段2：实时流式处理，边处理边推送到temp
+	// 阶段2：FFmpeg HLS处理
 	logger.Info("开始FFmpeg HLS处理",
 		logger.String("streamId", streamID),
 		logger.String("inputPath", inputPath),
 		logger.String("outputM3U8", outputM3U8))
 
-	// 再次验证文件在FFmpeg处理前是否仍然存在
+	// 验证文件在FFmpeg处理前是否仍然存在
 	if _, err := os.Stat(inputPath); err != nil {
 		return fmt.Errorf("FFmpeg处理前文件丢失 %s: %w", inputPath, err)
 	}
@@ -210,14 +262,14 @@ func (sp *StreamProcessor) processStream(ctx context.Context, streamID, inputPat
 		logger.String("streamId", streamID),
 		logger.Float64("duration", float64(duration)))
 
-	// 更新进度 - FFmpeg处理完成，temp文件可用
+	// 更新进度 - FFmpeg处理完成
 	sp.processingMu.Lock()
 	if state, exists := sp.processing[streamID]; exists {
-		state.Progress = 0.7 // temp分片完成70%，可以开始提供服务
+		state.Progress = 0.7
 	}
 	sp.processingMu.Unlock()
 
-	// 阶段3：异步存储分片到Redis（不阻塞主流程）
+	// 阶段3：异步存储分片到Redis（使用批量写入）
 	go func() {
 		logger.Info("开始异步存储分片到Redis",
 			logger.String("streamId", streamID))
@@ -230,18 +282,16 @@ func (sp *StreamProcessor) processStream(ctx context.Context, streamID, inputPat
 			logger.Info("异步Redis存储完成",
 				logger.String("streamId", streamID))
 
-			// 更新进度 - Redis存储完成
 			sp.processingMu.Lock()
 			if state, exists := sp.processing[streamID]; exists {
-				state.Progress = 0.9 // Redis存储完成90%
+				state.Progress = 0.9
 			}
 			sp.processingMu.Unlock()
 		}
 	}()
 
-	// 阶段4：异步上传到MinIO作为最终备份（不阻塞主流程）
+	// 阶段4：异步上传到MinIO
 	go func() {
-		// 稍微延迟启动MinIO上传，优先处理Redis
 		time.Sleep(2 * time.Second)
 
 		logger.Info("开始异步上传到MinIO",
@@ -255,7 +305,6 @@ func (sp *StreamProcessor) processStream(ctx context.Context, streamID, inputPat
 			logger.Info("异步MinIO上传完成",
 				logger.String("streamId", streamID))
 
-			// 最终完成
 			sp.processingMu.Lock()
 			if state, exists := sp.processing[streamID]; exists {
 				state.Progress = 1.0
@@ -271,21 +320,20 @@ func (sp *StreamProcessor) processStream(ctx context.Context, streamID, inputPat
 	return nil
 }
 
-// storeSegmentsToRedis 将分片存储到Redis
+// storeSegmentsToRedis 将分片存储到Redis（使用 Pipeline 批量写入优化）
 func (sp *StreamProcessor) storeSegmentsToRedis(streamID, tempDir string, isNetease bool) error {
-	// 存储playlist.m3u8
+	// 收集所有分片数据
+	segments := make(map[string][]byte)
+
+	// 存储 playlist.m3u8
 	m3u8Path := filepath.Join(tempDir, "playlist.m3u8")
 	m3u8Data, err := os.ReadFile(m3u8Path)
 	if err != nil {
 		return fmt.Errorf("读取m3u8文件失败: %w", err)
 	}
+	segments[fmt.Sprintf("segment:%s:playlist.m3u8", streamID)] = m3u8Data
 
-	cacheKey := fmt.Sprintf("segment:%s:playlist.m3u8", streamID)
-	if err := cache.SetSegmentCache(cacheKey, m3u8Data, 1800*time.Second); err != nil {
-		return fmt.Errorf("存储m3u8到Redis失败: %w", err)
-	}
-
-	// 存储所有.ts分片文件
+	// 收集所有 .ts 分片文件
 	segmentFiles, err := filepath.Glob(filepath.Join(tempDir, "*.ts"))
 	if err != nil {
 		return fmt.Errorf("查找分片文件失败: %w", err)
@@ -302,15 +350,15 @@ func (sp *StreamProcessor) storeSegmentsToRedis(streamID, tempDir string, isNete
 
 		segmentName := filepath.Base(segmentFile)
 		cacheKey := fmt.Sprintf("segment:%s:%s", streamID, segmentName)
-
-		if err := cache.SetSegmentCache(cacheKey, segmentData, 1800*time.Second); err != nil {
-			logger.Warn("存储分片到Redis失败",
-				logger.String("segment", segmentName),
-				logger.ErrorField(err))
-		}
+		segments[cacheKey] = segmentData
 	}
 
-	logger.Info("分片存储到Redis完成",
+	// 使用 Pipeline 批量写入（一次网络往返）
+	if err := cache.SetSegmentCacheBatch(segments, 1800*time.Second); err != nil {
+		return fmt.Errorf("批量存储分片到Redis失败: %w", err)
+	}
+
+	logger.Info("分片批量存储到Redis完成",
 		logger.String("streamId", streamID),
 		logger.Int("segmentCount", len(segmentFiles)))
 

@@ -97,7 +97,7 @@ const Collections: React.FC = () => {
   const [trackToAdd, setTrackToAdd] = useState<NeteaseSong | null>(null);
 
   const { addToPlaylist, playTrack } = usePlayer();
-  const { addSong } = useRoom();
+  const { addSongToRoom } = useRoom();
   const { addToast } = useToast();
 
   // 获取用户资料
@@ -498,18 +498,19 @@ const Collections: React.FC = () => {
   }, [trackToAdd, selectedTracks, selectedPlaylist, addToPlaylist, convertSongToTrack, addToast]);
 
   // 添加到聊天室
-  const handleAddToRoom = useCallback(async (_roomId: string) => {
+  const handleAddToRoom = useCallback(async (roomId: string) => {
     if (!selectedPlaylist) return;
 
     const songsToAdd = trackToAdd
       ? [trackToAdd]
       : selectedPlaylist.playlist.tracks.filter(s => selectedTracks.has(s.id));
 
+    let successCount = 0;
     for (const song of songsToAdd) {
       const songTitle = song.mainTitle || song.name;
       const fullTitle = song.additionalTitle ? `${songTitle} ${song.additionalTitle}` : songTitle;
 
-      addSong({
+      const success = await addSongToRoom(roomId, {
         songId: `netease_${song.id}`,
         name: fullTitle,
         artist: song.ar?.map(a => a.name).join(', ') || 'Unknown Artist',
@@ -518,19 +519,28 @@ const Collections: React.FC = () => {
         source: 'netease',
         hlsUrl: `/streams/netease/${song.id}/playlist.m3u8`,
       });
+      if (success) successCount++;
     }
 
-    addToast({
-      message: `已添加 ${songsToAdd.length} 首歌曲到房间`,
-      type: 'success',
-      duration: 3000,
-    });
+    if (successCount > 0) {
+      addToast({
+        message: `已添加 ${successCount} 首歌曲到房间`,
+        type: 'success',
+        duration: 3000,
+      });
+    } else {
+      addToast({
+        message: '添加歌曲失败',
+        type: 'error',
+        duration: 3000,
+      });
+    }
 
     if (!trackToAdd) {
       setSelectedTracks(new Set());
       setIsSelectMode(false);
     }
-  }, [trackToAdd, selectedTracks, selectedPlaylist, addSong, addToast]);
+  }, [trackToAdd, selectedTracks, selectedPlaylist, addSongToRoom, addToast]);
 
   useEffect(() => {
     fetchUserProfile();

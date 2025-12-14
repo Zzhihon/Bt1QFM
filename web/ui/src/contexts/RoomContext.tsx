@@ -13,6 +13,17 @@ import {
   SongChangeData,
 } from '../types';
 
+// HTTP 添加歌曲请求参数
+interface AddSongToRoomParams {
+  songId: string;
+  name: string;
+  artist: string;
+  cover?: string;
+  duration?: number;
+  source?: string;
+  hlsUrl?: string;
+}
+
 interface RoomContextType {
   // 状态
   currentRoom: RoomInfo | null;
@@ -44,6 +55,7 @@ interface RoomContextType {
 
   // 歌单操作
   addSong: (song: Omit<RoomPlaylistItem, 'position' | 'addedBy' | 'addedAt'>) => void;
+  addSongToRoom: (roomId: string, song: AddSongToRoomParams) => Promise<boolean>; // HTTP API 添加歌曲到指定房间
   removeSong: (position: number) => void;
 
   // 聊天
@@ -696,6 +708,38 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     sendWSMessage('song_del', { position });
   }, [sendWSMessage]);
 
+  // HTTP API 添加歌曲到指定房间（不需要 WebSocket 连接）
+  const addSongToRoom = useCallback(async (roomId: string, song: AddSongToRoomParams): Promise<boolean> => {
+    if (!authToken) {
+      console.error('[RoomContext] addSongToRoom: 未登录');
+      return false;
+    }
+
+    try {
+      const response = await fetch(`/api/rooms/${roomId}/playlist`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify(song),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[RoomContext] addSongToRoom 失败:', response.status, errorText);
+        return false;
+      }
+
+      const data = await response.json();
+      console.log('[RoomContext] addSongToRoom 成功:', data);
+      return true;
+    } catch (err) {
+      console.error('[RoomContext] addSongToRoom 异常:', err);
+      return false;
+    }
+  }, [authToken]);
+
   // 聊天
   const sendMessage = useCallback((content: string) => {
     sendWSMessage('chat', { content });
@@ -831,6 +875,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     nextSong,
     prevSong,
     addSong,
+    addSongToRoom,
     removeSong,
     sendMessage,
     transferOwner,

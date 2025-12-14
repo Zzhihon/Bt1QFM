@@ -69,6 +69,11 @@ func NewMP3Processor(ffmpegPath string) *MP3Processor {
 	return processor
 }
 
+// GetFFmpegPath 返回 FFmpeg 可执行文件路径
+func (p *MP3Processor) GetFFmpegPath() string {
+	return p.ffmpegPath
+}
+
 // startWorkers 启动工作协程池
 func (p *MP3Processor) startWorkers() {
 	for i := 0; i < p.workerCount; i++ {

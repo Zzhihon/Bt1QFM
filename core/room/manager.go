@@ -745,6 +745,15 @@ func (m *RoomManager) GetUserRooms(ctx context.Context, userID int64) ([]*model.
 	return m.repo.GetUserRooms(ctx, userID)
 }
 
+// IsMember 检查用户是否是房间成员
+func (m *RoomManager) IsMember(ctx context.Context, roomID string, userID int64) (bool, error) {
+	member, err := m.repo.GetMember(ctx, roomID, userID)
+	if err != nil {
+		return false, err
+	}
+	return member != nil, nil
+}
+
 // ========== 广播辅助方法 ==========
 
 func (m *RoomManager) broadcastMemberJoin(roomID string, userID int64, username string) {
