@@ -111,28 +111,29 @@ func (h *StreamHandler) handleProcessingStream(w http.ResponseWriter, req *strea
 func (h *StreamHandler) handleProgressivePlaylist(w http.ResponseWriter, req *streamRequest) {
 	hlsState := audio.GetProgressiveHLSManager().GetState(req.streamID)
 
-	// 已有足够分片可用，直接返回
-	if hlsState != nil && hlsState.HasMinimumSegments(audio.MinimumSegmentsForPlayback) {
+	// 已有足够分片可用，直接返回（智能判断）
+	if hlsState != nil && hlsState.HasEnoughSegmentsToPlay() {
 		h.writeM3U8Response(w, hlsState)
 		return
 	}
 
-	// 等待最小分片数生成（最多 15 秒，因为需要 3 个分片）
-	logger.Info("等待最小分片数生成...",
+	// 等待足够分片生成（最多 15 秒）
+	logger.Info("等待足够分片生成...",
 		logger.String("streamId", req.streamID),
-		logger.Bool("isNetease", req.isNetease),
-		logger.Int("minSegments", audio.MinimumSegmentsForPlayback))
+		logger.Bool("isNetease", req.isNetease))
 
-	hlsState = h.waitForMinimumSegments(req.streamID, 15*time.Second)
+	hlsState = h.waitForEnoughSegments(req.streamID, 15*time.Second)
 	if hlsState != nil {
-		logger.Info("最小分片数已就绪",
+		logger.Info("分片已就绪，开始播放",
 			logger.String("streamId", req.streamID),
-			logger.Int("segmentCount", hlsState.GetCompletedSegmentCount()))
+			logger.Int("segmentCount", hlsState.GetCompletedSegmentCount()),
+			logger.Bool("isComplete", !hlsState.IsProcessing()),
+			logger.Int("minRequired", hlsState.GetMinimumSegmentsForPlayback()))
 		h.writeM3U8Response(w, hlsState)
 		return
 	}
 
-	logger.Warn("等待最小分片数超时",
+	logger.Warn("等待分片超时",
 		logger.String("streamId", req.streamID))
 	http.Error(w, "Processing in progress, please retry", http.StatusAccepted)
 }
@@ -223,10 +224,9 @@ func (h *StreamHandler) asyncReprocess(streamID string) {
 
 // waitAndServeProgressivePlaylist 等待并返回渐进式播放列表
 func (h *StreamHandler) waitAndServeProgressivePlaylist(w http.ResponseWriter, req *streamRequest, timeout time.Duration) {
-	logger.Info("开始渐进式等待最小分片数",
+	logger.Info("开始渐进式等待分片",
 		logger.String("streamId", req.streamID),
-		logger.Duration("maxWait", timeout),
-		logger.Int("minSegments", audio.MinimumSegmentsForPlayback))
+		logger.Duration("maxWait", timeout))
 
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -235,13 +235,14 @@ func (h *StreamHandler) waitAndServeProgressivePlaylist(w http.ResponseWriter, r
 	for time.Now().Before(deadline) {
 		<-ticker.C
 
-		// 检查 HLS 状态
+		// 检查 HLS 状态（智能判断）
 		hlsState := audio.GetProgressiveHLSManager().GetState(req.streamID)
-		if hlsState != nil && hlsState.HasMinimumSegments(audio.MinimumSegmentsForPlayback) {
-			logger.Info("渐进式播放：最小分片数已就绪",
+		if hlsState != nil && hlsState.HasEnoughSegmentsToPlay() {
+			logger.Info("渐进式播放：分片已就绪",
 				logger.String("streamId", req.streamID),
 				logger.Int("segmentCount", hlsState.GetCompletedSegmentCount()),
-				logger.Bool("isComplete", !hlsState.IsProcessing()))
+				logger.Bool("isComplete", !hlsState.IsProcessing()),
+				logger.Int("minRequired", hlsState.GetMinimumSegmentsForPlayback()))
 			h.writeM3U8Response(w, hlsState)
 			return
 		}
@@ -282,10 +283,11 @@ func (h *StreamHandler) waitForExternalProcessing(w http.ResponseWriter, req *st
 		<-ticker.C
 
 		hlsState := audio.GetProgressiveHLSManager().GetState(req.streamID)
-		if hlsState != nil && hlsState.HasMinimumSegments(audio.MinimumSegmentsForPlayback) {
-			logger.Info("渐进式播放：其他进程的最小分片数已就绪",
+		if hlsState != nil && hlsState.HasEnoughSegmentsToPlay() {
+			logger.Info("渐进式播放：其他进程的分片已就绪",
 				logger.String("streamId", req.streamID),
-				logger.Int("segmentCount", hlsState.GetCompletedSegmentCount()))
+				logger.Int("segmentCount", hlsState.GetCompletedSegmentCount()),
+				logger.Bool("isComplete", !hlsState.IsProcessing()))
 			h.writeM3U8Response(w, hlsState)
 			return
 		}
@@ -311,8 +313,8 @@ func (h *StreamHandler) waitForExternalProcessing(w http.ResponseWriter, req *st
 	http.Error(w, "File not found", http.StatusNotFound)
 }
 
-// waitForMinimumSegments 等待最小分片数生成
-func (h *StreamHandler) waitForMinimumSegments(streamID string, timeout time.Duration) *audio.ProgressiveHLSState {
+// waitForEnoughSegments 等待足够分片生成（智能判断）
+func (h *StreamHandler) waitForEnoughSegments(streamID string, timeout time.Duration) *audio.ProgressiveHLSState {
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -320,7 +322,7 @@ func (h *StreamHandler) waitForMinimumSegments(streamID string, timeout time.Dur
 	for time.Now().Before(deadline) {
 		<-ticker.C
 		hlsState := audio.GetProgressiveHLSManager().GetState(streamID)
-		if hlsState != nil && hlsState.HasMinimumSegments(audio.MinimumSegmentsForPlayback) {
+		if hlsState != nil && hlsState.HasEnoughSegmentsToPlay() {
 			return hlsState
 		}
 	}

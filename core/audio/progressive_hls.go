@@ -228,8 +228,38 @@ func (s *ProgressiveHLSState) IsProcessing() bool {
 }
 
 // MinimumSegmentsForPlayback 开始播放所需的最小分片数
-// 3 个分片 = 12 秒缓冲，确保播放器在转码追赶前有足够缓冲
-const MinimumSegmentsForPlayback = 3
+// 动态调整：如果转码已完成用 1，否则用 3 作为安全缓冲
+const (
+	MinSegmentsWhenComplete   = 1 // 转码完成时，1 个分片即可开始
+	MinSegmentsWhenProcessing = 3 // 转码中，需要 3 个分片（12 秒缓冲）
+)
+
+// GetMinimumSegmentsForPlayback 动态获取开始播放所需的最小分片数
+func (s *ProgressiveHLSState) GetMinimumSegmentsForPlayback() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.IsComplete {
+		return MinSegmentsWhenComplete
+	}
+	return MinSegmentsWhenProcessing
+}
+
+// HasEnoughSegmentsToPlay 检查是否有足够分片可以开始播放（智能判断）
+func (s *ProgressiveHLSState) HasEnoughSegmentsToPlay() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	segmentCount := len(s.Segments)
+
+	// 转码已完成：只要有 1 个分片就可以播放
+	if s.IsComplete {
+		return segmentCount >= MinSegmentsWhenComplete
+	}
+
+	// 转码进行中：需要至少 3 个分片作为缓冲
+	return segmentCount >= MinSegmentsWhenProcessing
+}
 
 // 全局管理器实例
 var globalProgressiveHLSManager = NewProgressiveHLSManager()
