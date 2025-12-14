@@ -190,19 +190,31 @@ const RoomPlaylist: React.FC = () => {
       return;
     }
 
-    // 从 songId 中提取实际的 ID
-    const songId = item.songId.replace('netease_', '');
+    // 根据 source 类型构建正确的 HLS URL
+    const source = item.source || 'netease';
+    let hlsUrl: string;
+    let actualId: string;
+
+    if (source === 'local') {
+      // 本地歌曲：songId 格式为 "local_123"，URL 为 /streams/123/playlist.m3u8
+      actualId = item.songId.replace('local_', '');
+      hlsUrl = `/streams/${actualId}/playlist.m3u8`;
+    } else {
+      // 网易云歌曲：songId 格式为 "netease_123" 或 "123"，URL 为 /streams/netease/123/playlist.m3u8
+      actualId = item.songId.replace('netease_', '');
+      hlsUrl = `/streams/netease/${actualId}/playlist.m3u8`;
+    }
 
     const track: Track = {
-      id: songId,
-      neteaseId: Number(songId) || undefined,
+      id: actualId,
+      neteaseId: source === 'netease' ? (Number(actualId) || undefined) : undefined,
       title: item.name,
       artist: item.artist,
       album: '',
       coverArtPath: getCover(item) || '',
-      hlsPlaylistUrl: `/streams/netease/${songId}/playlist.m3u8`,
+      hlsPlaylistUrl: hlsUrl,
       position: 0,
-      source: 'netease',
+      source: source,
     };
 
     playTrack(track);

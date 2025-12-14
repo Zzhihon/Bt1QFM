@@ -52,6 +52,8 @@ const RoomView: React.FC = () => {
   const masterSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastSyncRef = useRef<{ songId: string; position: number } | null>(null);
   const lastReportedTrackIdRef = useRef<string | null>(null); // 上次上报的歌曲ID
+  const songChangeSilenceRef = useRef(false); // 切歌静默期标记，避免 song_change 后被 master_sync 覆盖
+  const songChangeSilenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 静默期定时器
 
   // 显示错误（排除重连过程中的状态信息）
   useEffect(() => {
@@ -499,7 +501,14 @@ const RoomView: React.FC = () => {
   // 处理房主同步消息的回调
   const handleMasterSync = useCallback((event: CustomEvent<MasterSyncData>) => {
     // 只有听歌模式的非房主用户才需要同步
+    // 有控制权限的用户在收到 song_change 后会有静默期，这里需要排除
     if (isOwner || myMember?.mode !== 'listen') return;
+
+    // 如果在静默期内（刚收到 song_change），忽略 master_sync 避免被覆盖
+    if (songChangeSilenceRef.current) {
+      console.log('[听歌模式] 静默期内，忽略 master_sync');
+      return;
+    }
 
     const syncData = event.detail;
     setIsSyncing(true);
@@ -563,7 +572,6 @@ const RoomView: React.FC = () => {
   // 处理切歌同步消息的回调（来自任何有权限用户的切歌）
   const handleSongChange = useCallback((event: CustomEvent<SongChangeData>) => {
     // 只有听歌模式的用户才需要处理切歌同步
-    // 切歌的人自己不需要再同步（已经在本地播放了）
     if (myMember?.mode !== 'listen') return;
 
     const songData = event.detail;
@@ -576,7 +584,20 @@ const RoomView: React.FC = () => {
       return;
     }
 
-    console.log('[切歌同步] 收到切歌消息:', songData.songName, '来自:', songData.changedByName);
+    console.log('[切歌同步] 收到切歌消息:', songData.songName, '来自:', songData.changedByName, '我是房主:', isOwner);
+
+    // 设置静默期：在此期间忽略 master_sync，避免被房主旧状态覆盖
+    // 清除之前的定时器
+    if (songChangeSilenceTimerRef.current) {
+      clearTimeout(songChangeSilenceTimerRef.current);
+    }
+    songChangeSilenceRef.current = true;
+    // 静默期 5 秒后解除
+    songChangeSilenceTimerRef.current = setTimeout(() => {
+      songChangeSilenceRef.current = false;
+      console.log('[切歌同步] 静默期结束');
+    }, 5000);
+
     setIsSyncing(true);
 
     // 切换到新歌曲
@@ -609,7 +630,16 @@ const RoomView: React.FC = () => {
       songId: songData.songId,
       position: songData.position,
     };
-  }, [myMember?.mode, playerState.currentTrack, playTrack, seekTo, resumeTrack, pauseTrack]);
+  }, [myMember?.mode, playerState.currentTrack, playTrack, seekTo, resumeTrack, pauseTrack, isOwner]);
+
+  // 组件卸载时清理静默期定时器
+  useEffect(() => {
+    return () => {
+      if (songChangeSilenceTimerRef.current) {
+        clearTimeout(songChangeSilenceTimerRef.current);
+      }
+    };
+  }, []);
 
   // 监听房主同步事件
   useEffect(() => {

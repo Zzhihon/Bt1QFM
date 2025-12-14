@@ -83,12 +83,6 @@ func (p *FFmpegProcessor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hl
 		log.Printf("Warning: could not get audio duration for %s: %v. Proceeding without duration.", inputFile, err)
 	}
 
-	// 获取音频格式
-	format, err := p.getAudioFormat(inputFile)
-	if err != nil {
-		log.Printf("Warning: could not detect audio format for %s: %v. Using default settings.", inputFile, err)
-	}
-
 	// 构建FFmpeg参数
 	// 使用多线程加速转码：-threads 0 表示自动检测 CPU 核心数
 	args := []string{
@@ -97,16 +91,9 @@ func (p *FFmpegProcessor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hl
 		"-c:a", "aac",
 	}
 
-	// 根据输入格式调整编码参数
-	if format == "flac" {
-		// 对于FLAC文件，使用更高的比特率以保持音质
-		args = append(args, "-b:a", "320k")
-		// 添加音频过滤器以优化FLAC转码
-		args = append(args, "-af", "aformat=sample_fmts=fltp")
-	} else {
-		// 其他格式使用配置的比特率
-		args = append(args, "-b:a", audioBitrate)
-	}
+	// 统一使用192k比特率，在音质和性能之间取得平衡
+	// 移除FLAC特殊处理，减少编码开销
+	args = append(args, "-b:a", "192k")
 
 	// 添加HLS相关参数
 	args = append(args,
