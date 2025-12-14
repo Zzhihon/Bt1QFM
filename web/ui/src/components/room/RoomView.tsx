@@ -614,6 +614,12 @@ const RoomView: React.FC = () => {
     };
     playTrack(trackData);
 
+    // 如果是房主，更新上报追踪，确保后续 master_report 发送新歌曲状态
+    // 这是解决授权用户切歌被房主旧状态覆盖问题的关键
+    if (isOwner) {
+      lastReportedTrackIdRef.current = songData.songId;
+    }
+
     // 等待加载完成后设置播放位置和状态
     setTimeout(() => {
       seekTo(songData.position);

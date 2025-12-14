@@ -321,6 +321,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (message.data) {
             const songChangeData = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
             console.log('[RoomContext] 收到切歌同步消息:', songChangeData);
+            // 传递当前用户是否是房主的信息，以便 RoomView 中房主可以更新追踪状态
             window.dispatchEvent(new CustomEvent('room-song-change', { detail: songChangeData }));
           }
           break;
