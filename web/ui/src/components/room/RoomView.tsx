@@ -15,10 +15,6 @@ import {
   Music2,
   MessageSquare,
   LogOut,
-  Play,
-  Pause,
-  SkipBack,
-  SkipForward,
   Wifi,
   WifiOff,
   Loader2,
@@ -36,7 +32,6 @@ const RoomView: React.FC = () => {
     currentRoom,
     members,
     playlist,
-    playbackState,
     myMember,
     isConnected,
     isLoading,
@@ -44,10 +39,6 @@ const RoomView: React.FC = () => {
     leaveRoom,
     disbandRoom,
     switchMode,
-    play,
-    pause,
-    nextSong,
-    prevSong,
     isOwner,
     reportMasterPlayback,
     requestMasterPlayback,
@@ -57,7 +48,6 @@ const RoomView: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false); // 是否正在同步中
-  const [masterInListenMode, setMasterInListenMode] = useState(false); // 房主是否在听歌模式
   const masterSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastSyncRef = useRef<{ songId: string; position: number } | null>(null);
   const lastReportedTrackIdRef = useRef<string | null>(null); // 上次上报的歌曲ID
@@ -140,9 +130,6 @@ const RoomView: React.FC = () => {
       duration: 2000,
     });
   };
-
-  // 检查是否可以控制播放
-  const canControl = myMember?.role === 'owner' || myMember?.role === 'admin' || myMember?.canControl;
 
   // 构建同步数据的辅助函数
   const buildSyncData = useCallback(() => {
@@ -248,7 +235,6 @@ const RoomView: React.FC = () => {
   useEffect(() => {
     const handleMasterModeChange = (event: CustomEvent<MasterModeData>) => {
       const { mode } = event.detail;
-      setMasterInListenMode(mode === 'listen');
       console.log('[房间] 房主模式变更:', mode);
 
       // 房主自己不需要收到这个提示
@@ -381,6 +367,72 @@ const RoomView: React.FC = () => {
     };
   }, [isOwner, myMember?.mode, audioRef, playerState.currentTrack, playlist, playTrack]);
 
+  // 监听播放器上一首/下一首事件（房间模式）
+  useEffect(() => {
+    // 只有房主才能切换歌曲
+    if (!isOwner || myMember?.mode !== 'listen') return;
+
+    // 获取当前播放歌曲在歌单中的索引
+    const getCurrentIndex = () => {
+      const currentTrackId = String(playerState.currentTrack?.id || playerState.currentTrack?.neteaseId || '');
+      return playlist.findIndex(item => {
+        const itemId = item.songId.replace('netease_', '');
+        return itemId === currentTrackId || item.songId === currentTrackId;
+      });
+    };
+
+    // 播放指定索引的歌曲
+    const playAtIndex = (index: number) => {
+      if (index < 0 || index >= playlist.length) return;
+      const item = playlist[index];
+      const track: Track = {
+        id: item.songId.replace('netease_', ''),
+        neteaseId: Number(item.songId.replace('netease_', '')) || undefined,
+        title: item.name,
+        artist: item.artist,
+        album: '',
+        coverArtPath: item.cover || '',
+        hlsPlaylistUrl: `/streams/netease/${item.songId.replace('netease_', '')}/playlist.m3u8`,
+        position: 0,
+        source: 'netease',
+      };
+      console.log('[房主] 切换歌曲:', track.title);
+      playTrack(track);
+    };
+
+    // 处理下一首
+    const handleNext = () => {
+      console.log('[RoomView] 收到 room-player-next 事件');
+      const currentIndex = getCurrentIndex();
+      let nextIndex = currentIndex + 1;
+      // 循环播放
+      if (nextIndex >= playlist.length) {
+        nextIndex = 0;
+      }
+      playAtIndex(nextIndex);
+    };
+
+    // 处理上一首
+    const handlePrevious = () => {
+      console.log('[RoomView] 收到 room-player-previous 事件');
+      const currentIndex = getCurrentIndex();
+      let prevIndex = currentIndex - 1;
+      // 循环播放
+      if (prevIndex < 0) {
+        prevIndex = playlist.length - 1;
+      }
+      playAtIndex(prevIndex);
+    };
+
+    window.addEventListener('room-player-next', handleNext);
+    window.addEventListener('room-player-previous', handlePrevious);
+
+    return () => {
+      window.removeEventListener('room-player-next', handleNext);
+      window.removeEventListener('room-player-previous', handlePrevious);
+    };
+  }, [isOwner, myMember?.mode, playerState.currentTrack, playlist, playTrack]);
+
   // 处理房主同步消息的回调
   const handleMasterSync = useCallback((event: CustomEvent<MasterSyncData>) => {
     // 只有听歌模式的非房主用户才需要同步
@@ -487,150 +539,45 @@ const RoomView: React.FC = () => {
   // 房间视图 - 左右分栏布局
   return (
     <div className="h-[calc(100vh-64px-114px)] md:h-[calc(100vh-64px-84px)] flex flex-col bg-cyber-bg overflow-hidden">
-      {/* 顶部信息栏 - 固定 */}
-      <div className="flex-shrink-0 bg-cyber-bg-darker/60 backdrop-blur-md border-b border-cyber-secondary/20 p-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            {/* 连接状态 */}
-            <div className={`p-1.5 rounded-full ${isConnected ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-              {isConnected ? (
-                <Wifi className="w-4 h-4 text-green-500" />
-              ) : (
-                <WifiOff className="w-4 h-4 text-red-500" />
-              )}
-            </div>
-
-            {/* 房间信息 */}
-            <div>
-              <h2 className="text-sm font-semibold text-cyber-text">{currentRoom.name}</h2>
-              <div className="flex items-center space-x-2 text-xs text-cyber-secondary/70">
-                <button
-                  onClick={handleCopyRoomId}
-                  className="flex items-center space-x-1 hover:text-cyber-primary transition-colors"
-                >
-                  <span>#{currentRoom.id}</span>
-                  {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                </button>
-                <span>·</span>
-                <span>{members.length} 人在线</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            {/* 同步状态指示 */}
-            {myMember?.mode === 'listen' && !isOwner && (
-              <div className={`flex items-center space-x-1 px-2 py-1 rounded-lg text-xs ${
-                isSyncing
-                  ? 'bg-yellow-500/20 text-yellow-400'
-                  : 'bg-green-500/20 text-green-400'
-              }`}>
-                <div className={`w-2 h-2 rounded-full ${
-                  isSyncing ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'
-                }`} />
-                <span>{isSyncing ? '同步中' : '已同步'}</span>
-              </div>
-            )}
-
-            {/* 房主标识 */}
-            {isOwner && (
-              <div className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs bg-cyber-primary/20 text-cyber-primary">
-                <span>房主</span>
-              </div>
-            )}
-
-            {/* 模式切换 */}
-            <button
-              onClick={handleSwitchMode}
-              className={`p-2 rounded-lg transition-colors ${
-                myMember?.mode === 'listen'
-                  ? 'bg-cyber-primary/20 text-cyber-primary'
-                  : 'bg-cyber-secondary/10 text-cyber-secondary hover:text-cyber-primary'
-              }`}
-              title={myMember?.mode === 'listen' ? '听歌模式' : '聊天模式'}
-            >
-              {myMember?.mode === 'listen' ? (
-                <Headphones className="w-5 h-5" />
-              ) : (
-                <MessageCircle className="w-5 h-5" />
-              )}
-            </button>
-
-            {/* 离开房间 */}
-            <button
-              onClick={() => setShowLeaveConfirm(true)}
-              className="p-2 rounded-lg text-cyber-secondary hover:text-red-400 hover:bg-red-500/10 transition-colors"
-              title="离开房间"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* 播放控制栏 - 仅听歌模式显示 */}
-        {myMember?.mode === 'listen' && (
-          <div className="mt-3 pt-3 border-t border-cyber-secondary/10">
-            <div className="flex items-center justify-between">
-              {/* 当前播放歌曲信息 */}
-              <div className="flex items-center flex-1 min-w-0 mr-4">
-                {playerState.currentTrack?.coverArtPath && (
-                  <img
-                    src={playerState.currentTrack.coverArtPath}
-                    alt=""
-                    className="w-10 h-10 rounded-lg object-cover mr-3 flex-shrink-0"
-                  />
-                )}
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-cyber-text truncate">
-                    {playerState.currentTrack?.title || '未播放'}
-                  </p>
-                  <p className="text-xs text-cyber-secondary/70 truncate">
-                    {playerState.currentTrack?.artist || '-'}
-                  </p>
-                </div>
-              </div>
-
-              {/* 播放控制按钮 - 仅房主可控制 */}
-              {isOwner && (
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={prevSong}
-                    className="p-2 rounded-full hover:bg-cyber-secondary/10 text-cyber-secondary hover:text-cyber-primary transition-colors"
-                  >
-                    <SkipBack className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={playerState.isPlaying ? pauseTrack : resumeTrack}
-                    className="p-3 rounded-full bg-cyber-primary text-cyber-bg hover:bg-cyber-hover-primary transition-colors"
-                  >
-                    {playerState.isPlaying ? (
-                      <Pause className="w-5 h-5" />
-                    ) : (
-                      <Play className="w-5 h-5 ml-0.5" />
-                    )}
-                  </button>
-                  <button
-                    onClick={nextSong}
-                    className="p-2 rounded-full hover:bg-cyber-secondary/10 text-cyber-secondary hover:text-cyber-primary transition-colors"
-                  >
-                    <SkipForward className="w-5 h-5" />
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* 主内容区域 - 左右分栏 */}
       <div className="flex-1 flex overflow-hidden">
-        {/* 左侧面板 - 歌单/成员 */}
+        {/* 左侧面板 - 房间信息 + 歌单/成员 */}
         <div className="w-72 flex-shrink-0 border-r border-cyber-secondary/20 flex flex-col bg-cyber-bg-darker/30">
-          {/* 左侧标签切换 - 固定在顶部 */}
+          {/* 房间信息 - 固定在顶部 */}
+          <div className="flex-shrink-0 p-3 border-b border-cyber-secondary/20 bg-cyber-bg-darker/50">
+            <div className="flex items-center space-x-2 mb-2">
+              {/* 连接状态 */}
+              <div className={`p-1 rounded-full ${isConnected ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+                {isConnected ? (
+                  <Wifi className="w-3 h-3 text-green-500" />
+                ) : (
+                  <WifiOff className="w-3 h-3 text-red-500" />
+                )}
+              </div>
+              {/* 房间名称 */}
+              <h2 className="text-sm font-semibold text-cyber-text truncate flex-1">{currentRoom.name}</h2>
+              {/* 房主标识 */}
+              {isOwner && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] bg-cyber-primary/20 text-cyber-primary">房主</span>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-xs text-cyber-secondary/70">
+              <button
+                onClick={handleCopyRoomId}
+                className="flex items-center space-x-1 hover:text-cyber-primary transition-colors"
+              >
+                <span>#{currentRoom.id}</span>
+                {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              </button>
+              <span>{members.length} 人在线</span>
+            </div>
+          </div>
+
+          {/* 左侧标签切换 */}
           <div className="flex-shrink-0 flex border-b border-cyber-secondary/20 bg-cyber-bg-darker/50">
             <button
               onClick={() => setLeftTab('playlist')}
-              className={`flex-1 py-2.5 flex items-center justify-center space-x-1.5 text-sm font-medium transition-colors ${
+              className={`flex-1 py-2 flex items-center justify-center space-x-1.5 text-sm font-medium transition-colors ${
                 leftTab === 'playlist'
                   ? 'text-cyber-primary border-b-2 border-cyber-primary bg-cyber-primary/5'
                   : 'text-cyber-secondary/70 hover:text-cyber-text'
@@ -642,7 +589,7 @@ const RoomView: React.FC = () => {
             </button>
             <button
               onClick={() => setLeftTab('members')}
-              className={`flex-1 py-2.5 flex items-center justify-center space-x-1.5 text-sm font-medium transition-colors ${
+              className={`flex-1 py-2 flex items-center justify-center space-x-1.5 text-sm font-medium transition-colors ${
                 leftTab === 'members'
                   ? 'text-cyber-primary border-b-2 border-cyber-primary bg-cyber-primary/5'
                   : 'text-cyber-secondary/70 hover:text-cyber-text'
@@ -663,11 +610,55 @@ const RoomView: React.FC = () => {
 
         {/* 右侧面板 - 聊天 */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* 聊天标题 - 固定在顶部 */}
-          <div className="flex-shrink-0 px-4 py-2.5 border-b border-cyber-secondary/20 bg-cyber-bg-darker/30">
-            <div className="flex items-center space-x-2">
-              <MessageSquare className="w-4 h-4 text-cyber-primary" />
-              <span className="text-sm font-medium text-cyber-text">聊天</span>
+          {/* 聊天标题栏 - 固定在顶部，包含操作按钮 */}
+          <div className="flex-shrink-0 px-4 py-2 border-b border-cyber-secondary/20 bg-cyber-bg-darker/30">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <MessageSquare className="w-4 h-4 text-cyber-primary" />
+                <span className="text-sm font-medium text-cyber-text">聊天</span>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                {/* 同步状态指示 */}
+                {myMember?.mode === 'listen' && !isOwner && (
+                  <div className={`flex items-center space-x-1 px-2 py-1 rounded-lg text-xs ${
+                    isSyncing
+                      ? 'bg-yellow-500/20 text-yellow-400'
+                      : 'bg-green-500/20 text-green-400'
+                  }`}>
+                    <div className={`w-2 h-2 rounded-full ${
+                      isSyncing ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'
+                    }`} />
+                    <span>{isSyncing ? '同步中' : '已同步'}</span>
+                  </div>
+                )}
+
+                {/* 模式切换 */}
+                <button
+                  onClick={handleSwitchMode}
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    myMember?.mode === 'listen'
+                      ? 'bg-cyber-primary/20 text-cyber-primary'
+                      : 'bg-cyber-secondary/10 text-cyber-secondary hover:text-cyber-primary'
+                  }`}
+                  title={myMember?.mode === 'listen' ? '听歌模式' : '聊天模式'}
+                >
+                  {myMember?.mode === 'listen' ? (
+                    <Headphones className="w-4 h-4" />
+                  ) : (
+                    <MessageCircle className="w-4 h-4" />
+                  )}
+                </button>
+
+                {/* 离开房间 */}
+                <button
+                  onClick={() => setShowLeaveConfirm(true)}
+                  className="p-1.5 rounded-lg text-cyber-secondary hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                  title="离开房间"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 

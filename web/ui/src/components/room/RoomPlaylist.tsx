@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRoom } from '../../contexts/RoomContext';
+import { usePlayer } from '../../contexts/PlayerContext';
 import { useToast } from '../../contexts/ToastContext';
 import {
   Music,
@@ -9,16 +10,74 @@ import {
   X,
   Disc3,
   Clock,
+  PlayCircle,
 } from 'lucide-react';
-import { RoomPlaylistItem } from '../../types';
+import type { RoomPlaylistItem, Track } from '../../types/index';
 
 const RoomPlaylist: React.FC = () => {
   const { addToast } = useToast();
-  const { playlist, playbackState, myMember, addSong, removeSong } = useRoom();
+  const { playlist, myMember, addSong, removeSong, isOwner } = useRoom();
+  const { playTrack, playerState } = usePlayer();
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  // 本地封面缓存，用于补充服务端缺失的封面
+  const [coverCache, setCoverCache] = useState<Record<string, string>>({});
+  const fetchedIdsRef = useRef<Set<string>>(new Set());
+
+  // 当 playlist 变化时，获取缺失的封面
+  useEffect(() => {
+    const fetchMissingCovers = async () => {
+      // 找出没有封面且尚未获取过的歌曲
+      const songsNeedCover = playlist.filter(item => {
+        const songId = item.songId.replace('netease_', '');
+        return !item.cover && !coverCache[songId] && !fetchedIdsRef.current.has(songId);
+      });
+
+      if (songsNeedCover.length === 0) return;
+
+      // 标记为正在获取
+      songsNeedCover.forEach(item => {
+        const songId = item.songId.replace('netease_', '');
+        fetchedIdsRef.current.add(songId);
+      });
+
+      // 批量获取歌曲详情
+      const songIds = songsNeedCover.map(item => item.songId.replace('netease_', '')).join(',');
+
+      try {
+        const response = await fetch(`/api/netease/song/detail?ids=${songIds}`);
+        const data = await response.json();
+
+        if (data.success && data.data) {
+          const details = Array.isArray(data.data) ? data.data : [data.data];
+          const newCovers: Record<string, string> = {};
+
+          details.forEach((detail: any) => {
+            if (detail && detail.id && detail.al?.picUrl) {
+              newCovers[String(detail.id)] = detail.al.picUrl;
+            }
+          });
+
+          if (Object.keys(newCovers).length > 0) {
+            setCoverCache(prev => ({ ...prev, ...newCovers }));
+          }
+        }
+      } catch (error) {
+        console.warn('获取封面失败:', error);
+      }
+    };
+
+    fetchMissingCovers();
+  }, [playlist, coverCache]);
+
+  // 获取歌曲封面（优先使用 item.cover，其次使用缓存）
+  const getCover = (item: RoomPlaylistItem): string => {
+    if (item.cover) return item.cover;
+    const songId = item.songId.replace('netease_', '');
+    return coverCache[songId] || '';
+  };
 
   // 检查是否可以控制
   const canControl = myMember?.role === 'owner' || myMember?.role === 'admin' || myMember?.canControl;
@@ -31,19 +90,56 @@ const RoomPlaylist: React.FC = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // 搜索歌曲（调用网易云 API）
+  // 搜索歌曲（调用网易云 API - 使用与 BotView 相同的方式）
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
 
     setIsSearching(true);
     try {
-      const response = await fetch(`/api/netease/search?keywords=${encodeURIComponent(searchQuery)}&limit=20`);
-      if (response.ok) {
-        const data = await response.json();
-        // API 返回格式: { success: true, data: [...] }
-        setSearchResults(data.data || []);
+      // 先搜索
+      const response = await fetch(`/api/netease/search?q=${encodeURIComponent(searchQuery)}&limit=20`);
+      if (!response.ok) {
+        throw new Error('搜索失败');
+      }
+      const data = await response.json();
+
+      if (data.success && data.data) {
+        const searchData = data.data;
+
+        // 获取歌曲详情以获取完整封面
+        const songIds = searchData.map((item: any) => item.id).join(',');
+        let detailsMap = new Map();
+
+        try {
+          const detailResponse = await fetch(`/api/netease/song/detail?ids=${songIds}`);
+          const detailData = await detailResponse.json();
+
+          if (detailData.success && detailData.data) {
+            // 处理单个或多个歌曲详情
+            const details = Array.isArray(detailData.data) ? detailData.data : [detailData.data];
+            details.forEach((detail: any) => {
+              if (detail && detail.id) {
+                detailsMap.set(detail.id, detail);
+              }
+            });
+          }
+        } catch (e) {
+          console.warn('获取歌曲详情失败，使用搜索结果封面');
+        }
+
+        // 合并数据
+        const enrichedResults = searchData.map((item: any) => {
+          const detail = detailsMap.get(item.id);
+          return {
+            ...item,
+            // 优先使用详情接口的封面
+            picUrl: detail?.al?.picUrl || item.picUrl || '',
+          };
+        });
+
+        setSearchResults(enrichedResults);
       } else {
-        addToast({ type: 'error', message: '搜索失败', duration: 3000 });
+        addToast({ type: 'error', message: data.error || '搜索失败', duration: 3000 });
       }
     } catch (error) {
       console.error('Search error:', error);
@@ -60,7 +156,7 @@ const RoomPlaylist: React.FC = () => {
       name: song.name,
       // API 返回的 artists 是字符串数组
       artist: song.artists?.join(', ') || '未知艺人',
-      // API 返回的 picUrl 直接在 song 对象上
+      // 使用已获取的封面
       cover: song.picUrl || '',
       duration: Math.floor((song.duration || 0) / 1000),
       source: 'netease',
@@ -77,6 +173,38 @@ const RoomPlaylist: React.FC = () => {
   const handleRemoveSong = (item: RoomPlaylistItem) => {
     removeSong(item.position);
     addToast({ type: 'info', message: `已移除 "${item.name}"`, duration: 2000 });
+  };
+
+  // 点击播放歌曲（仅房主可操作）
+  const handlePlaySong = (item: RoomPlaylistItem) => {
+    if (!isOwner) {
+      addToast({ type: 'info', message: '仅房主可以选择播放歌曲', duration: 2000 });
+      return;
+    }
+
+    // 检查是否在听歌模式
+    if (myMember?.mode !== 'listen') {
+      addToast({ type: 'info', message: '请先切换到听歌模式', duration: 2000 });
+      return;
+    }
+
+    // 从 songId 中提取实际的 ID
+    const songId = item.songId.replace('netease_', '');
+
+    const track: Track = {
+      id: songId,
+      neteaseId: Number(songId) || undefined,
+      title: item.name,
+      artist: item.artist,
+      album: '',
+      coverArtPath: getCover(item) || '',
+      hlsPlaylistUrl: `/streams/netease/${songId}/playlist.m3u8`,
+      position: 0,
+      source: 'netease',
+    };
+
+    playTrack(track);
+    addToast({ type: 'success', message: `正在播放: ${item.name}`, duration: 2000 });
   };
 
   return (
@@ -98,31 +226,40 @@ const RoomPlaylist: React.FC = () => {
         ) : (
           <div className="divide-y divide-cyber-secondary/10">
             {playlist.map((item, index) => {
-              const isPlaying = playbackState?.currentIndex === index;
+              // 检查是否是当前播放的歌曲
+              const songId = item.songId.replace('netease_', '');
+              const isCurrentPlaying = String(playerState.currentTrack?.id) === songId ||
+                String(playerState.currentTrack?.neteaseId) === songId;
 
               return (
                 <div
                   key={`${item.songId}-${index}`}
-                  className={`flex items-center p-3 hover:bg-cyber-bg-darker/30 transition-colors ${
-                    isPlaying ? 'bg-cyber-primary/10' : ''
+                  onClick={() => handlePlaySong(item)}
+                  className={`flex items-center p-3 hover:bg-cyber-bg-darker/30 transition-colors cursor-pointer group ${
+                    isCurrentPlaying ? 'bg-cyber-primary/10' : ''
                   }`}
                 >
                   {/* 序号/播放指示 */}
                   <div className="w-8 flex-shrink-0 text-center">
-                    {isPlaying ? (
+                    {isCurrentPlaying ? (
                       <div className="flex items-center justify-center">
                         <div className="w-2 h-2 bg-cyber-primary rounded-full animate-pulse" />
                       </div>
                     ) : (
-                      <span className="text-xs text-cyber-secondary/50">{index + 1}</span>
+                      <div className="relative">
+                        <span className="text-xs text-cyber-secondary/50 group-hover:opacity-0">{index + 1}</span>
+                        {isOwner && (
+                          <PlayCircle className="w-4 h-4 text-cyber-primary absolute inset-0 m-auto opacity-0 group-hover:opacity-100 transition-opacity" />
+                        )}
+                      </div>
                     )}
                   </div>
 
                   {/* 封面 */}
                   <div className="w-10 h-10 rounded overflow-hidden bg-cyber-bg-darker/50 flex-shrink-0 mr-3">
-                    {item.cover ? (
+                    {getCover(item) ? (
                       <img
-                        src={item.cover}
+                        src={getCover(item)}
                         alt={item.name}
                         className="w-full h-full object-cover"
                       />
@@ -137,7 +274,7 @@ const RoomPlaylist: React.FC = () => {
                   <div className="flex-1 min-w-0 mr-3">
                     <p
                       className={`text-sm font-medium truncate ${
-                        isPlaying ? 'text-cyber-primary' : 'text-cyber-text'
+                        isCurrentPlaying ? 'text-cyber-primary' : 'text-cyber-text'
                       }`}
                     >
                       {item.name}
@@ -154,7 +291,10 @@ const RoomPlaylist: React.FC = () => {
                   {/* 删除按钮 */}
                   {canControl && (
                     <button
-                      onClick={() => handleRemoveSong(item)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveSong(item);
+                      }}
                       className="p-2 rounded-lg hover:bg-red-500/10 text-cyber-secondary/50 hover:text-red-400 transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
