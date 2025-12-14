@@ -27,7 +27,7 @@ import {
 const RoomView: React.FC = () => {
   useAuth();
   const { addToast } = useToast();
-  const { enterRoomMode, exitRoomMode, isInRoomMode, playerState, playTrack, seekTo, pauseTrack, resumeTrack, audioRef } = usePlayer();
+  const { enterRoomMode, exitRoomMode, isInRoomMode, playerState, playTrack, seekTo, pauseTrack, resumeTrack, audioRef, setRoomPlaylistForAutoPlay } = usePlayer();
   const {
     currentRoom,
     members,
@@ -130,6 +130,12 @@ const RoomView: React.FC = () => {
       duration: 2000,
     });
   };
+
+  // 同步房间歌单到 PlayerContext（用于房主在其他页面时自动播放下一首）
+  useEffect(() => {
+    const isListenMode = myMember?.mode === 'listen';
+    setRoomPlaylistForAutoPlay(playlist, isOwner, isListenMode);
+  }, [playlist, isOwner, myMember?.mode, setRoomPlaylistForAutoPlay]);
 
   // 构建同步数据的辅助函数
   const buildSyncData = useCallback(() => {

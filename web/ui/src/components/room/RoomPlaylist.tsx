@@ -106,33 +106,35 @@ const RoomPlaylist: React.FC = () => {
       if (data.success && data.data) {
         const searchData = data.data;
 
-        // 获取歌曲详情以获取完整封面
-        const songIds = searchData.map((item: any) => item.id).join(',');
-        let detailsMap = new Map();
+        // 获取歌曲详情以获取完整封面 - 逐个获取确保正确
+        const detailsMap = new Map<number, any>();
 
-        try {
-          const detailResponse = await fetch(`/api/netease/song/detail?ids=${songIds}`);
-          const detailData = await detailResponse.json();
+        // 批量获取可能有问题，改为逐个获取前20首歌的详情
+        const fetchPromises = searchData.slice(0, 20).map(async (item: any) => {
+          try {
+            const detailResponse = await fetch(`/api/netease/song/detail?ids=${item.id}`);
+            const detailData = await detailResponse.json();
 
-          if (detailData.success && detailData.data) {
-            // 处理单个或多个歌曲详情
-            const details = Array.isArray(detailData.data) ? detailData.data : [detailData.data];
-            details.forEach((detail: any) => {
+            if (detailData.success && detailData.data) {
+              const detail = detailData.data;
               if (detail && detail.id) {
                 detailsMap.set(detail.id, detail);
               }
-            });
+            }
+          } catch (e) {
+            console.warn(`获取歌曲 ${item.id} 详情失败`);
           }
-        } catch (e) {
-          console.warn('获取歌曲详情失败，使用搜索结果封面');
-        }
+        });
+
+        // 并行获取所有详情
+        await Promise.all(fetchPromises);
 
         // 合并数据
         const enrichedResults = searchData.map((item: any) => {
           const detail = detailsMap.get(item.id);
           return {
             ...item,
-            // 优先使用详情接口的封面
+            // 优先使用详情接口的封面（detail.al.picUrl）
             picUrl: detail?.al?.picUrl || item.picUrl || '',
           };
         });
