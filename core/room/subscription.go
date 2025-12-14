@@ -176,25 +176,17 @@ func (s *PlaybackSubscription) Publish(roomID string, state *MasterSyncData, exc
 	}
 
 	// 发送给所有订阅者
-	sentCount := 0
 	for _, client := range clients {
 		select {
 		case client.Send <- msgBytes:
-			sentCount++
+			// 发送成功，不记录日志（太频繁）
 		default:
 			// 缓冲区满，跳过该用户
-			logger.Debug("订阅者发送缓冲区满",
+			logger.Warn("订阅者发送缓冲区满",
 				logger.String("roomId", roomID),
 				logger.Int64("userId", client.UserID))
 		}
 	}
-
-	logger.Debug("播放状态已推送",
-		logger.String("roomId", roomID),
-		logger.Int("sentCount", sentCount),
-		logger.Int("totalSubscribers", len(clients)),
-		logger.String("songId", state.SongID),
-		logger.Bool("isPlaying", state.IsPlaying))
 }
 
 // PublishToUser 发布播放状态给单个用户
@@ -226,9 +218,7 @@ func (s *PlaybackSubscription) PublishToUser(roomID string, userID int64, state 
 
 	select {
 	case client.Send <- msgBytes:
-		logger.Debug("播放状态已推送给单个用户",
-			logger.String("roomId", roomID),
-			logger.Int64("userId", userID))
+		// 发送成功，不记录日志（太频繁）
 	default:
 		// 缓冲区满
 	}

@@ -1549,7 +1549,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   // 设置房间歌单（兼容旧API，用于房主自动播放下一首）
   const setRoomPlaylistForAutoPlay = useCallback((playlist: RoomPlaylistItem[], isOwner: boolean, isListenMode: boolean, canControl?: boolean) => {
-    console.log('[PlayerContext] setRoomPlaylistForAutoPlay (旧API), isListenMode:', isListenMode);
+    console.log('[PlayerContext] setRoomPlaylistForAutoPlay (旧API), isListenMode:', isListenMode, 'playlistSource:', playlistSource);
 
     // 更新新的数据结构
     roomDataRef.current = {
@@ -1565,13 +1565,27 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     // 根据 isListenMode 同步 playlistSource
     if (isListenMode && playlistSource !== 'room') {
+      // 切换到房间模式前，先保存个人播放列表（如果还没保存过）
+      if (savedPersonalPlaylistRef.current === null) {
+        console.log('[PlayerContext] 保存个人播放列表, 长度:', playerState.playlist.length);
+        savedPersonalPlaylistRef.current = [...playerState.playlist];
+        savedCurrentTrackRef.current = playerState.currentTrack;
+        savedCurrentTimeRef.current = audioRef.current?.currentTime || 0;
+      }
       setPlaylistSource('room');
     } else if (!isListenMode && playlistSource === 'room') {
       setPlaylistSource('personal');
     }
-  }, [playlistSource]);
+  }, [playlistSource, playerState.playlist, playerState.currentTrack]);
 
   // 监听 RoomContext 派发的歌单更新事件（解决切换页面后无法自动播放下一首的问题）
+  // 使用 ref 获取最新的 playerState 以避免闭包问题
+  const playerStateRef = React.useRef(playerState);
+  playerStateRef.current = playerState;
+
+  const playlistSourceRef = React.useRef(playlistSource);
+  playlistSourceRef.current = playlistSource;
+
   useEffect(() => {
     const handleRoomPlaylistUpdate = (event: CustomEvent<{ playlist: RoomPlaylistItem[]; isOwner: boolean; isListenMode: boolean; canControl?: boolean }>) => {
       const { playlist, isOwner, isListenMode, canControl } = event.detail;
@@ -1589,9 +1603,17 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       canControlRef.current = canControl || false;
 
       // 根据 isListenMode 同步 playlistSource
-      if (isListenMode) {
+      if (isListenMode && playlistSourceRef.current !== 'room') {
+        // 切换到房间模式前，先保存个人播放列表（如果还没保存过）
+        if (savedPersonalPlaylistRef.current === null) {
+          const currentState = playerStateRef.current;
+          console.log('[PlayerContext] 事件处理：保存个人播放列表, 长度:', currentState.playlist.length);
+          savedPersonalPlaylistRef.current = [...currentState.playlist];
+          savedCurrentTrackRef.current = currentState.currentTrack;
+          savedCurrentTimeRef.current = audioRef.current?.currentTime || 0;
+        }
         setPlaylistSource('room');
-      } else {
+      } else if (!isListenMode && playlistSourceRef.current === 'room') {
         setPlaylistSource('personal');
       }
     };
