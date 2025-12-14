@@ -231,6 +231,7 @@ export interface RoomPlaylistItem {
   cover?: string;
   duration?: number;
   source?: string;
+  hlsUrl?: string;  // HLS 播放地址
   position: number;
   addedBy: number;
   addedAt: number;

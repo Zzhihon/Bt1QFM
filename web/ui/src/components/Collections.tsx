@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Music, User, ChevronRight, Play, Plus, Loader2, 
-  AlertCircle, Heart, Clock, Calendar, Users
+import {
+  Music, User, ChevronRight, Play, Plus, Loader2,
+  AlertCircle, Clock, Calendar, Users, Check, CheckSquare
 } from 'lucide-react';
 import { usePlayer } from '../contexts/PlayerContext';
+import { useRoom } from '../contexts/RoomContext';
+import { useToast } from '../contexts/ToastContext';
 import { authInterceptor } from '../utils/authInterceptor';
 import { retryWithDelay } from '../utils/retry';
+import AddToTargetMenu from './common/AddToTargetMenu';
+import { Track } from '../types';
 
 // 获取后端 URL，提供默认值
 const getBackendUrl = () => {
@@ -83,7 +87,18 @@ const Collections: React.FC = () => {
   });
   const [retryingTrack, setRetryingTrack] = useState<number | null>(null);
 
+  // 批量选择相关状态
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedTracks, setSelectedTracks] = useState<Set<number>>(new Set());
+
+  // 添加目标菜单状态
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [addMenuAnchor, setAddMenuAnchor] = useState<HTMLElement | null>(null);
+  const [trackToAdd, setTrackToAdd] = useState<NeteaseSong | null>(null);
+
   const { addToPlaylist, playTrack } = usePlayer();
+  const { addSong } = useRoom();
+  const { addToast } = useToast();
 
   // 获取用户资料
   const fetchUserProfile = useCallback(async () => {
@@ -275,35 +290,6 @@ const Collections: React.FC = () => {
     return new Date(timestamp).toLocaleDateString('zh-CN');
   };
 
-  // 添加单首歌曲到播放列表
-  const handleAddSong = useCallback(async (song: NeteaseSong) => {
-    // 处理歌曲名称，优先使用主标题
-    const songTitle = song.mainTitle || song.name;
-    const fullTitle = song.additionalTitle ? `${songTitle} ${song.additionalTitle}` : songTitle;
-    
-    const track = {
-      id: song.id,
-      neteaseId: song.id,
-      title: fullTitle,
-      artist: song.ar?.map(a => a.name).join(', ') || 'Unknown Artist',
-      album: song.al?.name || 'Unknown Album',
-      coverArtPath: song.al?.picUrl || '',
-      duration: Math.floor((song.dt || 0) / 1000),
-      source: 'netease' as const,
-      hlsPlaylistUrl: `/streams/netease/${song.id}/playlist.m3u8`
-    };
-    
-    console.log('添加歌曲到播放列表:', track);
-    
-    try {
-      await addToPlaylist(track);
-      console.log('✅ 成功添加歌曲到播放列表:', track.title);
-    } catch (error) {
-      console.error('❌ 添加歌曲到播放列表失败:', error);
-      setError(`添加歌曲失败: ${track.title}`);
-    }
-  }, [addToPlaylist]);
-
   // 检查音频流是否可用
   const checkStreamAvailability = useCallback(async (url: string): Promise<boolean> => {
     try {
@@ -336,6 +322,7 @@ const Collections: React.FC = () => {
     const track = {
       id: song.id,
       neteaseId: song.id,
+      position: 0,
       title: fullTitle,
       artist: song.ar?.map(a => a.name).join(', ') || 'Unknown Artist',
       album: song.al?.name || 'Unknown Album',
@@ -380,14 +367,15 @@ const Collections: React.FC = () => {
   const handleAddPlaylistToQueue = useCallback(async () => {
     if (!selectedPlaylist) return;
 
-    const tracks = selectedPlaylist.playlist.tracks.map(song => {
+    const tracks = selectedPlaylist.playlist.tracks.map((song, index) => {
       // 处理歌曲名称，优先使用主标题
       const songTitle = song.mainTitle || song.name;
       const fullTitle = song.additionalTitle ? `${songTitle} ${song.additionalTitle}` : songTitle;
-      
+
       return {
         id: song.id,
         neteaseId: song.id,
+        position: index,
         title: fullTitle,
         artist: song.ar?.map(a => a.name).join(', ') || 'Unknown Artist',
         album: song.al?.name || 'Unknown Album',
@@ -412,9 +400,147 @@ const Collections: React.FC = () => {
     }
   }, [selectedPlaylist, addToPlaylist]);
 
+  // 将 NeteaseSong 转换为 Track 类型
+  const convertSongToTrack = useCallback((song: NeteaseSong): Track => {
+    const songTitle = song.mainTitle || song.name;
+    const fullTitle = song.additionalTitle ? `${songTitle} ${song.additionalTitle}` : songTitle;
+
+    return {
+      id: song.id,
+      neteaseId: song.id,
+      position: 0, // 默认位置，添加到播放列表时会被更新
+      title: fullTitle,
+      artist: song.ar?.map(a => a.name).join(', ') || 'Unknown Artist',
+      album: song.al?.name || 'Unknown Album',
+      coverArtPath: song.al?.picUrl || '',
+      duration: Math.floor((song.dt || 0) / 1000),
+      source: 'netease' as const,
+      hlsPlaylistUrl: `/streams/netease/${song.id}/playlist.m3u8`
+    };
+  }, []);
+
+  // 切换选择模式
+  const toggleSelectMode = useCallback(() => {
+    setIsSelectMode(prev => !prev);
+    if (isSelectMode) {
+      setSelectedTracks(new Set());
+    }
+  }, [isSelectMode]);
+
+  // 切换单个歌曲选择
+  const toggleTrackSelection = useCallback((trackId: number) => {
+    setSelectedTracks(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(trackId)) {
+        newSet.delete(trackId);
+      } else {
+        newSet.add(trackId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  // 全选/取消全选
+  const toggleSelectAll = useCallback(() => {
+    if (!selectedPlaylist) return;
+    const allTracks = selectedPlaylist.playlist.tracks || [];
+    if (selectedTracks.size === allTracks.length) {
+      setSelectedTracks(new Set());
+    } else {
+      setSelectedTracks(new Set(allTracks.map(t => t.id)));
+    }
+  }, [selectedTracks.size, selectedPlaylist]);
+
+  // 打开添加菜单（单个歌曲）
+  const handleOpenAddMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>, song: NeteaseSong) => {
+    e.stopPropagation();
+    setTrackToAdd(song);
+    setAddMenuAnchor(e.currentTarget);
+    setShowAddMenu(true);
+  }, []);
+
+  // 打开添加菜单（批量）
+  const handleOpenBatchAddMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    setTrackToAdd(null);
+    setAddMenuAnchor(e.currentTarget);
+    setShowAddMenu(true);
+  }, []);
+
+  // 添加到个人播放列表
+  const handleAddToPersonal = useCallback(async () => {
+    if (!selectedPlaylist) return;
+
+    if (trackToAdd) {
+      // 单个添加
+      const track = convertSongToTrack(trackToAdd);
+      await addToPlaylist(track);
+      addToast({
+        message: `已添加 "${track.title}" 到播放列表`,
+        type: 'success',
+        duration: 3000,
+      });
+    } else if (selectedTracks.size > 0) {
+      // 批量添加
+      const songsToAdd = selectedPlaylist.playlist.tracks.filter(s => selectedTracks.has(s.id));
+      for (const song of songsToAdd) {
+        const track = convertSongToTrack(song);
+        await addToPlaylist(track);
+      }
+      addToast({
+        message: `已添加 ${songsToAdd.length} 首歌曲到播放列表`,
+        type: 'success',
+        duration: 3000,
+      });
+      setSelectedTracks(new Set());
+      setIsSelectMode(false);
+    }
+  }, [trackToAdd, selectedTracks, selectedPlaylist, addToPlaylist, convertSongToTrack, addToast]);
+
+  // 添加到聊天室
+  const handleAddToRoom = useCallback(async (_roomId: string) => {
+    if (!selectedPlaylist) return;
+
+    const songsToAdd = trackToAdd
+      ? [trackToAdd]
+      : selectedPlaylist.playlist.tracks.filter(s => selectedTracks.has(s.id));
+
+    for (const song of songsToAdd) {
+      const songTitle = song.mainTitle || song.name;
+      const fullTitle = song.additionalTitle ? `${songTitle} ${song.additionalTitle}` : songTitle;
+
+      addSong({
+        songId: `netease_${song.id}`,
+        name: fullTitle,
+        artist: song.ar?.map(a => a.name).join(', ') || 'Unknown Artist',
+        cover: song.al?.picUrl || '',
+        duration: song.dt || 0,
+        source: 'netease',
+        hlsUrl: `/streams/netease/${song.id}/playlist.m3u8`,
+      });
+    }
+
+    addToast({
+      message: `已添加 ${songsToAdd.length} 首歌曲到房间`,
+      type: 'success',
+      duration: 3000,
+    });
+
+    if (!trackToAdd) {
+      setSelectedTracks(new Set());
+      setIsSelectMode(false);
+    }
+  }, [trackToAdd, selectedTracks, selectedPlaylist, addSong, addToast]);
+
   useEffect(() => {
     fetchUserProfile();
   }, [fetchUserProfile]);
+
+  // 切换歌单时重置选择状态
+  useEffect(() => {
+    setIsSelectMode(false);
+    setSelectedTracks(new Set());
+  }, [selectedPlaylist]);
 
   useEffect(() => {
     if (userProfile.neteaseUsername || userProfile.neteaseUID) {
@@ -556,19 +682,49 @@ const Collections: React.FC = () => {
         {/* 歌曲列表 */}
         <div className="bg-cyber-bg-darker rounded-lg overflow-hidden">
           <div className="p-6 border-b border-cyber-primary">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-4">
               <h2 className="text-xl font-semibold text-cyber-primary">
                 歌曲列表
               </h2>
-              <span className="text-cyber-secondary">
-                共 {selectedPlaylist.playlist.tracks?.length || 0} 首歌曲
-              </span>
+              <div className="flex items-center space-x-3">
+                {/* 批量选择按钮组 */}
+                <button
+                  onClick={toggleSelectMode}
+                  className={`flex items-center ${isSelectMode ? 'bg-cyber-primary text-cyber-bg-darker' : 'bg-cyber-bg text-cyber-secondary'} hover:bg-cyber-hover-secondary font-semibold py-2 px-4 rounded-lg shadow-md transition-all duration-300`}
+                >
+                  {isSelectMode ? <Check className="mr-2 h-4 w-4" /> : <CheckSquare className="mr-2 h-4 w-4" />}
+                  {isSelectMode ? '取消选择' : '批量操作'}
+                </button>
+                {isSelectMode && (
+                  <>
+                    <button
+                      onClick={toggleSelectAll}
+                      className="flex items-center bg-cyber-bg text-cyber-secondary hover:bg-cyber-hover-secondary font-semibold py-2 px-4 rounded-lg shadow-md transition-all duration-300"
+                    >
+                      {selectedTracks.size === (selectedPlaylist.playlist.tracks?.length || 0) ? '取消全选' : '全选'}
+                    </button>
+                    {selectedTracks.size > 0 && (
+                      <button
+                        onClick={handleOpenBatchAddMenu}
+                        className="flex items-center bg-cyber-secondary text-cyber-bg-darker hover:bg-cyber-hover-secondary font-semibold py-2 px-4 rounded-lg shadow-md transition-all duration-300"
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        添加 {selectedTracks.size} 首
+                      </button>
+                    )}
+                  </>
+                )}
+                <span className="text-cyber-secondary">
+                  共 {selectedPlaylist.playlist.tracks?.length || 0} 首歌曲
+                </span>
+              </div>
             </div>
           </div>
-          
+
           {/* 列表头部 */}
           <div className="px-6 py-3 bg-cyber-bg border-b border-cyber-bg text-cyber-secondary text-sm">
             <div className="flex items-center">
+              {isSelectMode && <div className="w-10"></div>}
               <div className="w-12 text-center">#</div>
               <div className="w-16 mr-4"></div>
               <div className="flex-1">歌曲信息</div>
@@ -584,29 +740,48 @@ const Collections: React.FC = () => {
                 // 处理歌曲名称显示
                 const songTitle = song.mainTitle || song.name;
                 const fullTitle = song.additionalTitle ? `${songTitle} ${song.additionalTitle}` : songTitle;
-                
+                const isChecked = selectedTracks.has(song.id);
+
                 return (
-                  <div 
-                    key={song.id} 
-                    className="flex items-center px-6 py-4 hover:bg-cyber-bg transition-colors group"
+                  <div
+                    key={song.id}
+                    className={`flex items-center px-6 py-4 hover:bg-cyber-bg transition-colors group ${isChecked ? 'bg-cyber-bg/50' : ''} ${isSelectMode ? 'cursor-pointer' : ''}`}
+                    onClick={isSelectMode ? () => toggleTrackSelection(song.id) : undefined}
                   >
+                    {/* 复选框 */}
+                    {isSelectMode && (
+                      <div className="w-10 flex-shrink-0">
+                        <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${isChecked ? 'bg-cyber-primary border-cyber-primary' : 'bg-cyber-bg/80 border-cyber-secondary'}`}>
+                          {isChecked && <Check className="h-3 w-3 text-cyber-bg-darker" />}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="w-12 text-center text-cyber-secondary text-sm">
-                      <span className="group-hover:hidden">{index + 1}</span>
-                      <button 
-                        onClick={() => handlePlaySong(song)}
-                        className="hidden group-hover:block p-1 text-cyber-primary hover:text-cyber-hover-primary transition-colors"
-                        disabled={retryingTrack === song.id}
-                      >
-                        {retryingTrack === song.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Play className="h-4 w-4" />
-                        )}
-                      </button>
+                      {!isSelectMode && (
+                        <>
+                          <span className="group-hover:hidden">{index + 1}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePlaySong(song);
+                            }}
+                            className="hidden group-hover:block p-1 text-cyber-primary hover:text-cyber-hover-primary transition-colors"
+                            disabled={retryingTrack === song.id}
+                          >
+                            {retryingTrack === song.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Play className="h-4 w-4" />
+                            )}
+                          </button>
+                        </>
+                      )}
+                      {isSelectMode && <span>{index + 1}</span>}
                     </div>
-                    
+
                     <div className="w-16 h-16 rounded-lg mr-4 overflow-hidden flex-shrink-0 shadow-sm">
-                      <img 
+                      <img
                         src={song.al?.picUrl || ''}
                         alt={song.al?.name || 'Unknown Album'}
                         className="w-full h-full object-cover"
@@ -615,7 +790,7 @@ const Collections: React.FC = () => {
                         }}
                       />
                     </div>
-                    
+
                     <div className="flex-1 min-w-0 pr-4">
                       <div className="text-cyber-primary font-medium truncate text-base mb-1">
                         {fullTitle}
@@ -633,31 +808,38 @@ const Collections: React.FC = () => {
                         </div>
                       )}
                     </div>
-                    
+
                     <div className="w-20 text-center text-cyber-secondary text-sm">
                       {formatDuration(song.dt || 0)}
                     </div>
 
                     <div className="w-24 flex items-center justify-center space-x-2">
-                      <button 
-                        onClick={() => handlePlaySong(song)}
-                        className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors opacity-0 group-hover:opacity-100"
-                        title="播放"
-                        disabled={retryingTrack === song.id}
-                      >
-                        {retryingTrack === song.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Play className="h-4 w-4" />
-                        )}
-                      </button>
-                      <button 
-                        onClick={() => handleAddSong(song)}
-                        className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors opacity-0 group-hover:opacity-100"
-                        title="添加到播放列表"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </button>
+                      {!isSelectMode && (
+                        <>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePlaySong(song);
+                            }}
+                            className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors opacity-0 group-hover:opacity-100"
+                            title="播放"
+                            disabled={retryingTrack === song.id}
+                          >
+                            {retryingTrack === song.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Play className="h-4 w-4" />
+                            )}
+                          </button>
+                          <button
+                            onClick={(e) => handleOpenAddMenu(e, song)}
+                            className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors opacity-0 group-hover:opacity-100"
+                            title="添加到..."
+                          >
+                            <Plus className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 );
@@ -670,6 +852,25 @@ const Collections: React.FC = () => {
             )}
           </div>
         </div>
+
+        {/* 添加目标选择菜单 */}
+        <AddToTargetMenu
+          isOpen={showAddMenu}
+          onClose={() => {
+            setShowAddMenu(false);
+            setTrackToAdd(null);
+          }}
+          onAddToPersonal={handleAddToPersonal}
+          onAddToRoom={handleAddToRoom}
+          anchorEl={addMenuAnchor}
+          track={trackToAdd ? convertSongToTrack(trackToAdd) : undefined}
+          tracks={!trackToAdd && selectedTracks.size > 0 && selectedPlaylist
+            ? selectedPlaylist.playlist.tracks
+                .filter(s => selectedTracks.has(s.id))
+                .map(convertSongToTrack)
+            : undefined
+          }
+        />
       </div>
     );
   }

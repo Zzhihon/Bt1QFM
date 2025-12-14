@@ -1478,6 +1478,22 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     isRoomListenModeRef.current = isListenMode;
   }, []);
 
+  // 监听 RoomContext 派发的歌单更新事件（解决切换页面后无法自动播放下一首的问题）
+  useEffect(() => {
+    const handleRoomPlaylistUpdate = (event: CustomEvent<{ playlist: RoomPlaylistItem[]; isOwner: boolean; isListenMode: boolean }>) => {
+      const { playlist, isOwner, isListenMode } = event.detail;
+      console.log('[PlayerContext] 收到房间歌单更新事件:', playlist.length, '首歌, 房主:', isOwner, '听歌模式:', isListenMode);
+      roomPlaylistRef.current = playlist;
+      isRoomOwnerRef.current = isOwner;
+      isRoomListenModeRef.current = isListenMode;
+    };
+
+    window.addEventListener('room-playlist-update', handleRoomPlaylistUpdate as EventListener);
+    return () => {
+      window.removeEventListener('room-playlist-update', handleRoomPlaylistUpdate as EventListener);
+    };
+  }, []);
+
   // 获取当前歌曲ID
   const currentSongId = playerState.currentTrack
     ? (playerState.currentTrack.neteaseId || playerState.currentTrack.id)

@@ -728,6 +728,21 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // 计算是否是房主
   const isOwner = currentRoom?.ownerId === currentUser?.id;
 
+  // 当房间歌单变化时，派发事件通知 PlayerContext 更新（用于房主自动播放下一首）
+  useEffect(() => {
+    if (!currentRoom) return;
+
+    const isListenMode = myMember?.mode === 'listen';
+    const eventData = {
+      playlist,
+      isOwner,
+      isListenMode,
+    };
+
+    console.log('[RoomContext] 派发房间歌单更新事件:', playlist.length, '首歌, 房主:', isOwner, '听歌模式:', isListenMode);
+    window.dispatchEvent(new CustomEvent('room-playlist-update', { detail: eventData }));
+  }, [currentRoom, playlist, isOwner, myMember?.mode]);
+
   // 组件卸载时清理
   useEffect(() => {
     return () => {
