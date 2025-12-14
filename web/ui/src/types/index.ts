@@ -275,7 +275,8 @@ export type RoomWSMessageType =
   | 'master_report'   // 房主上报播放状态（房主 -> 服务端）
   | 'master_request'  // 请求房主播放状态（用户 -> 服务端 -> 房主）
   | 'master_mode'     // 房主模式变更通知
-  | 'room_disband';   // 房间解散通知
+  | 'room_disband'    // 房间解散通知
+  | 'song_change';    // 切歌同步（有权限用户切歌后广播给所有 listen 用户）
 
 // 房主播放同步数据
 export interface MasterSyncData {
@@ -295,6 +296,21 @@ export interface MasterSyncData {
 // 房主模式变更数据
 export interface MasterModeData {
   mode: 'chat' | 'listen';
+}
+
+// 切歌同步数据（有权限用户切歌后广播给所有 listen 用户）
+export interface SongChangeData {
+  songId: string;
+  songName: string;
+  artist: string;
+  cover: string;
+  duration: number;      // 毫秒
+  hlsUrl: string;
+  position: number;      // 秒（从哪个位置开始播放）
+  isPlaying: boolean;
+  changedBy: number;     // 切歌用户ID
+  changedByName: string; // 切歌用户名
+  timestamp: number;     // 时间戳
 }
 
 // WebSocket 消息

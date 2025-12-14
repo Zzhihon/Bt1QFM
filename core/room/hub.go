@@ -55,6 +55,9 @@ const (
 
 	// 房间管理消息
 	MsgTypeRoomDisband MessageType = "room_disband" // 房间解散
+
+	// 切歌同步消息（任意有权限用户切歌后广播给所有 listen 用户）
+	MsgTypeSongChange MessageType = "song_change" // 切换歌曲
 )
 
 // WSMessage WebSocket 消息结构
@@ -129,6 +132,21 @@ type SongData struct {
 type ControlData struct {
 	TargetUserID int64 `json:"targetUserId"`
 	CanControl   bool  `json:"canControl,omitempty"`
+}
+
+// SongChangeData 切歌同步数据（广播给所有 listen 用户）
+type SongChangeData struct {
+	SongID        string  `json:"songId"`        // 歌曲ID
+	SongName      string  `json:"songName"`      // 歌曲名称
+	Artist        string  `json:"artist"`        // 艺术家
+	Cover         string  `json:"cover"`         // 封面
+	Duration      int     `json:"duration"`      // 时长（毫秒）
+	HlsURL        string  `json:"hlsUrl"`        // HLS 播放地址
+	Position      float64 `json:"position"`      // 从哪个位置开始播放（秒）
+	IsPlaying     bool    `json:"isPlaying"`     // 是否播放
+	ChangedBy     int64   `json:"changedBy"`     // 切歌用户ID
+	ChangedByName string  `json:"changedByName"` // 切歌用户名
+	Timestamp     int64   `json:"timestamp"`     // 时间戳
 }
 
 // Client WebSocket 客户端

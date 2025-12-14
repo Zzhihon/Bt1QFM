@@ -193,6 +193,7 @@ const RoomMembers: React.FC = () => {
                             )}
                           </button>
 
+{/* 转让房主按钮已隐藏，功能保留供后续使用
                           <button
                             onClick={() => handleTransferOwner(member.userId, member.username)}
                             className="w-full px-4 py-2 text-left text-sm text-cyber-text hover:bg-cyber-secondary/10 flex items-center space-x-2 transition-colors"
@@ -200,6 +201,7 @@ const RoomMembers: React.FC = () => {
                             <ArrowRightLeft className="w-4 h-4 text-yellow-400" />
                             <span>转让房主</span>
                           </button>
+                          */}
                         </div>
                       </>
                     )}

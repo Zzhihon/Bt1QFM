@@ -9,7 +9,7 @@ import RoomPlaylist from './RoomPlaylist';
 import RoomCreate from './RoomCreate';
 import RoomJoin from './RoomJoin';
 import MyRoomList from './MyRoomList';
-import type { MasterSyncData, MasterModeData, Track } from '../../types';
+import type { MasterSyncData, MasterModeData, Track, SongChangeData } from '../../types';
 import {
   Users,
   Music2,
@@ -42,6 +42,7 @@ const RoomView: React.FC = () => {
     isOwner,
     reportMasterPlayback,
     requestMasterPlayback,
+    sendSongChange,
   } = useRoom();
 
   const [leftTab, setLeftTab] = useState<'playlist' | 'members'>('playlist');
@@ -373,10 +374,13 @@ const RoomView: React.FC = () => {
     };
   }, [isOwner, myMember?.mode, audioRef, playerState.currentTrack, playlist, playTrack]);
 
+  // 检查当前用户是否有切歌权限（房主或有 canControl 权限）
+  const canChangeSong = isOwner || myMember?.canControl;
+
   // 监听播放器上一首/下一首事件（房间模式）
   useEffect(() => {
-    // 只有房主才能切换歌曲
-    if (!isOwner || myMember?.mode !== 'listen') return;
+    // 只有有权限的用户才能切换歌曲（房主或有 canControl 权限的用户）
+    if (!canChangeSong || myMember?.mode !== 'listen') return;
 
     // 获取当前播放歌曲在歌单中的索引
     const getCurrentIndex = () => {
@@ -387,23 +391,38 @@ const RoomView: React.FC = () => {
       });
     };
 
-    // 播放指定索引的歌曲
+    // 播放指定索引的歌曲并广播给其他用户
     const playAtIndex = (index: number) => {
       if (index < 0 || index >= playlist.length) return;
       const item = playlist[index];
+      const songId = item.songId.replace('netease_', '');
+      const hlsUrl = `/streams/netease/${songId}/playlist.m3u8`;
+
       const track: Track = {
-        id: item.songId.replace('netease_', ''),
-        neteaseId: Number(item.songId.replace('netease_', '')) || undefined,
+        id: songId,
+        neteaseId: Number(songId) || undefined,
         title: item.name,
         artist: item.artist,
         album: '',
         coverArtPath: item.cover || '',
-        hlsPlaylistUrl: `/streams/netease/${item.songId.replace('netease_', '')}/playlist.m3u8`,
+        hlsPlaylistUrl: hlsUrl,
         position: 0,
         source: 'netease',
       };
-      console.log('[房主] 切换歌曲:', track.title);
+      console.log('[有权限用户] 切换歌曲:', track.title);
       playTrack(track);
+
+      // 发送切歌同步消息给其他用户
+      sendSongChange({
+        songId: songId,
+        songName: item.name,
+        artist: item.artist,
+        cover: item.cover || '',
+        duration: item.duration || 0,
+        hlsUrl: hlsUrl,
+        position: 0,
+        isPlaying: true,
+      });
     };
 
     // 处理下一首
@@ -437,7 +456,7 @@ const RoomView: React.FC = () => {
       window.removeEventListener('room-player-next', handleNext);
       window.removeEventListener('room-player-previous', handlePrevious);
     };
-  }, [isOwner, myMember?.mode, playerState.currentTrack, playlist, playTrack]);
+  }, [canChangeSong, myMember?.mode, playerState.currentTrack, playlist, playTrack, sendSongChange]);
 
   // 处理房主同步消息的回调
   const handleMasterSync = useCallback((event: CustomEvent<MasterSyncData>) => {
@@ -503,6 +522,57 @@ const RoomView: React.FC = () => {
     setTimeout(() => setIsSyncing(false), 500);
   }, [isOwner, myMember?.mode, playerState.currentTrack, playerState.currentTime, audioRef, playTrack, seekTo, pauseTrack, resumeTrack]);
 
+  // 处理切歌同步消息的回调（来自任何有权限用户的切歌）
+  const handleSongChange = useCallback((event: CustomEvent<SongChangeData>) => {
+    // 只有听歌模式的用户才需要处理切歌同步
+    // 切歌的人自己不需要再同步（已经在本地播放了）
+    if (myMember?.mode !== 'listen') return;
+
+    const songData = event.detail;
+    const currentSongId = String(playerState.currentTrack?.id || playerState.currentTrack?.neteaseId || '');
+
+    // 检查是否是自己发起的切歌（避免重复处理）
+    // 注意：切歌者的本地已经开始播放了，不需要再同步
+    if (songData.songId === currentSongId) {
+      console.log('[切歌同步] 同一首歌，跳过');
+      return;
+    }
+
+    console.log('[切歌同步] 收到切歌消息:', songData.songName, '来自:', songData.changedByName);
+    setIsSyncing(true);
+
+    // 切换到新歌曲
+    const trackData: Track = {
+      id: songData.songId,
+      neteaseId: Number(songData.songId) || undefined,
+      title: songData.songName,
+      artist: songData.artist,
+      album: '',
+      coverArtPath: songData.cover || '',
+      hlsPlaylistUrl: songData.hlsUrl || `/streams/netease/${songData.songId}/playlist.m3u8`,
+      position: 0,
+      source: 'netease',
+    };
+    playTrack(trackData);
+
+    // 等待加载完成后设置播放位置和状态
+    setTimeout(() => {
+      seekTo(songData.position);
+      if (songData.isPlaying) {
+        resumeTrack();
+      } else {
+        pauseTrack();
+      }
+      setIsSyncing(false);
+    }, 500);
+
+    // 更新最后同步记录
+    lastSyncRef.current = {
+      songId: songData.songId,
+      position: songData.position,
+    };
+  }, [myMember?.mode, playerState.currentTrack, playTrack, seekTo, resumeTrack, pauseTrack]);
+
   // 监听房主同步事件
   useEffect(() => {
     window.addEventListener('room-master-sync', handleMasterSync as EventListener);
@@ -510,6 +580,14 @@ const RoomView: React.FC = () => {
       window.removeEventListener('room-master-sync', handleMasterSync as EventListener);
     };
   }, [handleMasterSync]);
+
+  // 监听切歌同步事件（来自任何有权限用户的切歌）
+  useEffect(() => {
+    window.addEventListener('room-song-change', handleSongChange as EventListener);
+    return () => {
+      window.removeEventListener('room-song-change', handleSongChange as EventListener);
+    };
+  }, [handleSongChange]);
 
   // 如果不在房间中，显示创建/加入界面
   if (!currentRoom) {

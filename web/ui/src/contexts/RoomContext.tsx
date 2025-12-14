@@ -10,6 +10,7 @@ import {
   RoomWSMessage,
   RoomWSMessageType,
   MasterSyncData,
+  SongChangeData,
 } from '../types';
 
 interface RoomContextType {
@@ -56,6 +57,8 @@ interface RoomContextType {
   reportMasterPlayback: (data: Omit<MasterSyncData, 'serverTime' | 'masterId' | 'masterName'>) => void;
   // 请求房主播放状态
   requestMasterPlayback: () => void;
+  // 切歌同步（有权限用户切歌后发送）
+  sendSongChange: (data: Omit<SongChangeData, 'changedBy' | 'changedByName' | 'timestamp'>) => void;
 }
 
 const RoomContext = createContext<RoomContextType | undefined>(undefined);
@@ -284,6 +287,15 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (message.data) {
             const modeData = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
             window.dispatchEvent(new CustomEvent('room-master-mode-change', { detail: modeData }));
+          }
+          break;
+
+        case 'song_change':
+          // 有权限用户切歌后的同步消息 - 通过自定义事件通知所有 listen 用户
+          if (message.data) {
+            const songChangeData = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
+            console.log('[RoomContext] 收到切歌同步消息:', songChangeData);
+            window.dispatchEvent(new CustomEvent('room-song-change', { detail: songChangeData }));
           }
           break;
 
@@ -659,6 +671,11 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     sendWSMessage('master_request');
   }, [sendWSMessage]);
 
+  // 切歌同步（有权限用户切歌后发送）
+  const sendSongChange = useCallback((data: Omit<SongChangeData, 'changedBy' | 'changedByName' | 'timestamp'>) => {
+    sendWSMessage('song_change', data);
+  }, [sendWSMessage]);
+
   // 计算是否是房主
   const isOwner = currentRoom?.ownerId === currentUser?.id;
 
@@ -724,6 +741,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     grantControl,
     reportMasterPlayback,
     requestMasterPlayback,
+    sendSongChange,
   };
 
   return (

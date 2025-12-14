@@ -976,6 +976,10 @@ func (m *RoomManager) HandleMessage(ctx context.Context, client *Client, msg *WS
 	case MsgTypeMasterRequest:
 		// 用户请求房主播放状态，转发给房主
 		m.handleMasterRequest(ctx, client)
+
+	case MsgTypeSongChange:
+		// 有权限用户切歌，广播给所有 listen 模式用户
+		m.handleSongChange(ctx, client, data)
 	}
 }
 
@@ -1098,4 +1102,101 @@ func (m *RoomManager) handleMasterRequest(ctx context.Context, client *Client) {
 		logger.String("roomId", client.RoomID),
 		logger.Int64("requesterId", client.UserID),
 		logger.Int64("ownerId", room.OwnerID))
+}
+
+// handleSongChange 处理有权限用户的切歌操作，广播给所有 listen 模式用户
+func (m *RoomManager) handleSongChange(ctx context.Context, client *Client, data json.RawMessage) {
+	// 验证用户权限：房主或有 CanControl 权限的用户
+	member, err := m.cache.GetMemberOnline(ctx, client.RoomID, client.UserID)
+	if err != nil || member == nil {
+		logger.Warn("切歌失败：用户不在房间中",
+			logger.String("roomId", client.RoomID),
+			logger.Int64("userId", client.UserID))
+		return
+	}
+
+	// 获取房间信息判断是否是房主
+	room, err := m.GetRoom(ctx, client.RoomID)
+	if err != nil || room == nil {
+		logger.Warn("切歌失败：房间不存在",
+			logger.String("roomId", client.RoomID))
+		return
+	}
+
+	isOwner := room.OwnerID == client.UserID
+	if !isOwner && !member.CanControl {
+		logger.Warn("切歌失败：无权限",
+			logger.String("roomId", client.RoomID),
+			logger.Int64("userId", client.UserID),
+			logger.Bool("isOwner", isOwner),
+			logger.Bool("canControl", member.CanControl))
+		return
+	}
+
+	// 解析切歌数据
+	var songData SongChangeData
+	if err := json.Unmarshal(data, &songData); err != nil {
+		logger.Warn("解析切歌数据失败",
+			logger.ErrorField(err),
+			logger.String("data", string(data)))
+		return
+	}
+
+	// 补充切歌用户信息和时间戳
+	songData.ChangedBy = client.UserID
+	songData.ChangedByName = client.Username
+	songData.Timestamp = time.Now().UnixMilli()
+
+	// 先写入缓存（先写后删策略）
+	playbackState := &model.RoomPlaybackState{
+		CurrentIndex: 0,
+		CurrentSong: map[string]interface{}{
+			"songId":   songData.SongID,
+			"name":     songData.SongName,
+			"artist":   songData.Artist,
+			"cover":    songData.Cover,
+			"duration": songData.Duration,
+			"hlsUrl":   songData.HlsURL,
+		},
+		Position:  songData.Position,
+		IsPlaying: songData.IsPlaying,
+		UpdatedAt: songData.Timestamp,
+		UpdatedBy: client.UserID,
+	}
+
+	if err := m.cache.SetPlaybackState(ctx, client.RoomID, playbackState); err != nil {
+		logger.Warn("保存切歌状态到缓存失败",
+			logger.ErrorField(err),
+			logger.String("roomId", client.RoomID))
+	}
+
+	// 广播切歌消息给所有 listen 模式用户
+	m.broadcastSongChange(client.RoomID, &songData)
+
+	logger.Info("用户切歌成功",
+		logger.String("roomId", client.RoomID),
+		logger.Int64("userId", client.UserID),
+		logger.String("songId", songData.SongID),
+		logger.String("songName", songData.SongName))
+}
+
+// broadcastSongChange 广播切歌消息给所有 listen 模式用户
+func (m *RoomManager) broadcastSongChange(roomID string, songData *SongChangeData) {
+	data, err := json.Marshal(songData)
+	if err != nil {
+		logger.Warn("序列化切歌数据失败", logger.ErrorField(err))
+		return
+	}
+
+	msg := &WSMessage{
+		Type:      MsgTypeSongChange,
+		RoomID:    roomID,
+		UserID:    songData.ChangedBy,
+		Username:  songData.ChangedByName,
+		Data:      data,
+		Timestamp: songData.Timestamp,
+	}
+
+	// 广播给所有 listen 模式用户（包括切歌用户自己，因为要确认同步）
+	m.hub.BroadcastWSMessage(roomID, msg, 0, model.RoomModeListen)
 }
