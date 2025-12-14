@@ -463,7 +463,9 @@ func (p *MP3Processor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hlsBa
 	}
 
 	// 构建 FFmpeg 参数
+	// 使用多线程加速转码：-threads 0 表示自动检测 CPU 核心数
 	args := []string{
+		"-threads", "0", // 自动使用所有可用 CPU 核心
 		"-i", inputFile,
 		"-c:a", "aac", // 使用 AAC 编码
 		"-b:a", "192k", // 设置比特率为 192k

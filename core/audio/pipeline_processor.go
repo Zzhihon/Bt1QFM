@@ -434,7 +434,9 @@ func (p *PipelineProcessor) ProcessToHLSWithProgress(
 	}
 
 	// 构建 FFmpeg 命令（带进度输出）
+	// 使用多线程加速转码：-threads 0 表示自动检测 CPU 核心数
 	args := []string{
+		"-threads", "0", // 自动使用所有可用 CPU 核心
 		"-progress", "pipe:1", // 进度输出到 stdout
 		"-i", inputPath,
 		"-c:a", "aac",

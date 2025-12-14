@@ -90,7 +90,9 @@ func (p *FFmpegProcessor) ProcessToHLS(inputFile, outputM3U8, segmentPattern, hl
 	}
 
 	// 构建FFmpeg参数
+	// 使用多线程加速转码：-threads 0 表示自动检测 CPU 核心数
 	args := []string{
+		"-threads", "0", // 自动使用所有可用 CPU 核心
 		"-i", inputFile,
 		"-c:a", "aac",
 	}
