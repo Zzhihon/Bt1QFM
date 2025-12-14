@@ -30,12 +30,13 @@ import (
 
 // APIHandler 处理所有API请求
 type APIHandler struct {
-	trackRepo      repository.TrackRepository
-	userRepo       repository.UserRepository
-	albumRepo      repository.AlbumRepository
-	audioProcessor *audio.FFmpegProcessor
-	mp3Processor   *audio.MP3Processor
-	cfg            *config.Config
+	trackRepo       repository.TrackRepository
+	userRepo        repository.UserRepository
+	albumRepo       repository.AlbumRepository
+	audioProcessor  *audio.FFmpegProcessor
+	mp3Processor    *audio.MP3Processor
+	streamProcessor *audio.StreamProcessor
+	cfg             *config.Config
 }
 
 // NewAPIHandler 创建新的API处理器
@@ -44,15 +45,17 @@ func NewAPIHandler(
 	userRepo repository.UserRepository,
 	albumRepo repository.AlbumRepository,
 	audioProcessor *audio.FFmpegProcessor,
+	streamProcessor *audio.StreamProcessor,
 	cfg *config.Config,
 ) *APIHandler {
 	return &APIHandler{
-		trackRepo:      trackRepo,
-		userRepo:       userRepo,
-		albumRepo:      albumRepo,
-		audioProcessor: audioProcessor,
-		mp3Processor:   audio.NewMP3Processor(audioProcessor.FFmpegPath()),
-		cfg:            cfg,
+		trackRepo:       trackRepo,
+		userRepo:        userRepo,
+		albumRepo:       albumRepo,
+		audioProcessor:  audioProcessor,
+		mp3Processor:    audio.NewMP3Processor(audioProcessor.FFmpegPath()),
+		streamProcessor: streamProcessor,
+		cfg:             cfg,
 	}
 }
 
@@ -482,8 +485,7 @@ func (h *APIHandler) processAudioFileAsync(fileBuffer *bytes.Buffer, trackHeader
 	}
 
 
-	// 使用新的流处理器处理音频
-	streamProcessor := audio.NewStreamProcessor(h.mp3Processor, h.cfg)
+	// 使用共享的流处理器处理音频（避免每次创建新实例）
 	streamID := strconv.FormatInt(trackID, 10)
 
 	// 重置文件指针以供流处理使用
@@ -492,7 +494,7 @@ func (h *APIHandler) processAudioFileAsync(fileBuffer *bytes.Buffer, trackHeader
 	}
 
 	// 启动流处理
-	if err := streamProcessor.StreamProcess(context.Background(), streamID, tempFilePath, false); err != nil {
+	if err := h.streamProcessor.StreamProcess(context.Background(), streamID, tempFilePath, false); err != nil {
 		logger.Error("流处理失败",
 			logger.Int64("trackId", trackID),
 			logger.ErrorField(err))

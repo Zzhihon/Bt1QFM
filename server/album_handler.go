@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"Bt1QFM/core/audio"
 	"Bt1QFM/logger"
 	"context"
 
@@ -716,12 +715,11 @@ func (h *APIHandler) processTrackStreamAsync(trackID int64, fileBuffer *bytes.Bu
 		return fmt.Errorf("重置文件指针失败: %v", err)
 	}
 
-	// 使用流处理器处理音频
-	streamProcessor := audio.NewStreamProcessor(h.mp3Processor, h.cfg)
+	// 使用共享的流处理器处理音频（避免每次创建新实例）
 	streamID := strconv.FormatInt(trackID, 10) // 只使用trackID数字，去掉"track_"前缀
 
 	// 启动流处理
-	if err := streamProcessor.StreamProcess(context.Background(), streamID, tempFilePath, false); err != nil {
+	if err := h.streamProcessor.StreamProcess(context.Background(), streamID, tempFilePath, false); err != nil {
 		logger.Error("流处理失败",
 			logger.Int64("trackId", trackID),
 			logger.ErrorField(err))

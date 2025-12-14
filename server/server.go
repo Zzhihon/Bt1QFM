@@ -94,6 +94,7 @@ func Start() {
 
 	audioProcessor := audio.NewFFmpegProcessor(cfg.FFmpegPath)
 	mp3Processor := audio.NewMP3Processor(cfg.FFmpegPath)
+	streamProcessor := audio.NewStreamProcessor(mp3Processor, cfg) // 创建单例 StreamProcessor
 	trackRepo := repository.NewMySQLTrackRepository()
 	userRepo := repository.NewMySQLUserRepository(db.DB)
 	albumRepo := repository.NewMySQLAlbumRepository(db.DB)
@@ -101,7 +102,7 @@ func Start() {
 	chatRepo := repository.NewMySQLChatRepository(db.DB)
 
 	// 初始化处理器
-	apiHandler := NewAPIHandler(trackRepo, userRepo, albumRepo, audioProcessor, cfg)
+	apiHandler := NewAPIHandler(trackRepo, userRepo, albumRepo, audioProcessor, streamProcessor, cfg)
 	neteaseHandler := netease.NewNeteaseHandler(cfg.NeteaseAPIURL, cfg)
 	userHandler := NewUserHandler(userRepo)
 	announcementHandler := NewAnnouncementHandler(announcementRepo, userRepo)
@@ -264,8 +265,7 @@ func Start() {
 			}
 		}
 
-		// 使用流处理器获取文件
-		streamProcessor := audio.NewStreamProcessor(mp3Processor, cfg)
+		// 使用单例流处理器获取文件（避免每次请求都创建新实例）
 		data, contentType, err := streamProcessor.StreamGet(streamID, fileName, isNetease)
 		if err != nil {
 
