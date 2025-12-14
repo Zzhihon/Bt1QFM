@@ -228,10 +228,10 @@ func (s *ProgressiveHLSState) IsProcessing() bool {
 }
 
 // MinimumSegmentsForPlayback 开始播放所需的最小分片数
-// 动态调整：如果转码已完成用 1，否则用 3 作为安全缓冲
+// 动态调整：如果转码已完成用 1，否则用 2 作为安全缓冲
 const (
 	MinSegmentsWhenComplete   = 1 // 转码完成时，1 个分片即可开始
-	MinSegmentsWhenProcessing = 3 // 转码中，需要 3 个分片（12 秒缓冲）
+	MinSegmentsWhenProcessing = 2 // 转码中，需要 3 个分片（12 秒缓冲）
 )
 
 // GetMinimumSegmentsForPlayback 动态获取开始播放所需的最小分片数

@@ -130,6 +130,17 @@ func Start() {
 	roomHandler := NewRoomHandler(roomManager)
 	logger.Info("房间系统初始化完成")
 
+	// 🔥 初始化预热服务
+	logger.Info("初始化预热服务...")
+	// 创建网易云歌曲 URL 获取函数
+	neteaseClient := netease.NewClient()
+	getSongURLFunc := func(songID string) (string, error) {
+		return neteaseClient.GetSongURL(songID)
+	}
+	preheatService := audio.NewPreheatService(streamProcessor, mp3Processor, roomCache, cfg, getSongURLFunc)
+	preheatService.Start()
+	logger.Info("预热服务初始化完成")
+
 	// 使用 gorilla/mux 创建路由器
 	router := mux.NewRouter()
 
@@ -269,6 +280,10 @@ func Start() {
 	// 等待中断信号
 	<-stop
 	logger.Info("正在关闭服务器...")
+
+	// 停止预热服务
+	preheatService.Stop()
+	logger.Info("预热服务已停止")
 
 	// 停止房间 Hub
 	roomHub.Stop()

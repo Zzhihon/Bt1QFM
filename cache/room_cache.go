@@ -549,6 +549,71 @@ func (c *RoomCache) ClearRoomPlaylist(ctx context.Context, roomID string) error 
 	return c.client.Del(ctx, key).Err()
 }
 
+// GetNextSong 获取房间歌单中的下一首歌
+// 返回下一首歌和是否存在
+func (c *RoomCache) GetNextSong(ctx context.Context, roomID string) (*PlaylistItem, bool, error) {
+	if c.client == nil {
+		return nil, false, fmt.Errorf("Redis client not initialized")
+	}
+
+	// 获取当前播放状态
+	playbackState, err := c.GetPlaybackState(ctx, roomID)
+	if err != nil {
+		return nil, false, err
+	}
+	if playbackState == nil {
+		return nil, false, nil
+	}
+
+	// 获取歌单
+	playlist, err := c.GetRoomPlaylist(ctx, roomID)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// 计算下一首的索引
+	nextIndex := playbackState.CurrentIndex + 1
+	if nextIndex >= len(playlist) {
+		return nil, false, nil // 没有下一首
+	}
+
+	return &playlist[nextIndex], true, nil
+}
+
+// GetCurrentSongProgress 获取当前歌曲播放进度
+// 返回：当前位置（秒）、总时长（秒）、播放进度（0-1）、是否正在播放
+func (c *RoomCache) GetCurrentSongProgress(ctx context.Context, roomID string) (position float64, duration float64, progress float64, isPlaying bool, err error) {
+	if c.client == nil {
+		err = fmt.Errorf("Redis client not initialized")
+		return
+	}
+
+	// 获取播放状态
+	playbackState, err := c.GetPlaybackState(ctx, roomID)
+	if err != nil || playbackState == nil {
+		return
+	}
+
+	isPlaying = playbackState.IsPlaying
+	position = playbackState.Position
+
+	// 获取歌单中当前歌曲的时长
+	playlist, err := c.GetRoomPlaylist(ctx, roomID)
+	if err != nil {
+		return
+	}
+
+	currentIndex := playbackState.CurrentIndex
+	if currentIndex >= 0 && currentIndex < len(playlist) {
+		duration = float64(playlist[currentIndex].Duration)
+		if duration > 0 {
+			progress = position / duration
+		}
+	}
+
+	return
+}
+
 // ========== 清理 ==========
 
 // ClearRoom 清理房间所有缓存

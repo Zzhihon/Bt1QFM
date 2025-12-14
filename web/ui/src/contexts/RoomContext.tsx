@@ -778,15 +778,40 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!currentRoom) return;
 
     const isListenMode = myMember?.mode === 'listen';
+    const canControl = myMember?.canControl || false;
     const eventData = {
       playlist,
       isOwner,
       isListenMode,
+      canControl,
     };
 
-    console.log('[RoomContext] 派发房间歌单更新事件:', playlist.length, '首歌, 房主:', isOwner, '听歌模式:', isListenMode);
+    console.log('[RoomContext] 派发房间歌单更新事件:', playlist.length, '首歌, 房主:', isOwner, '听歌模式:', isListenMode, '有控制权:', canControl);
     window.dispatchEvent(new CustomEvent('room-playlist-update', { detail: eventData }));
-  }, [currentRoom, playlist, isOwner, myMember?.mode]);
+  }, [currentRoom, playlist, isOwner, myMember?.mode, myMember?.canControl]);
+
+  // 监听 PlayerContext 派发的切歌事件，发送 WebSocket 消息给其他用户同步
+  useEffect(() => {
+    const handlePlayerSongChange = (event: CustomEvent<{
+      songId: string;
+      songName: string;
+      artist: string;
+      cover: string;
+      duration: number;
+      hlsUrl: string;
+      position: number;
+      isPlaying: boolean;
+    }>) => {
+      console.log('[RoomContext] 收到 player-song-change 事件:', event.detail);
+      // 发送 WebSocket 切歌同步消息
+      sendSongChange(event.detail);
+    };
+
+    window.addEventListener('player-song-change', handlePlayerSongChange as EventListener);
+    return () => {
+      window.removeEventListener('player-song-change', handlePlayerSongChange as EventListener);
+    };
+  }, [sendSongChange]);
 
   // 组件卸载时清理
   useEffect(() => {

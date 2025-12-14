@@ -305,3 +305,191 @@ func reorderPlaylist(ctx context.Context, userID int64) error {
 
     return nil
 }
+// ========== 用户播放状态管理 ==========
+
+const (
+    userPlaybackKeyPrefix = "user:playback:"
+    userPlaybackTTL       = 24 * time.Hour
+)
+
+// UserPlaybackState 用户个人播放状态
+type UserPlaybackState struct {
+    CurrentIndex int     `json:"currentIndex"` // 当前播放索引
+    Position     float64 `json:"position"`     // 当前播放位置（秒）
+    IsPlaying    bool    `json:"isPlaying"`    // 是否正在播放
+    UpdatedAt    int64   `json:"updatedAt"`    // 更新时间戳
+}
+
+// GetUserPlaybackKey 获取用户播放状态 Redis key
+func GetUserPlaybackKey(userID int64) string {
+    return fmt.Sprintf("%s%d", userPlaybackKeyPrefix, userID)
+}
+
+// SetUserPlaybackState 设置用户播放状态
+func SetUserPlaybackState(ctx context.Context, userID int64, state *UserPlaybackState) error {
+    if RedisClient == nil {
+        return fmt.Errorf("Redis client not initialized")
+    }
+
+    key := GetUserPlaybackKey(userID)
+    data, err := json.Marshal(state)
+    if err != nil {
+        return fmt.Errorf("failed to marshal user playback state: %w", err)
+    }
+
+    err = RedisClient.Set(ctx, key, data, userPlaybackTTL).Err()
+    if err != nil {
+        return fmt.Errorf("failed to set user playback state: %w", err)
+    }
+
+    return nil
+}
+
+// GetUserPlaybackState 获取用户播放状态
+func GetUserPlaybackState(ctx context.Context, userID int64) (*UserPlaybackState, error) {
+    if RedisClient == nil {
+        return nil, fmt.Errorf("Redis client not initialized")
+    }
+
+    key := GetUserPlaybackKey(userID)
+    data, err := RedisClient.Get(ctx, key).Result()
+    if err != nil {
+        if err == redis.Nil {
+            return nil, nil
+        }
+        return nil, fmt.Errorf("failed to get user playback state: %w", err)
+    }
+
+    var state UserPlaybackState
+    if err := json.Unmarshal([]byte(data), &state); err != nil {
+        return nil, fmt.Errorf("failed to unmarshal user playback state: %w", err)
+    }
+
+    return &state, nil
+}
+
+// UpdateUserPlaybackPosition 更新用户播放位置
+func UpdateUserPlaybackPosition(ctx context.Context, userID int64, position float64) error {
+    state, err := GetUserPlaybackState(ctx, userID)
+    if err != nil {
+        return err
+    }
+    if state == nil {
+        state = &UserPlaybackState{}
+    }
+
+    state.Position = position
+    state.UpdatedAt = time.Now().UnixMilli()
+    return SetUserPlaybackState(ctx, userID, state)
+}
+
+// UpdateUserPlaybackIndex 更新用户当前播放索引
+func UpdateUserPlaybackIndex(ctx context.Context, userID int64, index int, isPlaying bool) error {
+    state, err := GetUserPlaybackState(ctx, userID)
+    if err != nil {
+        return err
+    }
+    if state == nil {
+        state = &UserPlaybackState{}
+    }
+
+    state.CurrentIndex = index
+    state.IsPlaying = isPlaying
+    state.Position = 0 // 切歌时重置位置
+    state.UpdatedAt = time.Now().UnixMilli()
+    return SetUserPlaybackState(ctx, userID, state)
+}
+
+// GetUserNextSong 获取用户播放列表中的下一首歌
+func GetUserNextSong(ctx context.Context, userID int64) (*PlaylistItem, bool, error) {
+    state, err := GetUserPlaybackState(ctx, userID)
+    if err != nil {
+        return nil, false, err
+    }
+    if state == nil {
+        return nil, false, nil
+    }
+
+    playlist, err := GetPlaylist(ctx, userID)
+    if err != nil {
+        return nil, false, err
+    }
+
+    nextIndex := state.CurrentIndex + 1
+    if nextIndex >= len(playlist) {
+        return nil, false, nil // 没有下一首
+    }
+
+    return &playlist[nextIndex], true, nil
+}
+
+// GetUserCurrentSongProgress 获取用户当前歌曲播放进度
+func GetUserCurrentSongProgress(ctx context.Context, userID int64) (position float64, duration float64, progress float64, isPlaying bool, err error) {
+    state, err := GetUserPlaybackState(ctx, userID)
+    if err != nil || state == nil {
+        return
+    }
+
+    isPlaying = state.IsPlaying
+    position = state.Position
+
+    playlist, err := GetPlaylist(ctx, userID)
+    if err != nil {
+        return
+    }
+
+    currentIndex := state.CurrentIndex
+    if currentIndex >= 0 && currentIndex < len(playlist) {
+        duration = float64(playlist[currentIndex].Duration)
+        if duration > 0 {
+            progress = position / duration
+        }
+    }
+
+    return
+}
+
+// GetActiveUserPlaybacks 获取所有活跃用户的播放状态（用于预热服务）
+func GetActiveUserPlaybacks(ctx context.Context) ([]int64, error) {
+    if RedisClient == nil {
+        return nil, fmt.Errorf("Redis client not initialized")
+    }
+
+    var userIDs []int64
+    var cursor uint64 = 0
+
+    for {
+        keys, nextCursor, err := RedisClient.Scan(ctx, cursor, userPlaybackKeyPrefix+"*", 100).Result()
+        if err != nil {
+            break
+        }
+
+        for _, key := range keys {
+            // 从 key 中提取 userID: user:playback:{userID}
+            if len(key) > len(userPlaybackKeyPrefix) {
+                userIDStr := key[len(userPlaybackKeyPrefix):]
+                var userID int64
+                if _, err := fmt.Sscanf(userIDStr, "%d", &userID); err == nil {
+                    userIDs = append(userIDs, userID)
+                }
+            }
+        }
+
+        cursor = nextCursor
+        if cursor == 0 {
+            break
+        }
+    }
+
+    return userIDs, nil
+}
+
+// ClearUserPlaybackState 清除用户播放状态
+func ClearUserPlaybackState(ctx context.Context, userID int64) error {
+    if RedisClient == nil {
+        return fmt.Errorf("Redis client not initialized")
+    }
+
+    key := GetUserPlaybackKey(userID)
+    return RedisClient.Del(ctx, key).Err()
+}

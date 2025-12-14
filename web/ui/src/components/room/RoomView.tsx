@@ -42,7 +42,6 @@ const RoomView: React.FC = () => {
     isOwner,
     reportMasterPlayback,
     requestMasterPlayback,
-    sendSongChange,
   } = useRoom();
 
   const [leftTab, setLeftTab] = useState<'playlist' | 'members'>('playlist');
@@ -175,8 +174,9 @@ const RoomView: React.FC = () => {
   // 同步房间歌单到 PlayerContext（用于房主在其他页面时自动播放下一首）
   useEffect(() => {
     const isListenMode = myMember?.mode === 'listen';
-    setRoomPlaylistForAutoPlay(playlist, isOwner, isListenMode);
-  }, [playlist, isOwner, myMember?.mode, setRoomPlaylistForAutoPlay]);
+    const canControl = myMember?.canControl || false;
+    setRoomPlaylistForAutoPlay(playlist, isOwner, isListenMode, canControl);
+  }, [playlist, isOwner, myMember?.mode, myMember?.canControl, setRoomPlaylistForAutoPlay]);
 
   // 构建同步数据的辅助函数
   const buildSyncData = useCallback(() => {
@@ -414,89 +414,8 @@ const RoomView: React.FC = () => {
     };
   }, [isOwner, myMember?.mode, audioRef, playerState.currentTrack, playlist, playTrack]);
 
-  // 检查当前用户是否有切歌权限（房主或有 canControl 权限）
-  const canChangeSong = isOwner || myMember?.canControl;
-
-  // 监听播放器上一首/下一首事件（房间模式）
-  useEffect(() => {
-    // 只有有权限的用户才能切换歌曲（房主或有 canControl 权限的用户）
-    if (!canChangeSong || myMember?.mode !== 'listen') return;
-
-    // 获取当前播放歌曲在歌单中的索引
-    const getCurrentIndex = () => {
-      const currentTrackId = String(playerState.currentTrack?.id || playerState.currentTrack?.neteaseId || '');
-      return playlist.findIndex(item => {
-        const itemId = item.songId.replace('netease_', '');
-        return itemId === currentTrackId || item.songId === currentTrackId;
-      });
-    };
-
-    // 播放指定索引的歌曲并广播给其他用户
-    const playAtIndex = (index: number) => {
-      if (index < 0 || index >= playlist.length) return;
-      const item = playlist[index];
-      const songId = item.songId.replace('netease_', '');
-      const hlsUrl = `/streams/netease/${songId}/playlist.m3u8`;
-
-      const track: Track = {
-        id: songId,
-        neteaseId: Number(songId) || undefined,
-        title: item.name,
-        artist: item.artist,
-        album: '',
-        coverArtPath: item.cover || '',
-        hlsPlaylistUrl: hlsUrl,
-        position: 0,
-        source: 'netease',
-      };
-      console.log('[有权限用户] 切换歌曲:', track.title);
-      playTrack(track);
-
-      // 发送切歌同步消息给其他用户
-      sendSongChange({
-        songId: songId,
-        songName: item.name,
-        artist: item.artist,
-        cover: item.cover || '',
-        duration: item.duration || 0,
-        hlsUrl: hlsUrl,
-        position: 0,
-        isPlaying: true,
-      });
-    };
-
-    // 处理下一首
-    const handleNext = () => {
-      console.log('[RoomView] 收到 room-player-next 事件');
-      const currentIndex = getCurrentIndex();
-      let nextIndex = currentIndex + 1;
-      // 循环播放
-      if (nextIndex >= playlist.length) {
-        nextIndex = 0;
-      }
-      playAtIndex(nextIndex);
-    };
-
-    // 处理上一首
-    const handlePrevious = () => {
-      console.log('[RoomView] 收到 room-player-previous 事件');
-      const currentIndex = getCurrentIndex();
-      let prevIndex = currentIndex - 1;
-      // 循环播放
-      if (prevIndex < 0) {
-        prevIndex = playlist.length - 1;
-      }
-      playAtIndex(prevIndex);
-    };
-
-    window.addEventListener('room-player-next', handleNext);
-    window.addEventListener('room-player-previous', handlePrevious);
-
-    return () => {
-      window.removeEventListener('room-player-next', handleNext);
-      window.removeEventListener('room-player-previous', handlePrevious);
-    };
-  }, [canChangeSong, myMember?.mode, playerState.currentTrack, playlist, playTrack, sendSongChange]);
+  // 注意：房间模式下的上一首/下一首逻辑已移至 PlayerContext 中直接处理
+  // PlayerContext 会通过 player-song-change 事件通知 RoomContext 发送 WebSocket 消息
 
   // 处理房主同步消息的回调
   const handleMasterSync = useCallback((event: CustomEvent<MasterSyncData>) => {
