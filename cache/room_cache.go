@@ -379,6 +379,7 @@ func (c *RoomCache) SetPlaybackState(ctx context.Context, roomID string, state *
 		"is_playing":    state.IsPlaying,
 		"updated_at":    state.UpdatedAt,
 		"updated_by":    state.UpdatedBy,
+		"state_version": state.StateVersion,
 	})
 	pipe.Expire(ctx, key, roomTTL)
 	_, err := pipe.Exec(ctx)
@@ -422,6 +423,9 @@ func (c *RoomCache) GetPlaybackState(ctx context.Context, roomID string) (*model
 	}
 	if v, ok := result["updated_by"]; ok {
 		state.UpdatedBy, _ = strconv.ParseInt(v, 10, 64)
+	}
+	if v, ok := result["state_version"]; ok {
+		state.StateVersion, _ = strconv.ParseInt(v, 10, 64)
 	}
 
 	return state, nil

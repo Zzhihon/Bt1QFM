@@ -320,7 +320,6 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           // 有权限用户切歌后的同步消息 - 通过自定义事件通知所有 listen 用户
           if (message.data) {
             const songChangeData = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
-            console.log('[RoomContext] 收到切歌同步消息:', songChangeData);
             // 传递当前用户是否是房主的信息，以便 RoomView 中房主可以更新追踪状态
             window.dispatchEvent(new CustomEvent('room-song-change', { detail: songChangeData }));
           }
@@ -733,7 +732,6 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       const data = await response.json();
-      console.log('[RoomContext] addSongToRoom 成功:', data);
       return true;
     } catch (err) {
       console.error('[RoomContext] addSongToRoom 异常:', err);
@@ -786,7 +784,6 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       canControl,
     };
 
-    console.log('[RoomContext] 派发房间歌单更新事件:', playlist.length, '首歌, 房主:', isOwner, '听歌模式:', isListenMode, '有控制权:', canControl);
     window.dispatchEvent(new CustomEvent('room-playlist-update', { detail: eventData }));
   }, [currentRoom, playlist, isOwner, myMember?.mode, myMember?.canControl]);
 
@@ -802,7 +799,6 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       position: number;
       isPlaying: boolean;
     }>) => {
-      console.log('[RoomContext] 收到 player-song-change 事件:', event.detail);
       // 发送 WebSocket 切歌同步消息
       sendSongChange(event.detail);
     };

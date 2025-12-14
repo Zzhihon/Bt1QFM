@@ -329,27 +329,13 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   
   // 播放特定音乐
   const playTrack = useCallback(async (track: Track) => {
-    console.log('🎵 开始播放歌曲:', {
-      id: track.id,
-      neteaseId: track.neteaseId,
-      title: track.title,
-      source: track.source,
-      hlsPlaylistPath: track.hlsPlaylistPath,
-      url: track.url,
-      hasNeteaseId: !!track.neteaseId,
-      hasUrl: !!track.url,
-      hasHlsPath: !!track.hlsPlaylistPath
-    });
-
     if (!audioRef.current) {
-      console.error('❌ Audio element not available');
       return;
     }
 
     try {
       // 清理之前的HLS实例
       if (hlsInstanceRef.current) {
-        console.log('🧹 清理之前的HLS实例');
         hlsInstanceRef.current.destroy();
         hlsInstanceRef.current = null;
       }
@@ -367,41 +353,31 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
       // 确定播放URL
       let playUrl = '';
-      
+
       // 统一获取 track ID，支持不同的 ID 字段
       const trackId = track.id || track.trackId || (track as any).neteaseId;
-      
+
       // 优先使用HLS路径（适用于网易云歌曲）
       if (track.hlsPlaylistPath) {
         playUrl = track.hlsPlaylistPath;
-        console.log('🎵 使用HLS路径播放:', playUrl);
       } else if (track.url) {
         playUrl = track.url;
-        console.log('🎵 使用直接URL播放:', playUrl);
       } else if (track.neteaseId || (track.source === 'netease' && trackId)) {
         // 构建网易云HLS路径
         const songId = track.neteaseId || trackId;
         playUrl = `/streams/netease/${songId}/playlist.m3u8`;
-        console.log('🎵 构建网易云HLS路径:', playUrl);
       } else if (trackId) {
         // 本地上传的歌曲
         playUrl = `/streams/${trackId}/playlist.m3u8`;
-        console.log('🎵 构建本地HLS路径:', playUrl);
       } else {
         throw new Error('无法确定播放URL：缺少有效的track ID');
       }
 
-      console.log('🔗 最终播放URL:', playUrl);
-
       // 检查是否为HLS流
       if (playUrl.includes('.m3u8')) {
-        console.log('🎥 检测到HLS流，准备使用HLS.js');
-        
         if (Hls.isSupported()) {
-          console.log('✅ HLS.js支持检测通过');
-          
           const hls = new Hls({
-            debug: true, // 启用HLS调试
+            debug: false,
             enableWorker: false,
             lowLatencyMode: false,
             backBufferLength: 90,
@@ -413,41 +389,18 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
           hlsInstanceRef.current = hls;
 
-          // HLS事件监听
-          hls.on(Hls.Events.MANIFEST_LOADED, (event, data) => {
-            console.log('📜 HLS Manifest加载成功:', data);
-          });
-
-          hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
-            console.log('📊 HLS Level加载成功:', data);
-          });
-
-          hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
-            console.log('🧩 HLS分片加载成功:', data.frag.url);
-          });
-
+          // HLS 错误监听（仅保留错误处理）
           hls.on(Hls.Events.ERROR, (event, data) => {
-            console.error('❌ HLS错误:', {
-              type: data.type,
-              details: data.details,
-              fatal: data.fatal,
-              reason: data.reason,
-              response: data.response,
-              networkDetails: data.networkDetails
-            });
-
             if (data.fatal) {
+              console.error('❌ HLS致命错误:', data.type, data.details);
               switch (data.type) {
                 case Hls.ErrorTypes.NETWORK_ERROR:
-                  console.log('🔄 网络错误，尝试恢复...');
                   hls.startLoad();
                   break;
                 case Hls.ErrorTypes.MEDIA_ERROR:
-                  console.log('🔄 媒体错误，尝试恢复...');
                   hls.recoverMediaError();
                   break;
                 default:
-                  console.error('💥 致命错误，销毁HLS实例');
                   hls.destroy();
                   hlsInstanceRef.current = null;
                   break;
@@ -455,100 +408,37 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             }
           });
 
-          // 先测试URL是否可访问
-          console.log('🔍 测试HLS URL可访问性:', playUrl);
-          
+          // 测试URL是否可访问
           try {
             const testResponse = await fetch(playUrl, { method: 'HEAD' });
-            console.log('📡 HLS URL测试响应:', {
-              status: testResponse.status,
-              statusText: testResponse.statusText,
-              headers: Object.fromEntries(testResponse.headers.entries())
-            });
-            
+
             if (testResponse.ok) {
-              console.log('✅ HLS URL可访问，开始加载');
               hls.loadSource(playUrl);
               hls.attachMedia(audioRef.current);
             } else {
-              console.error('❌ HLS URL不可访问:', testResponse.status, testResponse.statusText);
               throw new Error(`HLS URL不可访问: ${testResponse.status} ${testResponse.statusText}`);
             }
           } catch (fetchError) {
-            console.error('❌ HLS URL测试失败:', fetchError);
             throw new Error(`无法访问音频流: ${fetchError.message}`);
           }
 
         } else if (audioRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-          console.log('🍎 使用原生HLS支持（Safari）');
           audioRef.current.src = playUrl;
         } else {
-          console.error('❌ 浏览器不支持HLS播放');
           throw new Error('浏览器不支持HLS播放');
         }
       } else {
-        console.log('🎵 直接音频文件，设置src');
         audioRef.current.src = playUrl;
       }
 
-      // 音频事件监听
-      const audio = audioRef.current;
-      
-      const handleLoadStart = () => console.log('📥 开始加载音频');
-      const handleLoadedData = () => console.log('📄 音频数据加载完成');
-      const handleCanPlay = () => console.log('▶️ 音频可以开始播放');
-      const handleCanPlayThrough = () => console.log('⏩ 音频可以流畅播放');
-      const handlePlay = () => console.log('🎵 音频开始播放');
-      const handlePlaying = () => console.log('🎶 音频正在播放');
-      const handlePause = () => console.log('⏸️ 音频暂停');
-      const handleEnded = () => console.log('🔚 音频播放结束');
-      const handleError = (e: Event) => {
-        const error = (e.target as HTMLAudioElement).error;
-        console.error('❌ 音频播放错误:', {
-          code: error?.code,
-          message: error?.message,
-          networkState: audio.networkState,
-          readyState: audio.readyState,
-          src: audio.src,
-          currentSrc: audio.currentSrc
-        });
-      };
-
-      // 添加事件监听器
-      audio.addEventListener('loadstart', handleLoadStart);
-      audio.addEventListener('loadeddata', handleLoadedData);
-      audio.addEventListener('canplay', handleCanPlay);
-      audio.addEventListener('canplaythrough', handleCanPlayThrough);
-      audio.addEventListener('play', handlePlay);
-      audio.addEventListener('playing', handlePlaying);
-      audio.addEventListener('pause', handlePause);
-      audio.addEventListener('ended', handleEnded);
-      audio.addEventListener('error', handleError);
-
-      // 清理函数
-      const cleanup = () => {
-        audio.removeEventListener('loadstart', handleLoadStart);
-        audio.removeEventListener('loadeddata', handleLoadedData);
-        audio.removeEventListener('canplay', handleCanPlay);
-        audio.removeEventListener('canplaythrough', handleCanPlayThrough);
-        audio.removeEventListener('play', handlePlay);
-        audio.removeEventListener('playing', handlePlaying);
-        audio.removeEventListener('pause', handlePause);
-        audio.removeEventListener('ended', handleEnded);
-        audio.removeEventListener('error', handleError);
-      };
-
       // 等待音频可以播放
+      const audio = audioRef.current;
       await new Promise<void>((resolve, reject) => {
         const handleCanPlayResolve = () => {
-          console.log('✅ 音频准备就绪，开始播放');
-          cleanup();
           resolve();
         };
-        
+
         const handleErrorReject = () => {
-          console.error('❌ 音频加载失败');
-          cleanup();
           reject(new Error('音频加载失败'));
         };
 
@@ -557,13 +447,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
         // 设置超时
         setTimeout(() => {
-          cleanup();
           reject(new Error('音频加载超时'));
         }, 10000);
       });
 
       // 开始播放
-      console.log('🎵 尝试播放音频...');
       await audioRef.current.play();
       
       setPlayerState(prevState => ({
@@ -571,20 +459,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         isPlaying: true
       }));
 
-      console.log('✅ 音频播放成功');
-
     } catch (error: any) {
-      console.error('❌ 播放音频失败:', {
-        error: error.message,
-        stack: error.stack,
-        audioState: {
-          networkState: audioRef.current?.networkState,
-          readyState: audioRef.current?.readyState,
-          src: audioRef.current?.src,
-          currentSrc: audioRef.current?.currentSrc
-        }
-      });
-
       setPlayerState(prevState => ({
         ...prevState,
         isPlaying: false
@@ -623,17 +498,8 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       const roomPlaylist = roomPlaylistRef.current;
       const hasPermission = isRoomOwnerRef.current || canControlRef.current;
 
-      console.log('[Player] 房间模式 - 直接处理下一首, 有权限:', hasPermission);
-
-      if (!hasPermission) {
-        console.log('[Player] 没有切歌权限，忽略');
-        return;
-      }
-
-      if (roomPlaylist.length === 0) {
-        console.log('[Player] 房间歌单为空');
-        return;
-      }
+      if (!hasPermission) return;
+      if (roomPlaylist.length === 0) return;
 
       // 获取当前播放歌曲在房间歌单中的索引
       const currentTrackId = String(playerState.currentTrack?.id || playerState.currentTrack?.neteaseId || '');
@@ -664,7 +530,6 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         position: 0,
         source: 'netease',
       };
-      console.log('[Player] 房间模式 - 播放下一首:', nextTrack.title);
       playTrack(nextTrack);
 
       // 派发切歌同步事件，让 RoomContext 发送 WebSocket 消息
@@ -690,7 +555,6 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (playerState.playMode === PlayMode.SHUFFLE) {
       const randomTrack = getRandomTrack();
       if (randomTrack) {
-        console.log('Playing random track:', randomTrack);
         playTrack(randomTrack);
       }
       return;
@@ -704,7 +568,6 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       // 如果是顺序播放模式，且当前是最后一首
       if (playerState.playMode === PlayMode.SEQUENTIAL && currentPosition === playerState.playlist.length - 1) {
         // 顺序播放模式下，播放完最后一首后停止播放
-        console.log('Reached end of playlist in sequential mode, stopping playback');
         if (audioRef.current) {
           audioRef.current.pause();
           setPlayerState(prev => ({ ...prev, isPlaying: false }));
@@ -715,14 +578,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
     }
 
-    console.log('Current position:', currentPosition, 'Next position:', nextPosition);
-
     const nextTrack = playerState.playlist.find(track => track.position === nextPosition);
     if (nextTrack) {
-      console.log('Playing next track:', nextTrack);
       playTrack(nextTrack);
-    } else {
-      console.warn('No track found at position:', nextPosition);
     }
   };
 
@@ -733,17 +591,8 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       const roomPlaylist = roomPlaylistRef.current;
       const hasPermission = isRoomOwnerRef.current || canControlRef.current;
 
-      console.log('[Player] 房间模式 - 直接处理上一首, 有权限:', hasPermission);
-
-      if (!hasPermission) {
-        console.log('[Player] 没有切歌权限，忽略');
-        return;
-      }
-
-      if (roomPlaylist.length === 0) {
-        console.log('[Player] 房间歌单为空');
-        return;
-      }
+      if (!hasPermission) return;
+      if (roomPlaylist.length === 0) return;
 
       // 获取当前播放歌曲在房间歌单中的索引
       const currentTrackId = String(playerState.currentTrack?.id || playerState.currentTrack?.neteaseId || '');
@@ -774,7 +623,6 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         position: 0,
         source: 'netease',
       };
-      console.log('[Player] 房间模式 - 播放上一首:', prevTrack.title);
       playTrack(prevTrack);
 
       // 派发切歌同步事件，让 RoomContext 发送 WebSocket 消息
@@ -800,7 +648,6 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (playerState.playMode === PlayMode.SHUFFLE) {
       const randomTrack = getRandomTrack();
       if (randomTrack) {
-        console.log('Playing random track:', randomTrack);
         playTrack(randomTrack);
       }
       return;
@@ -814,14 +661,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       prevPosition = (currentPosition - 1 + playerState.playlist.length) % playerState.playlist.length;
     }
 
-    console.log('Current position:', currentPosition, 'Previous position:', prevPosition);
-
     const prevTrack = playerState.playlist.find(track => track.position === prevPosition);
     if (prevTrack) {
-      console.log('Playing previous track:', prevTrack);
       playTrack(prevTrack);
-    } else {
-      console.warn('No track found at position:', prevPosition);
     }
   };
   
@@ -1512,11 +1354,8 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   // 进入房间模式 - 保存个人播放列表并切换到房间播放列表
   const enterRoomMode = useCallback((roomPlaylist?: Track[]) => {
     if (isInRoomMode) {
-      console.log('已在房间模式中，跳过切换');
       return;
     }
-
-    console.log('进入房间模式，保存个人播放列表');
 
     // 保存当前个人播放状态
     savedPersonalPlaylistRef.current = [...playerState.playlist];
@@ -1537,6 +1376,10 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       currentTime: 0,
     }));
 
+    // 立即设置听歌模式标记，不需要等待事件更新
+    // 这样在调用 enterRoomMode 后立即点击下一首也能正确工作
+    isRoomListenModeRef.current = true;
+
     setIsInRoomMode(true);
     addToast({
       type: 'info',
@@ -1548,11 +1391,8 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   // 退出房间模式 - 恢复个人播放列表
   const exitRoomMode = useCallback(() => {
     if (!isInRoomMode) {
-      console.log('不在房间模式中，跳过恢复');
       return;
     }
-
-    console.log('退出房间模式，恢复个人播放列表');
 
     // 暂停当前播放
     if (audioRef.current) {
@@ -1591,7 +1431,6 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   // 设置房间歌单（用于房主自动播放下一首）
   const setRoomPlaylistForAutoPlay = useCallback((playlist: RoomPlaylistItem[], isOwner: boolean, isListenMode: boolean, canControl?: boolean) => {
-    console.log('[PlayerContext] 更新房间歌单:', playlist.length, '首歌, 房主:', isOwner, '听歌模式:', isListenMode, '有控制权:', canControl);
     roomPlaylistRef.current = playlist;
     isRoomOwnerRef.current = isOwner;
     isRoomListenModeRef.current = isListenMode;
@@ -1602,7 +1441,6 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   useEffect(() => {
     const handleRoomPlaylistUpdate = (event: CustomEvent<{ playlist: RoomPlaylistItem[]; isOwner: boolean; isListenMode: boolean; canControl?: boolean }>) => {
       const { playlist, isOwner, isListenMode, canControl } = event.detail;
-      console.log('[PlayerContext] 收到房间歌单更新事件:', playlist.length, '首歌, 房主:', isOwner, '听歌模式:', isListenMode, '有控制权:', canControl);
       roomPlaylistRef.current = playlist;
       isRoomOwnerRef.current = isOwner;
       isRoomListenModeRef.current = isListenMode;

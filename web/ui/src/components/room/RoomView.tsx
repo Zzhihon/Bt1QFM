@@ -80,6 +80,9 @@ const RoomView: React.FC = () => {
     if (isOwner) {
       // 房主自动切换到听歌模式
       enterRoomMode();
+      // 立即设置房间歌单信息，确保 isRoomListenModeRef 被正确设置
+      const canControl = myMember?.canControl || false;
+      setRoomPlaylistForAutoPlay(playlist, isOwner, true, canControl);
       switchMode('listen');
       addToast({
         type: 'info',
@@ -94,7 +97,7 @@ const RoomView: React.FC = () => {
         duration: 5000,
       });
     }
-  }, [currentRoom, myMember, isConnected, isOwner, enterRoomMode, switchMode, addToast]);
+  }, [currentRoom, myMember, isConnected, isOwner, enterRoomMode, switchMode, addToast, playlist, setRoomPlaylistForAutoPlay]);
 
   // 离开房间时重置自动切换标记
   useEffect(() => {
@@ -145,11 +148,15 @@ const RoomView: React.FC = () => {
   // 切换模式
   const handleSwitchMode = async () => {
     const newMode = myMember?.mode === 'listen' ? 'chat' : 'listen';
+    const canControl = myMember?.canControl || false;
 
     // 切换播放列表模式
     if (newMode === 'listen') {
       // 进入听歌模式 - 切换到房间播放列表
       enterRoomMode();
+      // 立即设置房间歌单信息，不等待 myMember.mode 更新
+      // 这样可以确保在 enterRoomMode 后立即点击下一首能正确工作
+      setRoomPlaylistForAutoPlay(playlist, isOwner, true, canControl);
     } else {
       // 退出听歌模式 - 恢复个人播放列表
       exitRoomMode();

@@ -109,8 +109,9 @@ type RoomPlaybackState struct {
 	CurrentSong  interface{} `json:"currentSong,omitempty"` // PlaylistItem
 	Position     float64     `json:"position"`              // 播放进度（秒）
 	IsPlaying    bool        `json:"isPlaying"`
-	UpdatedAt    int64       `json:"updatedAt"` // 时间戳毫秒
-	UpdatedBy    int64       `json:"updatedBy"` // 操作者ID
+	UpdatedAt    int64       `json:"updatedAt"`    // 时间戳毫秒
+	UpdatedBy    int64       `json:"updatedBy"`    // 操作者ID
+	StateVersion int64       `json:"stateVersion"` // 状态版本号，用于解决并发切歌冲突
 }
 
 // RoomInfo 房间完整信息（API 响应用）

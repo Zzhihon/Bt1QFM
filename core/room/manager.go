@@ -1029,7 +1029,34 @@ func (m *RoomManager) handleMasterReport(ctx context.Context, client *Client, da
 	syncData.MasterID = client.UserID
 	syncData.MasterName = client.Username
 
-	// 将播放状态保存到 Redis 缓存，以便 HTTP API 可以获取
+	// === 版本号检查：防止授权用户切歌后被房主的旧状态覆盖 ===
+	currentState, _ := m.cache.GetPlaybackState(ctx, client.RoomID)
+	var currentVersion int64 = 0
+	if currentState != nil {
+		currentVersion = currentState.StateVersion
+	}
+
+	// 检查房主上报的歌曲是否和缓存中的一致
+	// 如果不一致，说明有人切歌了，房主上报的是过时状态
+	isSameSong := currentState == nil
+	if currentState != nil && currentState.CurrentSong != nil {
+		if songMap, ok := currentState.CurrentSong.(map[string]interface{}); ok {
+			if cachedSongID, ok := songMap["songId"].(string); ok {
+				isSameSong = cachedSongID == syncData.SongID
+			}
+		}
+	}
+
+	// 如果歌曲不同，说明是过时的上报，丢弃但不更新缓存
+	if !isSameSong {
+		logger.Debug("房主上报被丢弃：歌曲已被切换",
+			logger.String("roomId", client.RoomID),
+			logger.String("reportedSongId", syncData.SongID),
+			logger.Int64("currentVersion", currentVersion))
+		return
+	}
+
+	// 歌曲相同，正常更新播放状态（位置、播放/暂停等）
 	playbackState := &model.RoomPlaybackState{
 		CurrentIndex: 0,
 		CurrentSong: map[string]interface{}{
@@ -1040,10 +1067,11 @@ func (m *RoomManager) handleMasterReport(ctx context.Context, client *Client, da
 			"duration": syncData.Duration,
 			"hlsUrl":   syncData.HlsURL,
 		},
-		Position:  syncData.Position,
-		IsPlaying: syncData.IsPlaying,
-		UpdatedAt: syncData.ServerTime,
-		UpdatedBy: client.UserID,
+		Position:     syncData.Position,
+		IsPlaying:    syncData.IsPlaying,
+		UpdatedAt:    syncData.ServerTime,
+		UpdatedBy:    client.UserID,
+		StateVersion: currentVersion, // 保持当前版本号不变
 	}
 
 	if err := m.cache.SetPlaybackState(ctx, client.RoomID, playbackState); err != nil {
@@ -1156,7 +1184,14 @@ func (m *RoomManager) handleSongChange(ctx context.Context, client *Client, data
 	songData.ChangedByName = client.Username
 	songData.Timestamp = time.Now().UnixMilli()
 
-	// 先写入缓存（先写后删策略）
+	// 获取当前播放状态以获取版本号
+	currentState, _ := m.cache.GetPlaybackState(ctx, client.RoomID)
+	var newVersion int64 = 1
+	if currentState != nil {
+		newVersion = currentState.StateVersion + 1
+	}
+
+	// 先写入缓存（先写后删策略），递增版本号
 	playbackState := &model.RoomPlaybackState{
 		CurrentIndex: 0,
 		CurrentSong: map[string]interface{}{
@@ -1167,10 +1202,11 @@ func (m *RoomManager) handleSongChange(ctx context.Context, client *Client, data
 			"duration": songData.Duration,
 			"hlsUrl":   songData.HlsURL,
 		},
-		Position:  songData.Position,
-		IsPlaying: songData.IsPlaying,
-		UpdatedAt: songData.Timestamp,
-		UpdatedBy: client.UserID,
+		Position:     songData.Position,
+		IsPlaying:    songData.IsPlaying,
+		UpdatedAt:    songData.Timestamp,
+		UpdatedBy:    client.UserID,
+		StateVersion: newVersion,
 	}
 
 	if err := m.cache.SetPlaybackState(ctx, client.RoomID, playbackState); err != nil {
@@ -1186,7 +1222,8 @@ func (m *RoomManager) handleSongChange(ctx context.Context, client *Client, data
 		logger.String("roomId", client.RoomID),
 		logger.Int64("userId", client.UserID),
 		logger.String("songId", songData.SongID),
-		logger.String("songName", songData.SongName))
+		logger.String("songName", songData.SongName),
+		logger.Int64("stateVersion", newVersion))
 }
 
 // broadcastSongChange 广播切歌消息给所有 listen 模式用户
