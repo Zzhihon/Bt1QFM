@@ -177,10 +177,10 @@ const RoomPlaylist: React.FC = () => {
     addToast({ type: 'info', message: `已移除 "${item.name}"`, duration: 2000 });
   };
 
-  // 点击播放歌曲（仅房主可操作）
+  // 点击播放歌曲（房主或有控制权限的用户可操作）
   const handlePlaySong = (item: RoomPlaylistItem) => {
-    if (!isOwner) {
-      addToast({ type: 'info', message: '仅房主可以选择播放歌曲', duration: 2000 });
+    if (!canControl) {
+      addToast({ type: 'info', message: '需要房主授权才能选择播放歌曲', duration: 2000 });
       return;
     }
 

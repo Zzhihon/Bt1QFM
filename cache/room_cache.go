@@ -13,10 +13,14 @@ import (
 )
 
 const (
-	roomMembersKey  = "room:%s:members"  // Hash: userID -> MemberOnline JSON
-	roomPlaylistKey = "room:%s:playlist" // Sorted Set (复用 PlaylistItem)
-	roomPlaybackKey = "room:%s:playback" // Hash: 播放状态
-	roomTTL         = 24 * time.Hour
+	roomMembersKey   = "room:%s:members"           // Hash: userID -> MemberOnline JSON
+	roomPlaylistKey  = "room:%s:playlist"          // Sorted Set (复用 PlaylistItem)
+	roomPlaybackKey  = "room:%s:playback"          // Hash: 播放状态
+	roomPresenceKey  = "room:%s:presence:%d"       // String: 用户在线状态心跳 key (roomID:userID)
+	roomPresenceSet  = "room:%s:online_users"      // Set: 在线用户集合
+	roomTTL          = 24 * time.Hour
+	presenceTTL      = 60 * time.Second            // 心跳过期时间 60秒
+	heartbeatTimeout = 30 * time.Second            // 心跳超时时间
 )
 
 // RoomCache 房间缓存操作
@@ -112,6 +116,201 @@ func (c *RoomCache) GetOnlineMemberCount(ctx context.Context, roomID string) (in
 
 	key := fmt.Sprintf(roomMembersKey, roomID)
 	return c.client.HLen(ctx, key).Result()
+}
+
+// ========== 心跳在线状态管理 ==========
+
+// UpdateUserPresence 更新用户心跳（用于精确的在线状态统计）
+func (c *RoomCache) UpdateUserPresence(ctx context.Context, roomID string, userID int64) error {
+	if c.client == nil {
+		return fmt.Errorf("Redis client not initialized")
+	}
+
+	// 使用 roomID:userID 格式的 key
+	presenceKey := fmt.Sprintf(roomPresenceKey, roomID, userID)
+	onlineSetKey := fmt.Sprintf(roomPresenceSet, roomID)
+
+	pipe := c.client.Pipeline()
+	// 设置心跳 key，带过期时间
+	pipe.Set(ctx, presenceKey, time.Now().UnixMilli(), presenceTTL)
+	// 添加到在线用户集合
+	pipe.SAdd(ctx, onlineSetKey, userID)
+	// 刷新在线用户集合过期时间
+	pipe.Expire(ctx, onlineSetKey, roomTTL)
+
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+// RemoveUserPresence 移除用户在线状态
+func (c *RoomCache) RemoveUserPresence(ctx context.Context, roomID string, userID int64) error {
+	if c.client == nil {
+		return fmt.Errorf("Redis client not initialized")
+	}
+
+	presenceKey := fmt.Sprintf(roomPresenceKey, roomID, userID)
+	onlineSetKey := fmt.Sprintf(roomPresenceSet, roomID)
+
+	pipe := c.client.Pipeline()
+	// 删除心跳 key
+	pipe.Del(ctx, presenceKey)
+	// 从在线用户集合移除
+	pipe.SRem(ctx, onlineSetKey, userID)
+
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+// GetActiveOnlineCount 获取活跃在线人数（基于心跳）
+func (c *RoomCache) GetActiveOnlineCount(ctx context.Context, roomID string) (int64, error) {
+	if c.client == nil {
+		return 0, fmt.Errorf("Redis client not initialized")
+	}
+
+	onlineSetKey := fmt.Sprintf(roomPresenceSet, roomID)
+
+	// 获取在线用户集合中的所有用户
+	members, err := c.client.SMembers(ctx, onlineSetKey).Result()
+	if err != nil {
+		return 0, err
+	}
+
+	if len(members) == 0 {
+		return 0, nil
+	}
+
+	// 检查每个用户的心跳 key 是否还存在
+	activeCount := int64(0)
+	expiredUsers := make([]interface{}, 0)
+
+	for _, memberStr := range members {
+		userID, err := strconv.ParseInt(memberStr, 10, 64)
+		if err != nil {
+			continue
+		}
+
+		presenceKey := fmt.Sprintf(roomPresenceKey, roomID, userID)
+		exists, err := c.client.Exists(ctx, presenceKey).Result()
+		if err != nil {
+			continue
+		}
+
+		if exists > 0 {
+			activeCount++
+		} else {
+			// 心跳已过期，标记为需要清理
+			expiredUsers = append(expiredUsers, memberStr)
+		}
+	}
+
+	// 清理过期用户
+	if len(expiredUsers) > 0 {
+		c.client.SRem(ctx, onlineSetKey, expiredUsers...)
+	}
+
+	return activeCount, nil
+}
+
+// GetActiveOnlineUsers 获取活跃在线用户ID列表
+func (c *RoomCache) GetActiveOnlineUsers(ctx context.Context, roomID string) ([]int64, error) {
+	if c.client == nil {
+		return nil, fmt.Errorf("Redis client not initialized")
+	}
+
+	onlineSetKey := fmt.Sprintf(roomPresenceSet, roomID)
+
+	// 获取在线用户集合中的所有用户
+	members, err := c.client.SMembers(ctx, onlineSetKey).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(members) == 0 {
+		return []int64{}, nil
+	}
+
+	activeUsers := make([]int64, 0)
+	expiredUsers := make([]interface{}, 0)
+
+	for _, memberStr := range members {
+		userID, err := strconv.ParseInt(memberStr, 10, 64)
+		if err != nil {
+			continue
+		}
+
+		presenceKey := fmt.Sprintf(roomPresenceKey, roomID, userID)
+		exists, err := c.client.Exists(ctx, presenceKey).Result()
+		if err != nil {
+			continue
+		}
+
+		if exists > 0 {
+			activeUsers = append(activeUsers, userID)
+		} else {
+			expiredUsers = append(expiredUsers, memberStr)
+		}
+	}
+
+	// 清理过期用户
+	if len(expiredUsers) > 0 {
+		c.client.SRem(ctx, onlineSetKey, expiredUsers...)
+	}
+
+	return activeUsers, nil
+}
+
+// IsUserOnline 检查用户是否在线（基于心跳）
+func (c *RoomCache) IsUserOnline(ctx context.Context, roomID string, userID int64) (bool, error) {
+	if c.client == nil {
+		return false, fmt.Errorf("Redis client not initialized")
+	}
+
+	presenceKey := fmt.Sprintf(roomPresenceKey, roomID, userID)
+	exists, err := c.client.Exists(ctx, presenceKey).Result()
+	if err != nil {
+		return false, err
+	}
+
+	return exists > 0, nil
+}
+
+// CleanupExpiredPresence 清理过期的在线状态（可定期调用）
+func (c *RoomCache) CleanupExpiredPresence(ctx context.Context, roomID string) error {
+	if c.client == nil {
+		return fmt.Errorf("Redis client not initialized")
+	}
+
+	onlineSetKey := fmt.Sprintf(roomPresenceSet, roomID)
+
+	members, err := c.client.SMembers(ctx, onlineSetKey).Result()
+	if err != nil {
+		return err
+	}
+
+	expiredUsers := make([]interface{}, 0)
+
+	for _, memberStr := range members {
+		userID, err := strconv.ParseInt(memberStr, 10, 64)
+		if err != nil {
+			continue
+		}
+
+		presenceKey := fmt.Sprintf(roomPresenceKey, roomID, userID)
+		exists, err := c.client.Exists(ctx, presenceKey).Result()
+		if err != nil {
+			continue
+		}
+
+		if exists == 0 {
+			expiredUsers = append(expiredUsers, memberStr)
+		}
+	}
+
+	if len(expiredUsers) > 0 {
+		return c.client.SRem(ctx, onlineSetKey, expiredUsers...).Err()
+	}
+
+	return nil
 }
 
 // UpdateMemberMode 更新成员模式

@@ -81,9 +81,12 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pongTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const maxReconnectAttempts = 10;
   const currentRoomIdRef = useRef<string | null>(null);
+  const lastPongTimeRef = useRef<number>(Date.now());
+  const isManualDisconnectRef = useRef(false); // 标记是否为手动断开（离开房间等）
 
   // 清理函数
   const cleanup = useCallback(() => {
@@ -95,6 +98,10 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
+    if (pongTimeoutRef.current) {
+      clearTimeout(pongTimeoutRef.current);
+      pongTimeoutRef.current = null;
+    }
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
@@ -103,6 +110,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     reconnectAttemptsRef.current = 0;
     setReconnectAttempt(0);
     currentRoomIdRef.current = null;
+    isManualDisconnectRef.current = false;
   }, []);
 
   // 发送 WebSocket 消息
@@ -258,7 +266,13 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           break;
 
         case 'pong':
-          // 心跳响应
+          // 心跳响应 - 记录最后收到 pong 的时间
+          lastPongTimeRef.current = Date.now();
+          // 清除 pong 超时定时器
+          if (pongTimeoutRef.current) {
+            clearTimeout(pongTimeoutRef.current);
+            pongTimeoutRef.current = null;
+          }
           break;
 
         case 'error':
@@ -322,6 +336,12 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // 尝试重连
   const attemptReconnect = useCallback((roomId: string) => {
+    // 如果是手动断开，不重连
+    if (isManualDisconnectRef.current) {
+      console.log('手动断开连接，不进行重连');
+      return;
+    }
+
     if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
       console.log('已达到最大重连次数，停止重连');
       setError('连接失败，请刷新页面重试');
@@ -343,7 +363,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setError(`连接断开，${Math.ceil(delay / 1000)}秒后重连 (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
 
     reconnectTimeoutRef.current = setTimeout(() => {
-      if (currentRoomIdRef.current === roomId) {
+      if (currentRoomIdRef.current === roomId && !isManualDisconnectRef.current) {
         connectWebSocket(roomId);
       }
     }, delay);
@@ -362,12 +382,17 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
+    if (pongTimeoutRef.current) {
+      clearTimeout(pongTimeoutRef.current);
+      pongTimeoutRef.current = null;
+    }
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
 
     currentRoomIdRef.current = roomId;
+    isManualDisconnectRef.current = false;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/room/${roomId}?userId=${currentUser.id}&username=${encodeURIComponent(currentUser.username)}&token=${authToken}`;
@@ -384,11 +409,25 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // 重连成功后重置计数器
       reconnectAttemptsRef.current = 0;
       setReconnectAttempt(0);
+      lastPongTimeRef.current = Date.now();
 
-      // 启动心跳
+      // 启动智能心跳 - 每 20 秒发送一次 ping
       pingIntervalRef.current = setInterval(() => {
-        sendWSMessage('ping');
-      }, 30000);
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          sendWSMessage('ping');
+
+          // 设置 pong 超时检测 - 如果 10 秒内没收到 pong，触发重连
+          pongTimeoutRef.current = setTimeout(() => {
+            const timeSinceLastPong = Date.now() - lastPongTimeRef.current;
+            if (timeSinceLastPong > 30000) { // 30秒没收到 pong
+              console.log('心跳超时，连接可能已断开，尝试重连...');
+              if (wsRef.current) {
+                wsRef.current.close();
+              }
+            }
+          }, 10000);
+        }
+      }, 20000);
     };
 
     ws.onmessage = handleWSMessage;
@@ -402,10 +441,14 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         clearInterval(pingIntervalRef.current);
         pingIntervalRef.current = null;
       }
+      if (pongTimeoutRef.current) {
+        clearTimeout(pongTimeoutRef.current);
+        pongTimeoutRef.current = null;
+      }
 
       // 非正常关闭且仍在当前房间时尝试重连
       // 1000 = 正常关闭, 1001 = 页面离开
-      if (event.code !== 1000 && event.code !== 1001 && currentRoomIdRef.current === roomId) {
+      if (event.code !== 1000 && event.code !== 1001 && currentRoomIdRef.current === roomId && !isManualDisconnectRef.current) {
         attemptReconnect(roomId);
       }
     };
@@ -532,6 +575,9 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const leaveRoom = useCallback(async (): Promise<void> => {
     if (!authToken || !currentRoom) return;
 
+    // 标记为手动断开，防止触发重连
+    isManualDisconnectRef.current = true;
+
     try {
       await fetch('/api/rooms/leave', {
         method: 'POST',
@@ -558,6 +604,9 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // 解散房间（仅房主可操作，房间将被关闭）
   const disbandRoom = useCallback(async (): Promise<void> => {
     if (!authToken || !currentRoom) return;
+
+    // 标记为手动断开，防止触发重连
+    isManualDisconnectRef.current = true;
 
     try {
       const response = await fetch('/api/rooms/disband', {
@@ -690,7 +739,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     const handleOnline = () => {
       console.log('网络已恢复');
-      if (currentRoomIdRef.current && !isConnected) {
+      if (currentRoomIdRef.current && !isConnected && !isManualDisconnectRef.current) {
         setError('网络已恢复，正在重连...');
         // 重置重连计数，给予新的机会
         reconnectAttemptsRef.current = 0;
@@ -712,6 +761,38 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       window.removeEventListener('offline', handleOffline);
     };
   }, [isConnected, connectWebSocket]);
+
+  // 页面可见性变化监听 - 页面重新可见时检查连接状态
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('页面重新可见，检查 WebSocket 连接状态');
+
+        // 检查是否需要重连
+        if (currentRoomIdRef.current && !isManualDisconnectRef.current) {
+          const ws = wsRef.current;
+
+          // 检查 WebSocket 是否已断开或处于关闭状态
+          if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+            console.log('WebSocket 连接已断开，尝试重连...');
+            setError('检测到连接断开，正在重连...');
+            reconnectAttemptsRef.current = 0;
+            setReconnectAttempt(0);
+            connectWebSocket(currentRoomIdRef.current);
+          } else if (ws.readyState === WebSocket.OPEN) {
+            // 连接正常，发送一次心跳确认
+            sendWSMessage('ping');
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [connectWebSocket, sendWSMessage]);
 
   const value: RoomContextType = {
     currentRoom,

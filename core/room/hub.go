@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"Bt1QFM/cache"
 	"Bt1QFM/logger"
 
 	"github.com/gorilla/websocket"
@@ -251,6 +252,16 @@ func (h *RoomHub) registerClient(client *Client) {
 	h.rooms[roomID][client] = true
 	h.userClients[userKey] = client
 
+	// 更新 Redis 中的用户在线状态
+	ctx := context.Background()
+	roomCache := cache.NewRoomCache()
+	if err := roomCache.UpdateUserPresence(ctx, roomID, client.UserID); err != nil {
+		logger.Warn("failed to update user presence on register",
+			logger.ErrorField(err),
+			logger.String("room", roomID),
+			logger.Int64("user", client.UserID))
+	}
+
 	logger.Info("client registered",
 		logger.String("room", roomID),
 		logger.Int64("user", client.UserID),
@@ -286,6 +297,16 @@ func (h *RoomHub) removeClient(client *Client) {
 
 	// 清理订阅管理器中的订阅（WebSocket 断开时自动清理）
 	GetSubscriptionManager().Unsubscribe(roomID, client.UserID)
+
+	// 移除 Redis 中的用户在线状态
+	ctx := context.Background()
+	roomCache := cache.NewRoomCache()
+	if err := roomCache.RemoveUserPresence(ctx, roomID, client.UserID); err != nil {
+		logger.Warn("failed to remove user presence on unregister",
+			logger.ErrorField(err),
+			logger.String("room", roomID),
+			logger.Int64("user", client.UserID))
+	}
 
 	logger.Info("client unregistered",
 		logger.String("room", roomID),
@@ -399,6 +420,13 @@ func (h *RoomHub) GetRoomClientCount(roomID string) int {
 	return len(h.rooms[roomID])
 }
 
+// GetRoomActiveOnlineCount 获取房间活跃在线人数（基于Redis心跳）
+func (h *RoomHub) GetRoomActiveOnlineCount(roomID string) (int64, error) {
+	ctx := context.Background()
+	roomCache := cache.NewRoomCache()
+	return roomCache.GetActiveOnlineCount(ctx, roomID)
+}
+
 // GetClient 获取指定用户的客户端
 func (h *RoomHub) GetClient(roomID string, userID int64) *Client {
 	h.mu.RLock()
@@ -497,6 +525,15 @@ func (c *Client) ReadPump(ctx context.Context, handler func(ctx context.Context,
 
 			// 处理心跳
 			if msg.Type == MsgTypePing {
+				// 更新 Redis 中的用户在线状态
+				roomCache := cache.NewRoomCache()
+				if err := roomCache.UpdateUserPresence(ctx, c.RoomID, c.UserID); err != nil {
+					logger.Warn("failed to update user presence",
+						logger.ErrorField(err),
+						logger.String("room", c.RoomID),
+						logger.Int64("user", c.UserID))
+				}
+
 				pong := &WSMessage{Type: MsgTypePong, Timestamp: time.Now().UnixMilli()}
 				if data, err := json.Marshal(pong); err == nil {
 					select {

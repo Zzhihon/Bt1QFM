@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
+import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Shuffle,
-  Loader2, ListMusic, X, Trash2, Music2, ArrowRight
+  Loader2, ListMusic, X, Trash2, Music2, ArrowRight, GripVertical
 } from 'lucide-react';
 import { PlayMode } from '../../types';
 import { usePlayer } from '../../contexts/PlayerContext';
@@ -65,7 +65,8 @@ const Player: React.FC = () => {
     isLoadingPlaylist,
     showPlaylist,
     setShowPlaylist,
-    setPlayerState
+    setPlayerState,
+    updatePlaylist
   } = usePlayer();
   
   // 初始化HLS实例
@@ -81,6 +82,13 @@ const Player: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [dragProgress, setDragProgress] = useState(0);
   const progressBarRef = useRef<HTMLDivElement>(null);
+
+  // 拖拽排序相关状态
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [touchDragIndex, setTouchDragIndex] = useState<number | null>(null);
+  const touchStartY = useRef<number>(0);
+  const playlistContainerRef = useRef<HTMLDivElement>(null);
 
   // 获取歌曲详情的函数
   const fetchSongDetail = useCallback(async (neteaseId: string) => {
@@ -401,6 +409,110 @@ const Player: React.FC = () => {
     }
     return playerState.duration ? (playerState.currentTime / playerState.duration) * 100 : 0;
   };
+
+  // ============ 拖拽排序处理函数 ============
+
+  // 桌面端拖拽开始
+  const handleDragStart = useCallback((e: React.DragEvent<HTMLDivElement>, index: number) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index));
+    // 设置拖拽时的视觉效果
+    if (e.currentTarget) {
+      e.currentTarget.style.opacity = '0.5';
+    }
+  }, []);
+
+  // 桌面端拖拽结束
+  const handleDragEnd = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+    if (e.currentTarget) {
+      e.currentTarget.style.opacity = '1';
+    }
+  }, []);
+
+  // 桌面端拖拽经过
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedIndex !== null && draggedIndex !== index) {
+      setDragOverIndex(index);
+    }
+  }, [draggedIndex]);
+
+  // 桌面端放置
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>, dropIndex: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === dropIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    const newPlaylist = [...playerState.playlist];
+    const [draggedItem] = newPlaylist.splice(draggedIndex, 1);
+    newPlaylist.splice(dropIndex, 0, draggedItem);
+
+    // 更新播放列表
+    updatePlaylist(newPlaylist);
+
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  }, [draggedIndex, playerState.playlist, updatePlaylist]);
+
+  // 移动端触摸开始
+  const handleTouchDragStart = useCallback((e: React.TouchEvent<HTMLDivElement>, index: number) => {
+    const touch = e.touches[0];
+    touchStartY.current = touch.clientY;
+    setTouchDragIndex(index);
+  }, []);
+
+  // 移动端触摸移动
+  const handleTouchDragMove = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (touchDragIndex === null || !playlistContainerRef.current) return;
+
+    const touch = e.touches[0];
+    const container = playlistContainerRef.current;
+    const items = container.querySelectorAll('[data-playlist-item]');
+
+    // 找到当前触摸位置对应的目标索引
+    let targetIndex = touchDragIndex;
+    items.forEach((item, index) => {
+      const rect = item.getBoundingClientRect();
+      const itemCenter = rect.top + rect.height / 2;
+      if (touch.clientY < itemCenter && index < targetIndex) {
+        targetIndex = index;
+      } else if (touch.clientY > itemCenter && index > targetIndex) {
+        targetIndex = index;
+      }
+    });
+
+    if (targetIndex !== dragOverIndex) {
+      setDragOverIndex(targetIndex);
+    }
+  }, [touchDragIndex, dragOverIndex]);
+
+  // 移动端触摸结束
+  const handleTouchDragEnd = useCallback(() => {
+    if (touchDragIndex === null || dragOverIndex === null || touchDragIndex === dragOverIndex) {
+      setTouchDragIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    const newPlaylist = [...playerState.playlist];
+    const [draggedItem] = newPlaylist.splice(touchDragIndex, 1);
+    newPlaylist.splice(dragOverIndex, 0, draggedItem);
+
+    // 更新播放列表
+    updatePlaylist(newPlaylist);
+
+    setTouchDragIndex(null);
+    setDragOverIndex(null);
+  }, [touchDragIndex, dragOverIndex, playerState.playlist, updatePlaylist]);
+
+  // ============ 拖拽排序处理函数结束 ============
 
   // 格式化时间
   const formatTime = (seconds: number) => {
@@ -726,26 +838,52 @@ const Player: React.FC = () => {
                 播放列表为空，请添加歌曲
               </div>
             ) : (
-              <div className="max-h-[50vh] md:max-h-96 overflow-y-auto pr-2">
+              <div
+                ref={playlistContainerRef}
+                className="max-h-[50vh] md:max-h-96 overflow-y-auto pr-2"
+              >
                 {playerState.playlist.map((item, index) => {
                   const trackId = getTrackId(item);
                   const isCurrent = isCurrentTrack(item);
+                  const isDraggedItem = draggedIndex === index || touchDragIndex === index;
+                  const isDragOverItem = dragOverIndex === index;
 
                   return (
-                    <div 
+                    <div
                       key={`${trackId}-${index}`}
-                      className={`flex items-center justify-between p-3 md:p-2 mb-2 md:mb-1 rounded hover:bg-cyber-bg transition-colors ${isCurrent ? 'bg-cyber-bg border border-cyber-primary' : ''}`}
+                      data-playlist-item
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDrop={(e) => handleDrop(e, index)}
+                      className={`flex items-center justify-between p-3 md:p-2 mb-2 md:mb-1 rounded transition-all duration-200
+                        ${isCurrent ? 'bg-cyber-bg border border-cyber-primary' : 'hover:bg-cyber-bg'}
+                        ${isDraggedItem ? 'opacity-50 scale-95' : ''}
+                        ${isDragOverItem ? 'border-t-2 border-cyber-secondary' : ''}
+                        ${touchDragIndex !== null ? 'select-none' : ''}
+                      `}
                     >
-                      <div 
+                      {/* 拖拽手柄 */}
+                      <div
+                        className="cursor-grab active:cursor-grabbing text-cyber-secondary hover:text-cyber-primary mr-2 touch-none"
+                        onTouchStart={(e) => handleTouchDragStart(e, index)}
+                        onTouchMove={handleTouchDragMove}
+                        onTouchEnd={handleTouchDragEnd}
+                      >
+                        <GripVertical className="h-5 w-5 md:h-4 md:w-4" />
+                      </div>
+
+                      <div
                         className="flex items-center flex-grow overflow-hidden cursor-pointer"
                         onClick={() => playTrack(item)}
                       >
                         <div className="w-10 h-10 md:w-8 md:h-8 bg-cyber-bg flex-shrink-0 rounded overflow-hidden mr-3 md:mr-2">
                           {item.coverArtPath ? (
-                            <img 
+                            <img
                               src={item.coverArtPath}
-                              alt="Cover" 
-                              className="w-full h-full object-cover" 
+                              alt="Cover"
+                              className="w-full h-full object-cover"
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center">
@@ -762,7 +900,7 @@ const Player: React.FC = () => {
                           </div>
                         </div>
                       </div>
-                      <button 
+                      <button
                         onClick={() => removeFromPlaylist(trackId)}
                         className="text-cyber-secondary hover:text-cyber-red transition-colors ml-2 p-2 md:p-1"
                       >

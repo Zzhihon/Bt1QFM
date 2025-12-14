@@ -64,6 +64,44 @@ const RoomView: React.FC = () => {
     }
   }, [error, addToast]);
 
+  // 进入房间后自动处理模式切换
+  const hasAutoSwitchedRef = useRef(false);
+  useEffect(() => {
+    // 确保只执行一次，且房间和成员信息已加载
+    if (!currentRoom || !myMember || !isConnected || hasAutoSwitchedRef.current) return;
+
+    // 标记已处理，避免重复执行
+    hasAutoSwitchedRef.current = true;
+
+    // 如果已经是 listen 模式，不需要处理
+    if (myMember.mode === 'listen') return;
+
+    if (isOwner) {
+      // 房主自动切换到听歌模式
+      enterRoomMode();
+      switchMode('listen');
+      addToast({
+        type: 'info',
+        message: '已自动切换到一起听模式',
+        duration: 3000,
+      });
+    } else {
+      // 其他用户提示切换
+      addToast({
+        type: 'info',
+        message: '点击右上角切换到「一起听」模式，与房主同步播放',
+        duration: 5000,
+      });
+    }
+  }, [currentRoom, myMember, isConnected, isOwner, enterRoomMode, switchMode, addToast]);
+
+  // 离开房间时重置自动切换标记
+  useEffect(() => {
+    if (!currentRoom) {
+      hasAutoSwitchedRef.current = false;
+    }
+  }, [currentRoom]);
+
   // 复制房间 ID
   const handleCopyRoomId = async () => {
     if (!currentRoom?.id) return;
