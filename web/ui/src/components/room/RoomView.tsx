@@ -53,6 +53,8 @@ const RoomView: React.FC = () => {
   const lastReportedTrackIdRef = useRef<string | null>(null); // 上次上报的歌曲ID
   const songChangeSilenceRef = useRef(false); // 切歌静默期标记，避免 song_change 后被 master_sync 覆盖
   const songChangeSilenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 静默期定时器
+  const masterReportPausedRef = useRef(false); // 房主上报暂停标记，避免切歌期间上报旧状态
+  const masterReportPauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 上报暂停定时器
 
   // 显示错误（排除重连过程中的状态信息）
   useEffect(() => {
@@ -216,6 +218,11 @@ const RoomView: React.FC = () => {
 
     // 上报函数
     const doReport = () => {
+      // 如果上报被暂停（正在切歌），跳过本次上报
+      if (masterReportPausedRef.current) {
+        console.log('[房主上报] 切歌期间暂停上报，跳过');
+        return;
+      }
       const syncData = buildSyncData();
       if (syncData) {
         reportMasterPlayback(syncData);
@@ -524,6 +531,29 @@ const RoomView: React.FC = () => {
       console.log('[切歌同步] 静默期结束');
     }, 5000);
 
+    // 如果是房主，立即暂停上报，避免在切歌过程中上报旧状态
+    // 这必须在 playTrack 之前设置，因为 playTrack 可能会触发上报事件
+    if (isOwner) {
+      lastReportedTrackIdRef.current = songData.songId;
+      masterReportPausedRef.current = true;
+      console.log('[房主] 收到切歌，暂停上报');
+
+      // 清除之前的暂停定时器
+      if (masterReportPauseTimerRef.current) {
+        clearTimeout(masterReportPauseTimerRef.current);
+      }
+      // 3秒后恢复上报（足够新歌曲加载完成）
+      masterReportPauseTimerRef.current = setTimeout(() => {
+        masterReportPausedRef.current = false;
+        console.log('[房主] 切歌完成，恢复上报');
+        // 恢复后立即上报一次新状态
+        const newSyncData = buildSyncData();
+        if (newSyncData && newSyncData.songId === songData.songId) {
+          reportMasterPlayback(newSyncData);
+        }
+      }, 3000);
+    }
+
     setIsSyncing(true);
 
     // 切换到新歌曲
@@ -539,12 +569,6 @@ const RoomView: React.FC = () => {
       source: 'netease',
     };
     playTrack(trackData);
-
-    // 如果是房主，更新上报追踪，确保后续 master_report 发送新歌曲状态
-    // 这是解决授权用户切歌被房主旧状态覆盖问题的关键
-    if (isOwner) {
-      lastReportedTrackIdRef.current = songData.songId;
-    }
 
     // 等待加载完成后设置播放位置和状态
     setTimeout(() => {
@@ -562,13 +586,16 @@ const RoomView: React.FC = () => {
       songId: songData.songId,
       position: songData.position,
     };
-  }, [myMember?.mode, playerState.currentTrack, playTrack, seekTo, resumeTrack, pauseTrack, isOwner]);
+  }, [myMember?.mode, playerState.currentTrack, playTrack, seekTo, resumeTrack, pauseTrack, isOwner, buildSyncData, reportMasterPlayback]);
 
-  // 组件卸载时清理静默期定时器
+  // 组件卸载时清理定时器
   useEffect(() => {
     return () => {
       if (songChangeSilenceTimerRef.current) {
         clearTimeout(songChangeSilenceTimerRef.current);
+      }
+      if (masterReportPauseTimerRef.current) {
+        clearTimeout(masterReportPauseTimerRef.current);
       }
     };
   }, []);
