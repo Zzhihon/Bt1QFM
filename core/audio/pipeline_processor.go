@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -63,10 +64,11 @@ func NewPipelineProcessor(ffmpeg *FFmpegProcessor, cfg *config.Config, workers i
 
 // ProcessWithPipeline 流水线处理：边转码边上传
 // 相比传统方式，首个分片可用时间从 ~30s 降低到 ~2-4s
+// 支持渐进式播放：边转码边播放
 func (p *PipelineProcessor) ProcessWithPipeline(ctx context.Context, streamID, inputPath, tempDir string, isNetease bool) (*PipelineResult, error) {
 	startTime := time.Now()
 
-	logger.Info("开始流水线处理",
+	logger.Info("开始流水线处理（渐进式HLS模式）",
 		logger.String("streamId", streamID),
 		logger.String("inputPath", inputPath),
 		logger.Int("workerCount", p.workerCount))
@@ -81,6 +83,9 @@ func (p *PipelineProcessor) ProcessWithPipeline(ctx context.Context, streamID, i
 		return nil, fmt.Errorf("创建临时目录失败: %w", err)
 	}
 
+	// 创建渐进式 HLS 状态（默认分片时长 4 秒）
+	hlsState := GetProgressiveHLSManager().CreateState(streamID, tempDir, isNetease, 4.0)
+
 	// 创建任务通道和结果收集
 	taskChan := make(chan *SegmentTask, 100)
 	var wg sync.WaitGroup
@@ -88,12 +93,12 @@ func (p *PipelineProcessor) ProcessWithPipeline(ctx context.Context, streamID, i
 	var firstSegmentTime time.Time
 	var firstSegmentOnce sync.Once
 
-	// 启动 Worker Pool
+	// 启动 Worker Pool（传入 hlsState 用于更新分片状态）
 	for i := 0; i < p.workerCount; i++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			p.worker(ctx, workerID, taskChan, isNetease, &firstSegmentTime, &firstSegmentOnce)
+			p.workerWithHLS(ctx, workerID, taskChan, isNetease, &firstSegmentTime, &firstSegmentOnce, hlsState)
 		}(i)
 	}
 
@@ -158,8 +163,13 @@ func (p *PipelineProcessor) ProcessWithPipeline(ctx context.Context, streamID, i
 	wg.Wait()
 
 	if ffmpegErr != nil {
+		// 即使失败也要清理状态
+		GetProgressiveHLSManager().RemoveState(streamID)
 		return nil, fmt.Errorf("FFmpeg 处理失败: %w", ffmpegErr)
 	}
+
+	// 标记渐进式 HLS 转码完成
+	hlsState.MarkComplete(float64(duration))
 
 	result := &PipelineResult{
 		Duration:       duration,
@@ -168,7 +178,7 @@ func (p *PipelineProcessor) ProcessWithPipeline(ctx context.Context, streamID, i
 		TotalTime:      time.Since(startTime),
 	}
 
-	logger.Info("流水线处理完成",
+	logger.Info("流水线处理完成（渐进式HLS）",
 		logger.String("streamId", streamID),
 		logger.Int("segmentCount", result.SegmentCount),
 		logger.Float64("duration", float64(result.Duration)),
@@ -323,6 +333,97 @@ func (p *PipelineProcessor) worker(
 			logger.String("segment", task.SegmentName),
 			logger.Int("size", len(data)))
 	}
+}
+
+// workerWithHLS 处理分片任务（支持渐进式 HLS 状态更新）
+func (p *PipelineProcessor) workerWithHLS(
+	ctx context.Context,
+	workerID int,
+	taskChan <-chan *SegmentTask,
+	isNetease bool,
+	firstSegmentTime *time.Time,
+	firstSegmentOnce *sync.Once,
+	hlsState *ProgressiveHLSState,
+) {
+	for task := range taskChan {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		// 跳过 m3u8 文件（我们会动态生成）
+		if task.IsM3U8 {
+			continue
+		}
+
+		// 记录首个分片时间
+		firstSegmentOnce.Do(func() {
+			*firstSegmentTime = time.Now()
+			logger.Info("首个分片已可用（渐进式播放可开始）",
+				logger.String("streamId", task.StreamID),
+				logger.String("segment", task.SegmentName))
+		})
+
+		// 读取分片数据
+		data, err := os.ReadFile(task.SegmentPath)
+		if err != nil {
+			logger.Warn("读取分片失败",
+				logger.Int("worker", workerID),
+				logger.String("segment", task.SegmentName),
+				logger.ErrorField(err))
+			continue
+		}
+
+		// 解析分片索引并更新 HLS 状态
+		segmentIndex := parseSegmentIndex(task.SegmentName)
+		if segmentIndex >= 0 && hlsState != nil {
+			hlsState.AddSegment(segmentIndex, 4.0) // 默认 4 秒时长
+		}
+
+		// 并行执行 Redis 和 MinIO 上传
+		var uploadWg sync.WaitGroup
+		uploadWg.Add(2)
+
+		// Redis 上传
+		go func() {
+			defer uploadWg.Done()
+			cacheKey := fmt.Sprintf("segment:%s:%s", task.StreamID, task.SegmentName)
+			if err := cache.SetSegmentCache(cacheKey, data, 1800*time.Second); err != nil {
+				logger.Warn("分片写入Redis失败",
+					logger.String("segment", task.SegmentName),
+					logger.ErrorField(err))
+			}
+		}()
+
+		// MinIO 上传
+		go func() {
+			defer uploadWg.Done()
+			p.uploadSegmentToMinIO(task, data, isNetease)
+		}()
+
+		uploadWg.Wait()
+
+		logger.Debug("分片处理完成（渐进式HLS）",
+			logger.Int("worker", workerID),
+			logger.String("segment", task.SegmentName),
+			logger.Int("segmentIndex", segmentIndex),
+			logger.Int("size", len(data)))
+	}
+}
+
+// parseSegmentIndex 从分片文件名解析索引
+// segment_000.ts -> 0, segment_001.ts -> 1
+func parseSegmentIndex(segmentName string) int {
+	// 移除前缀和后缀
+	name := strings.TrimPrefix(segmentName, "segment_")
+	name = strings.TrimSuffix(name, ".ts")
+
+	idx, err := strconv.Atoi(name)
+	if err != nil {
+		return -1
+	}
+	return idx
 }
 
 // isFileComplete 检查文件是否写入完成

@@ -240,29 +240,98 @@ func Start() {
 			return
 		}
 
-		// 检查是否正在处理中
+		// 🎯 渐进式播放核心逻辑：检查是否正在处理中
 		if mp3Processor.IsProcessing(streamID) {
-			logger.Info("检测到歌曲正在处理中，等待处理完成",
-				logger.String("streamId", streamID),
-				logger.String("fileName", fileName),
-				logger.Bool("isNetease", isNetease),
-				logger.String("requestPath", r.URL.Path))
+			// 如果请求的是 playlist.m3u8，尝试返回动态生成的渐进式播放列表
+			if fileName == "playlist.m3u8" {
+				hlsState := audio.GetProgressiveHLSManager().GetState(streamID)
+				if hlsState != nil && hlsState.HasMinimumSegments(1) {
+					// 有至少一个分片可用，返回动态生成的 m3u8
+					logger.Info("返回渐进式 HLS 播放列表",
+						logger.String("streamId", streamID),
+						logger.Int("segmentCount", hlsState.GetCompletedSegmentCount()),
+						logger.Bool("isComplete", !hlsState.IsProcessing()))
 
-			// 如果正在处理中，等待一段时间
-			if mp3Processor.WaitForProcessing(streamID, 30*time.Second) {
-				logger.Info("歌曲处理完成，继续获取文件",
+					m3u8Content := hlsState.GenerateM3U8()
+					w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+					w.Header().Set("Access-Control-Allow-Origin", "*")
+					// 渐进式播放时使用短缓存，让播放器定期刷新获取新分片
+					if hlsState.IsProcessing() {
+						w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+					} else {
+						w.Header().Set("Cache-Control", "public, max-age=31536000")
+					}
+					w.Write([]byte(m3u8Content))
+					return
+				}
+
+				// 没有足够分片，等待第一个分片可用
+				logger.Info("等待首个分片生成...",
 					logger.String("streamId", streamID),
-					logger.String("fileName", fileName))
-				// 处理完成，继续获取文件
-			} else {
-				logger.Warn("等待歌曲处理超时",
-					logger.String("streamId", streamID),
-					logger.String("fileName", fileName),
-					logger.Duration("waitTimeout", 30*time.Second))
-				// 等待超时
-				http.Error(w, "Processing timeout", http.StatusRequestTimeout)
+					logger.Bool("isNetease", isNetease))
+
+				// 短暂等待首个分片（最多 5 秒）
+				for i := 0; i < 50; i++ {
+					time.Sleep(100 * time.Millisecond)
+					hlsState = audio.GetProgressiveHLSManager().GetState(streamID)
+					if hlsState != nil && hlsState.HasMinimumSegments(1) {
+						logger.Info("首个分片已就绪，返回渐进式播放列表",
+							logger.String("streamId", streamID))
+						m3u8Content := hlsState.GenerateM3U8()
+						w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+						w.Header().Set("Access-Control-Allow-Origin", "*")
+						w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+						w.Write([]byte(m3u8Content))
+						return
+					}
+				}
+
+				// 5秒后仍无分片，返回处理中状态
+				logger.Warn("等待首个分片超时",
+					logger.String("streamId", streamID))
+				http.Error(w, "Processing in progress, please retry", http.StatusAccepted)
 				return
 			}
+
+			// 非 m3u8 请求（如 .ts 分片），等待处理完成或从缓存获取
+			logger.Info("检测到歌曲正在处理中，尝试获取已完成分片",
+				logger.String("streamId", streamID),
+				logger.String("fileName", fileName),
+				logger.Bool("isNetease", isNetease))
+
+			// 先尝试直接获取文件（可能已经上传到 Redis/MinIO）
+			data, contentType, err := streamProcessor.StreamGet(streamID, fileName, isNetease)
+			if err == nil {
+				w.Header().Set("Content-Type", contentType)
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				w.Header().Set("Cache-Control", "public, max-age=31536000")
+				w.Write(data)
+				return
+			}
+
+			// 文件尚未就绪，短暂等待
+			logger.Info("分片尚未就绪，短暂等待",
+				logger.String("streamId", streamID),
+				logger.String("fileName", fileName))
+
+			for i := 0; i < 30; i++ {
+				time.Sleep(100 * time.Millisecond)
+				data, contentType, err = streamProcessor.StreamGet(streamID, fileName, isNetease)
+				if err == nil {
+					w.Header().Set("Content-Type", contentType)
+					w.Header().Set("Access-Control-Allow-Origin", "*")
+					w.Header().Set("Cache-Control", "public, max-age=31536000")
+					w.Write(data)
+					return
+				}
+			}
+
+			// 等待超时
+			logger.Warn("等待分片超时",
+				logger.String("streamId", streamID),
+				logger.String("fileName", fileName))
+			http.Error(w, "Segment not ready", http.StatusNotFound)
+			return
 		}
 
 		// 使用单例流处理器获取文件（避免每次请求都创建新实例）
