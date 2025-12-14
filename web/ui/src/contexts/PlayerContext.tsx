@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { Track, PlaylistItem, PlayMode, PlayerState, RoomPlaylistItem } from '../types';
+import { Track, PlaylistItem, PlayMode, PlayerState, RoomPlaylistItem, PlaylistSource, RoomPlaylistPermissions } from '../types';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import Hls from 'hls.js';
@@ -49,12 +49,16 @@ interface PlayerContextType {
   pauseTrack: () => void;
   resumeTrack: () => void;
   stopTrack: () => void;
-  currentSongId: string | number | null; // 添加当前歌曲ID便于歌词同步
-  // 房间播放列表管理
+  currentSongId: string | number | null;
+  // 播放列表来源管理（新API）
+  playlistSource: PlaylistSource;
+  activateRoomPlaylist: (playlist: RoomPlaylistItem[], permissions: RoomPlaylistPermissions) => void;
+  deactivateRoomPlaylist: () => void;
+  updateRoomPlaylist: (playlist: RoomPlaylistItem[], permissions?: Partial<RoomPlaylistPermissions>) => void;
+  // 兼容旧API（将被废弃）
   enterRoomMode: (roomPlaylist?: Track[]) => void;
   exitRoomMode: () => void;
   isInRoomMode: boolean;
-  // 房间歌单管理（用于自动播放下一首）
   setRoomPlaylistForAutoPlay: (playlist: RoomPlaylistItem[], isOwner: boolean, isListenMode: boolean, canControl?: boolean) => void;
 }
 
@@ -83,11 +87,22 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const savedPersonalPlaylistRef = React.useRef<Track[] | null>(null);
   const savedCurrentTrackRef = React.useRef<Track | null>(null);
   const savedCurrentTimeRef = React.useRef<number>(0);
-  // 房间歌单自动播放相关
+
+  // 新的播放列表来源管理
+  const [playlistSource, setPlaylistSource] = useState<PlaylistSource>('personal');
+  const roomDataRef = React.useRef<{
+    playlist: RoomPlaylistItem[];
+    permissions: RoomPlaylistPermissions;
+  }>({
+    playlist: [],
+    permissions: { isOwner: false, canControl: false }
+  });
+
+  // 兼容旧代码的 ref（将被废弃）
   const roomPlaylistRef = React.useRef<RoomPlaylistItem[]>([]);
   const isRoomOwnerRef = React.useRef(false);
   const isRoomListenModeRef = React.useRef(false);
-  const canControlRef = React.useRef(false); // 是否有切歌权限
+  const canControlRef = React.useRef(false);
 
   // 获取后端 URL - 移动到组件顶部
   const backendUrl = getBackendUrl();
@@ -491,169 +506,163 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return playerState.playlist.find(track => track.position === randomPosition) || null;
   };
 
-  // 下一首
-  const handleNext = () => {
-    // 如果处于房间模式，直接在 PlayerContext 中处理房间歌单切歌
-    if (isInRoomMode && isRoomListenModeRef.current) {
-      const roomPlaylist = roomPlaylistRef.current;
-      const hasPermission = isRoomOwnerRef.current || canControlRef.current;
+  // ==================== 播放列表策略函数 ====================
 
-      if (!hasPermission) return;
-      if (roomPlaylist.length === 0) return;
+  // 将 RoomPlaylistItem 转换为 Track
+  const roomItemToTrack = (item: RoomPlaylistItem): Track => {
+    const songId = item.songId.replace('netease_', '').replace('local_', '');
+    const isLocal = item.songId.startsWith('local_');
+    const hlsUrl = isLocal
+      ? `/streams/${songId}/playlist.m3u8`
+      : `/streams/netease/${songId}/playlist.m3u8`;
 
-      // 获取当前播放歌曲在房间歌单中的索引
-      const currentTrackId = String(playerState.currentTrack?.id || playerState.currentTrack?.neteaseId || '');
-      const currentIndex = roomPlaylist.findIndex(item => {
-        const itemId = item.songId.replace('netease_', '');
-        return itemId === currentTrackId || item.songId === currentTrackId;
-      });
+    return {
+      id: songId,
+      neteaseId: isLocal ? undefined : Number(songId) || undefined,
+      title: item.name,
+      artist: item.artist,
+      album: '',
+      coverArtPath: item.cover || '',
+      hlsPlaylistUrl: hlsUrl,
+      position: item.position,
+      source: isLocal ? 'local' : 'netease',
+    };
+  };
 
-      // 计算下一首索引（循环播放）
-      let nextIndex = currentIndex + 1;
-      if (nextIndex >= roomPlaylist.length) {
-        nextIndex = 0;
-      }
+  // 派发切歌同步事件
+  const dispatchSongChangeEvent = (item: RoomPlaylistItem) => {
+    const songId = item.songId.replace('netease_', '').replace('local_', '');
+    const isLocal = item.songId.startsWith('local_');
+    const hlsUrl = isLocal
+      ? `/streams/${songId}/playlist.m3u8`
+      : `/streams/netease/${songId}/playlist.m3u8`;
 
-      // 播放下一首
-      const nextItem = roomPlaylist[nextIndex];
-      const songId = nextItem.songId.replace('netease_', '');
-      const hlsUrl = `/streams/netease/${songId}/playlist.m3u8`;
-
-      const nextTrack: Track = {
-        id: songId,
-        neteaseId: Number(songId) || undefined,
-        title: nextItem.name,
-        artist: nextItem.artist,
-        album: '',
-        coverArtPath: nextItem.cover || '',
-        hlsPlaylistUrl: hlsUrl,
+    window.dispatchEvent(new CustomEvent('player-song-change', {
+      detail: {
+        songId: songId,
+        songName: item.name,
+        artist: item.artist,
+        cover: item.cover || '',
+        duration: item.duration || 0,
+        hlsUrl: hlsUrl,
         position: 0,
-        source: 'netease',
-      };
-      playTrack(nextTrack);
+        isPlaying: true,
+      }
+    }));
+  };
 
-      // 派发切歌同步事件，让 RoomContext 发送 WebSocket 消息
-      window.dispatchEvent(new CustomEvent('player-song-change', {
-        detail: {
-          songId: songId,
-          songName: nextItem.name,
-          artist: nextItem.artist,
-          cover: nextItem.cover || '',
-          duration: nextItem.duration || 0,
-          hlsUrl: hlsUrl,
-          position: 0,
-          isPlaying: true,
-        }
-      }));
+  // 获取当前歌曲在房间歌单中的索引
+  const getCurrentRoomIndex = (roomPlaylist: RoomPlaylistItem[]): number => {
+    const currentTrackId = String(playerState.currentTrack?.id || playerState.currentTrack?.neteaseId || '');
+    return roomPlaylist.findIndex(item => {
+      const itemId = item.songId.replace('netease_', '').replace('local_', '');
+      return itemId === currentTrackId || item.songId === currentTrackId;
+    });
+  };
 
-      return;
+  // 房间播放列表 - 下一首
+  const handleRoomNext = (): boolean => {
+    const { playlist, permissions } = roomDataRef.current;
+    const hasPermission = permissions.isOwner || permissions.canControl;
+
+    if (!hasPermission) {
+      console.log('[PlayerContext] 无切歌权限');
+      return false;
+    }
+    if (playlist.length === 0) {
+      console.log('[PlayerContext] 房间歌单为空');
+      return false;
     }
 
-    if (playerState.playlist.length === 0) return;
+    const currentIndex = getCurrentRoomIndex(playlist);
+    // 循环播放：到末尾后回到开头
+    const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % playlist.length;
+    const nextItem = playlist[nextIndex];
 
-    // 如果是随机播放模式，随机选择一首歌
+    console.log('[PlayerContext] 房间模式切歌到下一首:', nextItem.name);
+    playTrack(roomItemToTrack(nextItem));
+    dispatchSongChangeEvent(nextItem);
+    return true;
+  };
+
+  // 房间播放列表 - 上一首
+  const handleRoomPrevious = (): boolean => {
+    const { playlist, permissions } = roomDataRef.current;
+    const hasPermission = permissions.isOwner || permissions.canControl;
+
+    if (!hasPermission) {
+      console.log('[PlayerContext] 无切歌权限');
+      return false;
+    }
+    if (playlist.length === 0) {
+      console.log('[PlayerContext] 房间歌单为空');
+      return false;
+    }
+
+    const currentIndex = getCurrentRoomIndex(playlist);
+    // 循环播放：到开头后回到末尾
+    const prevIndex = currentIndex <= 0 ? playlist.length - 1 : currentIndex - 1;
+    const prevItem = playlist[prevIndex];
+
+    console.log('[PlayerContext] 房间模式切歌到上一首:', prevItem.name);
+    playTrack(roomItemToTrack(prevItem));
+    dispatchSongChangeEvent(prevItem);
+    return true;
+  };
+
+  // 个人播放列表 - 下一首
+  const handlePersonalNext = (): boolean => {
+    if (playerState.playlist.length === 0) return false;
+
+    // 随机播放模式
     if (playerState.playMode === PlayMode.SHUFFLE) {
       const randomTrack = getRandomTrack();
       if (randomTrack) {
         playTrack(randomTrack);
+        return true;
       }
-      return;
+      return false;
     }
 
-    // 其他播放模式使用原有的逻辑
+    // 其他播放模式
     const currentPosition = playerState.currentTrack?.position ?? -1;
     let nextPosition = 0;
 
     if (currentPosition !== -1) {
-      // 如果是顺序播放模式，且当前是最后一首
+      // 顺序播放模式，播放完最后一首后停止
       if (playerState.playMode === PlayMode.SEQUENTIAL && currentPosition === playerState.playlist.length - 1) {
-        // 顺序播放模式下，播放完最后一首后停止播放
         if (audioRef.current) {
           audioRef.current.pause();
           setPlayerState(prev => ({ ...prev, isPlaying: false }));
         }
-        return;
-      } else {
-        nextPosition = (currentPosition + 1) % playerState.playlist.length;
+        return false;
       }
+      nextPosition = (currentPosition + 1) % playerState.playlist.length;
     }
 
     const nextTrack = playerState.playlist.find(track => track.position === nextPosition);
     if (nextTrack) {
       playTrack(nextTrack);
+      return true;
     }
+    return false;
   };
 
-  // 上一首
-  const handlePrevious = () => {
-    // 如果处于房间模式，直接在 PlayerContext 中处理房间歌单切歌
-    if (isInRoomMode && isRoomListenModeRef.current) {
-      const roomPlaylist = roomPlaylistRef.current;
-      const hasPermission = isRoomOwnerRef.current || canControlRef.current;
+  // 个人播放列表 - 上一首
+  const handlePersonalPrevious = (): boolean => {
+    if (playerState.playlist.length === 0) return false;
 
-      if (!hasPermission) return;
-      if (roomPlaylist.length === 0) return;
-
-      // 获取当前播放歌曲在房间歌单中的索引
-      const currentTrackId = String(playerState.currentTrack?.id || playerState.currentTrack?.neteaseId || '');
-      const currentIndex = roomPlaylist.findIndex(item => {
-        const itemId = item.songId.replace('netease_', '');
-        return itemId === currentTrackId || item.songId === currentTrackId;
-      });
-
-      // 计算上一首索引（循环播放）
-      let prevIndex = currentIndex - 1;
-      if (prevIndex < 0) {
-        prevIndex = roomPlaylist.length - 1;
-      }
-
-      // 播放上一首
-      const prevItem = roomPlaylist[prevIndex];
-      const songId = prevItem.songId.replace('netease_', '');
-      const hlsUrl = `/streams/netease/${songId}/playlist.m3u8`;
-
-      const prevTrack: Track = {
-        id: songId,
-        neteaseId: Number(songId) || undefined,
-        title: prevItem.name,
-        artist: prevItem.artist,
-        album: '',
-        coverArtPath: prevItem.cover || '',
-        hlsPlaylistUrl: hlsUrl,
-        position: 0,
-        source: 'netease',
-      };
-      playTrack(prevTrack);
-
-      // 派发切歌同步事件，让 RoomContext 发送 WebSocket 消息
-      window.dispatchEvent(new CustomEvent('player-song-change', {
-        detail: {
-          songId: songId,
-          songName: prevItem.name,
-          artist: prevItem.artist,
-          cover: prevItem.cover || '',
-          duration: prevItem.duration || 0,
-          hlsUrl: hlsUrl,
-          position: 0,
-          isPlaying: true,
-        }
-      }));
-
-      return;
-    }
-
-    if (playerState.playlist.length === 0) return;
-
-    // 如果是随机播放模式，随机选择一首歌
+    // 随机播放模式
     if (playerState.playMode === PlayMode.SHUFFLE) {
       const randomTrack = getRandomTrack();
       if (randomTrack) {
         playTrack(randomTrack);
+        return true;
       }
-      return;
+      return false;
     }
 
-    // 其他播放模式使用原有的逻辑
+    // 其他播放模式
     const currentPosition = playerState.currentTrack?.position ?? -1;
     let prevPosition = playerState.playlist.length - 1;
 
@@ -664,6 +673,32 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const prevTrack = playerState.playlist.find(track => track.position === prevPosition);
     if (prevTrack) {
       playTrack(prevTrack);
+      return true;
+    }
+    return false;
+  };
+
+  // ==================== 主控制函数 ====================
+
+  // 下一首
+  const handleNext = () => {
+    console.log('[PlayerContext] handleNext called, playlistSource:', playlistSource);
+
+    if (playlistSource === 'room') {
+      handleRoomNext();
+    } else {
+      handlePersonalNext();
+    }
+  };
+
+  // 上一首
+  const handlePrevious = () => {
+    console.log('[PlayerContext] handlePrevious called, playlistSource:', playlistSource);
+
+    if (playlistSource === 'room') {
+      handleRoomPrevious();
+    } else {
+      handlePersonalPrevious();
     }
   };
   
@@ -1112,64 +1147,17 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     };
     
     const handleEnded = () => {
-      console.log('音频播放结束事件');
+      console.log('音频播放结束事件, playlistSource:', playlistSource);
 
-      // 房间模式下的自动播放下一首逻辑
-      if (isInRoomMode && isRoomOwnerRef.current && isRoomListenModeRef.current) {
+      // 房间模式下，只有房主才自动播放下一首
+      if (playlistSource === 'room' && roomDataRef.current.permissions.isOwner) {
         console.log('[房间模式-房主] 歌曲播放结束，自动播放下一首');
-        const roomPlaylist = roomPlaylistRef.current;
-        if (roomPlaylist.length === 0) {
-          console.log('[房间模式-房主] 房间歌单为空，停止播放');
-          setPlayerState(prev => ({ ...prev, isPlaying: false }));
-          return;
-        }
-
-        // 查找当前歌曲在房间歌单中的位置
-        const currentTrackId = String(playerState.currentTrack?.id || playerState.currentTrack?.neteaseId || '');
-        const currentIndex = roomPlaylist.findIndex(item => {
-          const itemId = item.songId.replace('netease_', '');
-          return itemId === currentTrackId || item.songId === currentTrackId;
-        });
-
-        console.log('[房间模式-房主] 当前歌曲索引:', currentIndex, '歌单长度:', roomPlaylist.length);
-
-        if (currentIndex >= 0 && currentIndex < roomPlaylist.length - 1) {
-          // 播放下一首
-          const nextItem = roomPlaylist[currentIndex + 1];
-          const nextTrack: Track = {
-            id: nextItem.songId.replace('netease_', ''),
-            neteaseId: Number(nextItem.songId.replace('netease_', '')) || undefined,
-            title: nextItem.name,
-            artist: nextItem.artist,
-            album: '',
-            coverArtPath: nextItem.cover || '',
-            hlsPlaylistUrl: `/streams/netease/${nextItem.songId.replace('netease_', '')}/playlist.m3u8`,
-            position: 0,
-            source: 'netease',
-          };
-          console.log('[房间模式-房主] 播放下一首:', nextTrack.title);
-          playTrack(nextTrack);
-        } else if (roomPlaylist.length > 0) {
-          // 已经是最后一首，循环播放第一首
-          const firstItem = roomPlaylist[0];
-          const firstTrack: Track = {
-            id: firstItem.songId.replace('netease_', ''),
-            neteaseId: Number(firstItem.songId.replace('netease_', '')) || undefined,
-            title: firstItem.name,
-            artist: firstItem.artist,
-            album: '',
-            coverArtPath: firstItem.cover || '',
-            hlsPlaylistUrl: `/streams/netease/${firstItem.songId.replace('netease_', '')}/playlist.m3u8`,
-            position: 0,
-            source: 'netease',
-          };
-          console.log('[房间模式-房主] 循环播放第一首:', firstTrack.title);
-          playTrack(firstTrack);
-        }
+        // 使用统一的 handleRoomNext 函数
+        handleRoomNext();
         return;
       }
 
-      // 普通模式：根据播放模式处理歌曲结束后的行为
+      // 个人模式：根据播放模式处理歌曲结束后的行为
       switch (playerState.playMode) {
         case PlayMode.SEQUENTIAL:
           // 顺序播放：检查是否是最后一首
@@ -1351,46 +1339,58 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }));
   };
 
-  // 进入房间模式 - 保存个人播放列表并切换到房间播放列表
-  const enterRoomMode = useCallback((roomPlaylist?: Track[]) => {
-    if (isInRoomMode) {
-      return;
+  // ==================== 新的播放列表来源管理 API ====================
+
+  // 激活房间播放列表
+  const activateRoomPlaylist = useCallback((playlist: RoomPlaylistItem[], permissions: RoomPlaylistPermissions) => {
+    console.log('[PlayerContext] 激活房间播放列表, 权限:', permissions);
+
+    // 如果已经是房间模式，只更新数据不重复保存
+    if (playlistSource !== 'room') {
+      // 保存当前个人播放状态
+      savedPersonalPlaylistRef.current = [...playerState.playlist];
+      savedCurrentTrackRef.current = playerState.currentTrack;
+      savedCurrentTimeRef.current = audioRef.current?.currentTime || 0;
+
+      // 暂停当前播放
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+
+      // 重置播放状态
+      setPlayerState(prev => ({
+        ...prev,
+        currentTrack: null,
+        isPlaying: false,
+        currentTime: 0,
+      }));
     }
 
-    // 保存当前个人播放状态
-    savedPersonalPlaylistRef.current = [...playerState.playlist];
-    savedCurrentTrackRef.current = playerState.currentTrack;
-    savedCurrentTimeRef.current = audioRef.current?.currentTime || 0;
+    // 更新房间数据
+    roomDataRef.current = { playlist, permissions };
 
-    // 暂停当前播放
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-
-    // 切换到房间播放列表
-    setPlayerState(prev => ({
-      ...prev,
-      playlist: roomPlaylist?.map((track, index) => ({ ...track, position: index })) || [],
-      currentTrack: null,
-      isPlaying: false,
-      currentTime: 0,
-    }));
-
-    // 立即设置听歌模式标记，不需要等待事件更新
-    // 这样在调用 enterRoomMode 后立即点击下一首也能正确工作
+    // 同步到旧的 ref（兼容期间）
+    roomPlaylistRef.current = playlist;
+    isRoomOwnerRef.current = permissions.isOwner;
     isRoomListenModeRef.current = true;
+    canControlRef.current = permissions.canControl;
 
+    // 切换到房间模式
+    setPlaylistSource('room');
     setIsInRoomMode(true);
+
     addToast({
       type: 'info',
       message: '已切换到房间播放列表',
       duration: 2000,
     });
-  }, [isInRoomMode, playerState.playlist, playerState.currentTrack, addToast]);
+  }, [playlistSource, playerState.playlist, playerState.currentTrack, addToast]);
 
-  // 退出房间模式 - 恢复个人播放列表
-  const exitRoomMode = useCallback(() => {
-    if (!isInRoomMode) {
+  // 停用房间播放列表，恢复个人列表
+  const deactivateRoomPlaylist = useCallback(() => {
+    console.log('[PlayerContext] 停用房间播放列表，恢复个人列表');
+
+    if (playlistSource !== 'room') {
       return;
     }
 
@@ -1416,35 +1416,184 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     savedPersonalPlaylistRef.current = null;
     savedCurrentTrackRef.current = null;
     savedCurrentTimeRef.current = 0;
-    // 清理房间歌单状态
+
+    // 清理房间数据
+    roomDataRef.current = { playlist: [], permissions: { isOwner: false, canControl: false } };
+
+    // 同步清理旧的 ref（兼容期间）
     roomPlaylistRef.current = [];
     isRoomOwnerRef.current = false;
     isRoomListenModeRef.current = false;
+    canControlRef.current = false;
 
+    // 切换回个人模式
+    setPlaylistSource('personal');
+    setIsInRoomMode(false);
+
+    addToast({
+      type: 'info',
+      message: '已恢复个人播放列表',
+      duration: 2000,
+    });
+  }, [playlistSource, addToast]);
+
+  // 更新房间播放列表（不切换模式，只更新数据）
+  const updateRoomPlaylist = useCallback((playlist: RoomPlaylistItem[], permissions?: Partial<RoomPlaylistPermissions>) => {
+    console.log('[PlayerContext] 更新房间播放列表, 歌曲数:', playlist.length);
+
+    const currentPermissions = roomDataRef.current.permissions;
+    const newPermissions = {
+      isOwner: permissions?.isOwner ?? currentPermissions.isOwner,
+      canControl: permissions?.canControl ?? currentPermissions.canControl,
+    };
+
+    roomDataRef.current = { playlist, permissions: newPermissions };
+
+    // 同步到旧的 ref（兼容期间）
+    roomPlaylistRef.current = playlist;
+    isRoomOwnerRef.current = newPermissions.isOwner;
+    canControlRef.current = newPermissions.canControl;
+    // isRoomListenModeRef 保持当前状态
+  }, []);
+
+  // ==================== 兼容旧 API（将被废弃）====================
+
+  // 进入房间模式 - 保存个人播放列表并切换到房间播放列表
+  const enterRoomMode = useCallback((roomPlaylist?: Track[]) => {
+    console.log('[PlayerContext] enterRoomMode (旧API)');
+
+    // 如果已经是房间模式，不重复执行
+    if (playlistSource === 'room' || isInRoomMode) {
+      return;
+    }
+
+    // 保存当前个人播放状态
+    savedPersonalPlaylistRef.current = [...playerState.playlist];
+    savedCurrentTrackRef.current = playerState.currentTrack;
+    savedCurrentTimeRef.current = audioRef.current?.currentTime || 0;
+
+    // 暂停当前播放
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    // 切换到房间播放列表
+    setPlayerState(prev => ({
+      ...prev,
+      playlist: roomPlaylist?.map((track, index) => ({ ...track, position: index })) || [],
+      currentTrack: null,
+      isPlaying: false,
+      currentTime: 0,
+    }));
+
+    // 立即设置听歌模式标记
+    isRoomListenModeRef.current = true;
+
+    // 切换到房间模式
+    setPlaylistSource('room');
+    setIsInRoomMode(true);
+    addToast({
+      type: 'info',
+      message: '已切换到房间播放列表',
+      duration: 2000,
+    });
+  }, [playlistSource, isInRoomMode, playerState.playlist, playerState.currentTrack, addToast]);
+
+  // 退出房间模式 - 恢复个人播放列表
+  const exitRoomMode = useCallback(() => {
+    console.log('[PlayerContext] exitRoomMode (旧API)');
+
+    if (playlistSource !== 'room' && !isInRoomMode) {
+      return;
+    }
+
+    // 暂停当前播放
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    // 恢复个人播放状态
+    const restoredPlaylist = savedPersonalPlaylistRef.current || [];
+    const restoredTrack = savedCurrentTrackRef.current;
+    const restoredTime = savedCurrentTimeRef.current;
+
+    setPlayerState(prev => ({
+      ...prev,
+      playlist: restoredPlaylist,
+      currentTrack: restoredTrack,
+      isPlaying: false,
+      currentTime: restoredTime,
+    }));
+
+    // 清理保存的状态
+    savedPersonalPlaylistRef.current = null;
+    savedCurrentTrackRef.current = null;
+    savedCurrentTimeRef.current = 0;
+
+    // 清理房间歌单状态
+    roomDataRef.current = { playlist: [], permissions: { isOwner: false, canControl: false } };
+    roomPlaylistRef.current = [];
+    isRoomOwnerRef.current = false;
+    isRoomListenModeRef.current = false;
+    canControlRef.current = false;
+
+    // 切换回个人模式
+    setPlaylistSource('personal');
     setIsInRoomMode(false);
     addToast({
       type: 'info',
       message: '已恢复个人播放列表',
       duration: 2000,
     });
-  }, [isInRoomMode, addToast]);
+  }, [playlistSource, isInRoomMode, addToast]);
 
-  // 设置房间歌单（用于房主自动播放下一首）
+  // 设置房间歌单（兼容旧API，用于房主自动播放下一首）
   const setRoomPlaylistForAutoPlay = useCallback((playlist: RoomPlaylistItem[], isOwner: boolean, isListenMode: boolean, canControl?: boolean) => {
+    console.log('[PlayerContext] setRoomPlaylistForAutoPlay (旧API), isListenMode:', isListenMode);
+
+    // 更新新的数据结构
+    roomDataRef.current = {
+      playlist,
+      permissions: { isOwner, canControl: canControl || false }
+    };
+
+    // 同步到旧的 ref
     roomPlaylistRef.current = playlist;
     isRoomOwnerRef.current = isOwner;
     isRoomListenModeRef.current = isListenMode;
     canControlRef.current = canControl || false;
-  }, []);
+
+    // 根据 isListenMode 同步 playlistSource
+    if (isListenMode && playlistSource !== 'room') {
+      setPlaylistSource('room');
+    } else if (!isListenMode && playlistSource === 'room') {
+      setPlaylistSource('personal');
+    }
+  }, [playlistSource]);
 
   // 监听 RoomContext 派发的歌单更新事件（解决切换页面后无法自动播放下一首的问题）
   useEffect(() => {
     const handleRoomPlaylistUpdate = (event: CustomEvent<{ playlist: RoomPlaylistItem[]; isOwner: boolean; isListenMode: boolean; canControl?: boolean }>) => {
       const { playlist, isOwner, isListenMode, canControl } = event.detail;
+
+      // 更新新的数据结构
+      roomDataRef.current = {
+        playlist,
+        permissions: { isOwner, canControl: canControl || false }
+      };
+
+      // 同步到旧的 ref
       roomPlaylistRef.current = playlist;
       isRoomOwnerRef.current = isOwner;
       isRoomListenModeRef.current = isListenMode;
       canControlRef.current = canControl || false;
+
+      // 根据 isListenMode 同步 playlistSource
+      if (isListenMode) {
+        setPlaylistSource('room');
+      } else {
+        setPlaylistSource('personal');
+      }
     };
 
     window.addEventListener('room-playlist-update', handleRoomPlaylistUpdate as EventListener);
@@ -1459,7 +1608,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     : null;
 
   return (
-    <PlayerContext.Provider 
+    <PlayerContext.Provider
       value={{
         playerState,
         setPlayerState,
@@ -1504,6 +1653,12 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           }
         },
         currentSongId,
+        // 新 API
+        playlistSource,
+        activateRoomPlaylist,
+        deactivateRoomPlaylist,
+        updateRoomPlaylist,
+        // 兼容旧 API
         enterRoomMode,
         exitRoomMode,
         isInRoomMode,

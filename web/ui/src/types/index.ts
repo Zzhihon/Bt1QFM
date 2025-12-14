@@ -51,6 +51,15 @@ export enum PlayMode {
   SHUFFLE = 'shuffle',       // 随机播放
 }
 
+// 播放列表来源
+export type PlaylistSource = 'personal' | 'room';
+
+// 房间播放列表权限
+export interface RoomPlaylistPermissions {
+  isOwner: boolean;
+  canControl: boolean;
+}
+
 // 播放列表响应类型
 export interface PlaylistResponse {
   playlist: PlaylistItem[];

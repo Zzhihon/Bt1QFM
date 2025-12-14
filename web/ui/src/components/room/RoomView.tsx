@@ -504,8 +504,10 @@ const RoomView: React.FC = () => {
 
   // 处理切歌同步消息的回调（来自任何有权限用户的切歌）
   const handleSongChange = useCallback((event: CustomEvent<SongChangeData>) => {
-    // 只有听歌模式的用户才需要处理切歌同步
-    if (myMember?.mode !== 'listen') return;
+    // 听歌模式的用户需要处理切歌同步
+    // 房主也需要处理：当授权用户切歌时，房主需要同步切换，这样房主的 master_report 才会上报新歌曲
+    const shouldHandle = myMember?.mode === 'listen' || isOwner;
+    if (!shouldHandle) return;
 
     const songData = event.detail;
     const currentSongId = String(playerState.currentTrack?.id || playerState.currentTrack?.neteaseId || '');
@@ -615,6 +617,33 @@ const RoomView: React.FC = () => {
       window.removeEventListener('room-song-change', handleSongChange as EventListener);
     };
   }, [handleSongChange]);
+
+  // 监听本地切歌事件（授权用户自己切歌时立即进入静默期）
+  // 这是关键：在发送 song_change 消息的同时立即进入静默期，避免被房主的旧状态覆盖
+  useEffect(() => {
+    // 只有有权限的用户（非房主但有 canControl 权限）才需要监听
+    const canControl = myMember?.canControl || false;
+    if (isOwner || !canControl || myMember?.mode !== 'listen') return;
+
+    const handleLocalSongChange = () => {
+      console.log('[授权用户] 本地切歌，立即进入静默期');
+      // 立即进入静默期
+      if (songChangeSilenceTimerRef.current) {
+        clearTimeout(songChangeSilenceTimerRef.current);
+      }
+      songChangeSilenceRef.current = true;
+      // 静默期 5 秒后解除
+      songChangeSilenceTimerRef.current = setTimeout(() => {
+        songChangeSilenceRef.current = false;
+        console.log('[授权用户] 静默期结束');
+      }, 5000);
+    };
+
+    window.addEventListener('player-song-change', handleLocalSongChange);
+    return () => {
+      window.removeEventListener('player-song-change', handleLocalSongChange);
+    };
+  }, [isOwner, myMember?.canControl, myMember?.mode]);
 
   // 如果不在房间中，显示创建/加入界面
   if (!currentRoom) {

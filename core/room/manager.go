@@ -1232,7 +1232,7 @@ func (m *RoomManager) handleSongChange(ctx context.Context, client *Client, data
 		logger.Int64("stateVersion", newVersion))
 }
 
-// broadcastSongChange 广播切歌消息给所有 listen 模式用户
+// broadcastSongChange 广播切歌消息给所有 listen 模式用户和房主
 func (m *RoomManager) broadcastSongChange(roomID string, songData *SongChangeData) {
 	data, err := json.Marshal(songData)
 	if err != nil {
@@ -1249,6 +1249,62 @@ func (m *RoomManager) broadcastSongChange(roomID string, songData *SongChangeDat
 		Timestamp: songData.Timestamp,
 	}
 
+	// 获取房间信息
+	ctx := context.Background()
+	room, err := m.repo.GetByID(ctx, roomID)
+	if err != nil {
+		logger.Warn("获取房间信息失败", logger.ErrorField(err))
+		return
+	}
+	if room == nil {
+		return
+	}
+
+	// 调试日志：列出所有客户端及其模式
+	clients := m.hub.GetRoomClients(roomID)
+	for _, c := range clients {
+		logger.Info("房间客户端状态",
+			logger.String("roomID", roomID),
+			logger.Int64("userID", c.UserID),
+			logger.String("mode", c.Mode),
+			logger.Bool("isOwner", c.UserID == room.OwnerID))
+	}
+
 	// 广播给所有 listen 模式用户（包括切歌用户自己，因为要确认同步）
+	logger.Info("广播切歌消息给 listen 模式用户",
+		logger.String("roomID", roomID),
+		logger.String("songName", songData.SongName),
+		logger.Int64("changedBy", songData.ChangedBy))
 	m.hub.BroadcastWSMessage(roomID, msg, 0, model.RoomModeListen)
+
+	// 额外发送给房主（房主可能不在 listen 模式，但需要同步切歌以保持状态一致）
+	// 这样房主的 master_report 会自动使用新歌曲，避免授权用户切歌被房主旧状态覆盖
+	// 如果切歌的不是房主自己，才需要额外通知房主
+	if songData.ChangedBy != room.OwnerID {
+		ownerClient := m.hub.GetClient(roomID, room.OwnerID)
+		if ownerClient != nil {
+			logger.Info("房主客户端信息",
+				logger.Int64("ownerID", room.OwnerID),
+				logger.String("ownerMode", ownerClient.Mode))
+		}
+
+		ownerMsg := &WSMessage{
+			Type:      MsgTypeSongChange,
+			RoomID:    roomID,
+			UserID:    songData.ChangedBy,
+			Username:  songData.ChangedByName,
+			Data:      data,
+			Timestamp: songData.Timestamp,
+		}
+		if err := m.hub.SendToUser(roomID, room.OwnerID, ownerMsg); err != nil {
+			logger.Warn("发送切歌消息给房主失败",
+				logger.ErrorField(err),
+				logger.Int64("ownerID", room.OwnerID))
+		} else {
+			logger.Info("切歌消息已直接发送给房主",
+				logger.String("roomID", roomID),
+				logger.Int64("ownerID", room.OwnerID),
+				logger.String("songName", songData.SongName))
+		}
+	}
 }
