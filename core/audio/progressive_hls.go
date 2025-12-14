@@ -227,6 +227,10 @@ func (s *ProgressiveHLSState) IsProcessing() bool {
 	return !s.IsComplete
 }
 
+// MinimumSegmentsForPlayback 开始播放所需的最小分片数
+// 3 个分片 = 12 秒缓冲，确保播放器在转码追赶前有足够缓冲
+const MinimumSegmentsForPlayback = 3
+
 // 全局管理器实例
 var globalProgressiveHLSManager = NewProgressiveHLSManager()
 

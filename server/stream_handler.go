@@ -111,26 +111,28 @@ func (h *StreamHandler) handleProcessingStream(w http.ResponseWriter, req *strea
 func (h *StreamHandler) handleProgressivePlaylist(w http.ResponseWriter, req *streamRequest) {
 	hlsState := audio.GetProgressiveHLSManager().GetState(req.streamID)
 
-	// 已有分片可用，直接返回
-	if hlsState != nil && hlsState.HasMinimumSegments(1) {
+	// 已有足够分片可用，直接返回
+	if hlsState != nil && hlsState.HasMinimumSegments(audio.MinimumSegmentsForPlayback) {
 		h.writeM3U8Response(w, hlsState)
 		return
 	}
 
-	// 等待首个分片生成（最多 5 秒）
-	logger.Info("等待首个分片生成...",
+	// 等待最小分片数生成（最多 15 秒，因为需要 3 个分片）
+	logger.Info("等待最小分片数生成...",
 		logger.String("streamId", req.streamID),
-		logger.Bool("isNetease", req.isNetease))
+		logger.Bool("isNetease", req.isNetease),
+		logger.Int("minSegments", audio.MinimumSegmentsForPlayback))
 
-	hlsState = h.waitForFirstSegment(req.streamID, 5*time.Second)
+	hlsState = h.waitForMinimumSegments(req.streamID, 15*time.Second)
 	if hlsState != nil {
-		logger.Info("首个分片已就绪",
-			logger.String("streamId", req.streamID))
+		logger.Info("最小分片数已就绪",
+			logger.String("streamId", req.streamID),
+			logger.Int("segmentCount", hlsState.GetCompletedSegmentCount()))
 		h.writeM3U8Response(w, hlsState)
 		return
 	}
 
-	logger.Warn("等待首个分片超时",
+	logger.Warn("等待最小分片数超时",
 		logger.String("streamId", req.streamID))
 	http.Error(w, "Processing in progress, please retry", http.StatusAccepted)
 }
@@ -221,9 +223,10 @@ func (h *StreamHandler) asyncReprocess(streamID string) {
 
 // waitAndServeProgressivePlaylist 等待并返回渐进式播放列表
 func (h *StreamHandler) waitAndServeProgressivePlaylist(w http.ResponseWriter, req *streamRequest, timeout time.Duration) {
-	logger.Info("开始渐进式等待首个分片",
+	logger.Info("开始渐进式等待最小分片数",
 		logger.String("streamId", req.streamID),
-		logger.Duration("maxWait", timeout))
+		logger.Duration("maxWait", timeout),
+		logger.Int("minSegments", audio.MinimumSegmentsForPlayback))
 
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -234,8 +237,8 @@ func (h *StreamHandler) waitAndServeProgressivePlaylist(w http.ResponseWriter, r
 
 		// 检查 HLS 状态
 		hlsState := audio.GetProgressiveHLSManager().GetState(req.streamID)
-		if hlsState != nil && hlsState.HasMinimumSegments(1) {
-			logger.Info("渐进式播放：首个分片已就绪",
+		if hlsState != nil && hlsState.HasMinimumSegments(audio.MinimumSegmentsForPlayback) {
+			logger.Info("渐进式播放：最小分片数已就绪",
 				logger.String("streamId", req.streamID),
 				logger.Int("segmentCount", hlsState.GetCompletedSegmentCount()),
 				logger.Bool("isComplete", !hlsState.IsProcessing()))
@@ -279,8 +282,8 @@ func (h *StreamHandler) waitForExternalProcessing(w http.ResponseWriter, req *st
 		<-ticker.C
 
 		hlsState := audio.GetProgressiveHLSManager().GetState(req.streamID)
-		if hlsState != nil && hlsState.HasMinimumSegments(1) {
-			logger.Info("渐进式播放：其他进程的首个分片已就绪",
+		if hlsState != nil && hlsState.HasMinimumSegments(audio.MinimumSegmentsForPlayback) {
+			logger.Info("渐进式播放：其他进程的最小分片数已就绪",
 				logger.String("streamId", req.streamID),
 				logger.Int("segmentCount", hlsState.GetCompletedSegmentCount()))
 			h.writeM3U8Response(w, hlsState)
@@ -308,8 +311,8 @@ func (h *StreamHandler) waitForExternalProcessing(w http.ResponseWriter, req *st
 	http.Error(w, "File not found", http.StatusNotFound)
 }
 
-// waitForFirstSegment 等待首个分片生成
-func (h *StreamHandler) waitForFirstSegment(streamID string, timeout time.Duration) *audio.ProgressiveHLSState {
+// waitForMinimumSegments 等待最小分片数生成
+func (h *StreamHandler) waitForMinimumSegments(streamID string, timeout time.Duration) *audio.ProgressiveHLSState {
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -317,7 +320,7 @@ func (h *StreamHandler) waitForFirstSegment(streamID string, timeout time.Durati
 	for time.Now().Before(deadline) {
 		<-ticker.C
 		hlsState := audio.GetProgressiveHLSManager().GetState(streamID)
-		if hlsState != nil && hlsState.HasMinimumSegments(1) {
+		if hlsState != nil && hlsState.HasMinimumSegments(audio.MinimumSegmentsForPlayback) {
 			return hlsState
 		}
 	}
