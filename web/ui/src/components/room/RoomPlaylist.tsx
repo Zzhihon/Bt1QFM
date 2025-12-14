@@ -218,6 +218,21 @@ const RoomPlaylist: React.FC = () => {
     };
 
     playTrack(track);
+
+    // 派发切歌同步事件，通知后端同步给其他用户
+    window.dispatchEvent(new CustomEvent('player-song-change', {
+      detail: {
+        songId: actualId,
+        songName: item.name,
+        artist: item.artist,
+        cover: getCover(item) || '',
+        duration: item.duration || 0,
+        hlsUrl: hlsUrl,
+        position: 0,
+        isPlaying: true,
+      }
+    }));
+
     addToast({ type: 'success', message: `正在播放: ${item.name}`, duration: 2000 });
   };
 
