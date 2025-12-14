@@ -1037,26 +1037,32 @@ func (m *RoomManager) handleMasterReport(ctx context.Context, client *Client, da
 	}
 
 	// 检查房主上报的歌曲是否和缓存中的一致
-	// 如果不一致，说明有人切歌了，房主上报的是过时状态
-	isSameSong := currentState == nil
-	if currentState != nil && currentState.CurrentSong != nil {
+	// 默认允许上报（缓存为空或无法提取歌曲ID时都允许）
+	shouldReject := false
+	if currentState != nil && currentState.CurrentSong != nil && currentVersion > 0 {
+		// 只有当缓存中有版本号 > 0 的状态时，才进行歌曲ID比对
+		// 版本号 > 0 说明有授权用户切过歌
 		if songMap, ok := currentState.CurrentSong.(map[string]interface{}); ok {
-			if cachedSongID, ok := songMap["songId"].(string); ok {
-				isSameSong = cachedSongID == syncData.SongID
+			if cachedSongID, ok := songMap["songId"].(string); ok && cachedSongID != "" {
+				if cachedSongID != syncData.SongID {
+					// 歌曲ID不同，说明房主上报的是过时状态
+					shouldReject = true
+					logger.Debug("房主上报被丢弃：歌曲已被其他用户切换",
+						logger.String("roomId", client.RoomID),
+						logger.String("reportedSongId", syncData.SongID),
+						logger.String("cachedSongId", cachedSongID),
+						logger.Int64("currentVersion", currentVersion))
+				}
 			}
 		}
 	}
 
-	// 如果歌曲不同，说明是过时的上报，丢弃但不更新缓存
-	if !isSameSong {
-		logger.Debug("房主上报被丢弃：歌曲已被切换",
-			logger.String("roomId", client.RoomID),
-			logger.String("reportedSongId", syncData.SongID),
-			logger.Int64("currentVersion", currentVersion))
+	if shouldReject {
 		return
 	}
 
-	// 歌曲相同，正常更新播放状态（位置、播放/暂停等）
+	// 正常更新播放状态
+	// 注意：房主上报不改变版本号，只有切歌操作才会改变版本号
 	playbackState := &model.RoomPlaybackState{
 		CurrentIndex: 0,
 		CurrentSong: map[string]interface{}{
