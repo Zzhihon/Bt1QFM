@@ -290,7 +290,8 @@ export type RoomWSMessageType =
   | 'master_mode'     // 房主模式变更通知
   | 'room_disband'    // 房间解散通知
   | 'song_change'     // 切歌同步（有权限用户切歌后广播给所有 listen 用户）
-  | 'playlist_reorder'; // 歌单重排序
+  | 'playlist_reorder' // 歌单重排序
+  | 'connection_state'; // 连接状态通知
 
 // 房主播放同步数据
 export interface MasterSyncData {
@@ -336,3 +337,29 @@ export interface RoomWSMessage {
   data?: unknown;
   timestamp: number;
 }
+
+// 连接状态数据
+export interface ConnectionStateData {
+  state: 'connected' | 'disconnected' | 'reconnecting' | 'pong';
+  reason?: string; // 断线原因：heartbeat_timeout, replaced_by_new_connection, network_error, server_error
+  lastHeartbeat?: number;
+  serverTime: number;
+}
+
+// 断线原因枚举
+export type DisconnectReason =
+  | 'heartbeat_timeout'      // 心跳超时
+  | 'replaced_by_new_connection' // 被新连接替换
+  | 'network_error'          // 网络错误
+  | 'server_error'           // 服务器错误
+  | 'manual_disconnect'      // 手动断开
+  | 'page_hidden'            // 页面隐藏
+  | 'unknown';               // 未知原因
+
+// 连接状态枚举
+export type ConnectionStatus =
+  | 'connected'     // 已连接
+  | 'connecting'    // 连接中
+  | 'reconnecting'  // 重连中
+  | 'disconnected'  // 已断开
+  | 'failed';       // 连接失败

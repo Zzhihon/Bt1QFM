@@ -18,13 +18,14 @@ type MessageType string
 
 const (
 	// 系统消息
-	MsgTypeJoin       MessageType = "join"        // 加入房间
-	MsgTypeLeave      MessageType = "leave"       // 离开房间
-	MsgTypeError      MessageType = "error"       // 错误消息
-	MsgTypePing       MessageType = "ping"        // 心跳
-	MsgTypePong       MessageType = "pong"        // 心跳响应
-	MsgTypeSync       MessageType = "sync"        // 状态同步
-	MsgTypeMemberList MessageType = "member_list" // 成员列表
+	MsgTypeJoin            MessageType = "join"             // 加入房间
+	MsgTypeLeave           MessageType = "leave"            // 离开房间
+	MsgTypeError           MessageType = "error"            // 错误消息
+	MsgTypePing            MessageType = "ping"             // 心跳
+	MsgTypePong            MessageType = "pong"             // 心跳响应
+	MsgTypeSync            MessageType = "sync"             // 状态同步
+	MsgTypeMemberList      MessageType = "member_list"      // 成员列表
+	MsgTypeConnectionState MessageType = "connection_state" // 连接状态通知
 
 	// 聊天消息
 	MsgTypeChat       MessageType = "chat"        // 聊天消息
@@ -151,17 +152,26 @@ type SongChangeData struct {
 	Timestamp     int64   `json:"timestamp"`     // 时间戳
 }
 
+// ConnectionStateData 连接状态数据
+type ConnectionStateData struct {
+	State         string `json:"state"`                   // connected, disconnected, reconnecting
+	Reason        string `json:"reason,omitempty"`        // 断线原因
+	LastHeartbeat int64  `json:"lastHeartbeat,omitempty"` // 最后心跳时间
+	ServerTime    int64  `json:"serverTime"`              // 服务器时间
+}
+
 // Client WebSocket 客户端
 type Client struct {
-	Hub      *RoomHub
-	Conn     *websocket.Conn
-	Send     chan []byte
-	RoomID   string
-	UserID   int64
-	Username string
-	Mode     string // chat, listen
-	Role     string // owner, admin, member
-	mu       sync.RWMutex
+	Hub           *RoomHub
+	Conn          *websocket.Conn
+	Send          chan []byte
+	RoomID        string
+	UserID        int64
+	Username      string
+	Mode          string // chat, listen
+	Role          string // owner, admin, member
+	LastHeartbeat int64  // 最后心跳时间（毫秒时间戳）
+	mu            sync.RWMutex
 }
 
 // RoomHub 房间 WebSocket 管理中心
@@ -184,6 +194,9 @@ type RoomHub struct {
 
 	// 关闭信号
 	done chan struct{}
+
+	// 健康检查定时器
+	healthCheckTicker *time.Ticker
 }
 
 // BroadcastMessage 广播消息
@@ -197,17 +210,21 @@ type BroadcastMessage struct {
 // NewRoomHub 创建房间 Hub
 func NewRoomHub() *RoomHub {
 	return &RoomHub{
-		rooms:       make(map[string]map[*Client]bool),
-		userClients: make(map[string]*Client),
-		register:    make(chan *Client),
-		unregister:  make(chan *Client),
-		broadcast:   make(chan *BroadcastMessage, 256),
-		done:        make(chan struct{}),
+		rooms:             make(map[string]map[*Client]bool),
+		userClients:       make(map[string]*Client),
+		register:          make(chan *Client),
+		unregister:        make(chan *Client),
+		broadcast:         make(chan *BroadcastMessage, 256),
+		done:              make(chan struct{}),
+		healthCheckTicker: nil, // 在 Run 中启动
 	}
 }
 
 // Run 启动 Hub 主循环
 func (h *RoomHub) Run() {
+	// 启动健康检查定时器，每 30 秒检查一次
+	h.healthCheckTicker = time.NewTicker(30 * time.Second)
+
 	for {
 		select {
 		case client := <-h.register:
@@ -219,6 +236,9 @@ func (h *RoomHub) Run() {
 		case msg := <-h.broadcast:
 			h.broadcastToRoom(msg)
 
+		case <-h.healthCheckTicker.C:
+			h.performHealthCheck()
+
 		case <-h.done:
 			h.cleanup()
 			return
@@ -228,7 +248,87 @@ func (h *RoomHub) Run() {
 
 // Stop 停止 Hub
 func (h *RoomHub) Stop() {
+	if h.healthCheckTicker != nil {
+		h.healthCheckTicker.Stop()
+	}
 	close(h.done)
+}
+
+// performHealthCheck 执行健康检查，清理超时连接
+func (h *RoomHub) performHealthCheck() {
+	h.mu.RLock()
+	// 复制客户端列表避免长时间持有锁
+	var clientsToCheck []*Client
+	for _, clients := range h.rooms {
+		for client := range clients {
+			clientsToCheck = append(clientsToCheck, client)
+		}
+	}
+	h.mu.RUnlock()
+
+	now := time.Now().UnixMilli()
+	// 心跳超时阈值：90 秒（前端 20 秒发一次心跳，允许 4 次丢失）
+	heartbeatTimeout := int64(90 * 1000)
+
+	for _, client := range clientsToCheck {
+		client.mu.RLock()
+		lastHeartbeat := client.LastHeartbeat
+		client.mu.RUnlock()
+
+		// 如果从未收到心跳（LastHeartbeat 为 0），跳过检查
+		if lastHeartbeat == 0 {
+			continue
+		}
+
+		if now-lastHeartbeat > heartbeatTimeout {
+			logger.Warn("client heartbeat timeout, closing connection",
+				logger.String("room", client.RoomID),
+				logger.Int64("user", client.UserID),
+				logger.Int64("lastHeartbeat", lastHeartbeat),
+				logger.Int64("timeout", heartbeatTimeout))
+
+			// 发送断线通知给该用户（如果连接还可用）
+			h.sendConnectionState(client, "disconnected", "heartbeat_timeout")
+
+			// 触发注销
+			h.unregister <- client
+		}
+	}
+}
+
+// sendConnectionState 发送连接状态通知
+func (h *RoomHub) sendConnectionState(client *Client, state, reason string) {
+	stateData := &ConnectionStateData{
+		State:         state,
+		Reason:        reason,
+		LastHeartbeat: client.LastHeartbeat,
+		ServerTime:    time.Now().UnixMilli(),
+	}
+
+	data, err := json.Marshal(stateData)
+	if err != nil {
+		return
+	}
+
+	msg := &WSMessage{
+		Type:      MsgTypeConnectionState,
+		RoomID:    client.RoomID,
+		UserID:    client.UserID,
+		Username:  client.Username,
+		Data:      data,
+		Timestamp: time.Now().UnixMilli(),
+	}
+
+	msgData, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	select {
+	case client.Send <- msgData:
+	default:
+		// 发送失败，忽略
+	}
 }
 
 // registerClient 注册客户端
@@ -241,6 +341,8 @@ func (h *RoomHub) registerClient(client *Client) {
 
 	// 检查用户是否已经在房间中，如果是则踢掉旧连接
 	if oldClient, exists := h.userClients[userKey]; exists {
+		// 发送断线通知给旧连接
+		h.sendConnectionState(oldClient, "disconnected", "replaced_by_new_connection")
 		h.removeClient(oldClient)
 	}
 
@@ -248,6 +350,11 @@ func (h *RoomHub) registerClient(client *Client) {
 	if h.rooms[roomID] == nil {
 		h.rooms[roomID] = make(map[*Client]bool)
 	}
+
+	// 设置初始心跳时间
+	client.mu.Lock()
+	client.LastHeartbeat = time.Now().UnixMilli()
+	client.mu.Unlock()
 
 	// 添加客户端
 	h.rooms[roomID][client] = true
@@ -262,6 +369,9 @@ func (h *RoomHub) registerClient(client *Client) {
 			logger.String("room", roomID),
 			logger.Int64("user", client.UserID))
 	}
+
+	// 发送连接成功通知
+	h.sendConnectionState(client, "connected", "")
 
 	logger.Info("client registered",
 		logger.String("room", roomID),
@@ -526,6 +636,11 @@ func (c *Client) ReadPump(ctx context.Context, handler func(ctx context.Context,
 
 			// 处理心跳
 			if msg.Type == MsgTypePing {
+				// 更新客户端心跳时间
+				c.mu.Lock()
+				c.LastHeartbeat = time.Now().UnixMilli()
+				c.mu.Unlock()
+
 				// 更新 Redis 中的用户在线状态
 				roomCache := cache.NewRoomCache()
 				if err := roomCache.UpdateUserPresence(ctx, c.RoomID, c.UserID); err != nil {
@@ -535,7 +650,18 @@ func (c *Client) ReadPump(ctx context.Context, handler func(ctx context.Context,
 						logger.Int64("user", c.UserID))
 				}
 
-				pong := &WSMessage{Type: MsgTypePong, Timestamp: time.Now().UnixMilli()}
+				// 回复 pong，携带服务器时间
+				pongData := &ConnectionStateData{
+					State:         "pong",
+					LastHeartbeat: c.LastHeartbeat,
+					ServerTime:    time.Now().UnixMilli(),
+				}
+				pongDataBytes, _ := json.Marshal(pongData)
+				pong := &WSMessage{
+					Type:      MsgTypePong,
+					Data:      pongDataBytes,
+					Timestamp: time.Now().UnixMilli(),
+				}
 				if data, err := json.Marshal(pong); err == nil {
 					select {
 					case c.Send <- data:

@@ -9,14 +9,13 @@ import RoomPlaylist from './RoomPlaylist';
 import RoomCreate from './RoomCreate';
 import RoomJoin from './RoomJoin';
 import MyRoomList from './MyRoomList';
+import ConnectionStatusIndicator from '../common/ConnectionStatusIndicator';
 import type { MasterSyncData, MasterModeData, Track, SongChangeData } from '../../types';
 import {
   Users,
   Music2,
   MessageSquare,
   LogOut,
-  Wifi,
-  WifiOff,
   Loader2,
   Copy,
   Check,
@@ -689,18 +688,10 @@ const RoomView: React.FC = () => {
   // 房间视图 - 响应式布局（移动端标签切换，桌面端左右分栏）
   return (
     <div className="h-[calc(100vh-64px-114px)] md:h-[calc(100vh-64px-84px)] flex flex-col bg-cyber-bg overflow-hidden">
-      {/* 断线提示横幅 */}
+      {/* 断线提示横幅 - 使用新的连接状态组件 */}
       {!isConnected && (
-        <div className="flex-shrink-0 px-4 py-2 bg-red-500/20 border-b border-red-500/30 flex items-center justify-center gap-2">
-          <WifiOff className="w-4 h-4 text-red-400" />
-          <span className="text-sm text-red-400">
-            {reconnectAttempt > 0
-              ? `连接已断开，正在重连 (${reconnectAttempt}/10)...`
-              : '连接已断开，正在尝试重连...'}
-          </span>
-          {error && (
-            <span className="text-xs text-red-400/70">({error})</span>
-          )}
+        <div className="flex-shrink-0 px-4 py-2">
+          <ConnectionStatusIndicator detailed hideWhenConnected={false} />
         </div>
       )}
 
@@ -708,14 +699,8 @@ const RoomView: React.FC = () => {
       <div className="md:hidden flex-shrink-0 p-3 border-b border-cyber-secondary/20 bg-cyber-bg-darker/50">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2 flex-1 min-w-0">
-            {/* 连接状态 */}
-            <div className={`p-1 rounded-full flex-shrink-0 ${isConnected ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-              {isConnected ? (
-                <Wifi className="w-3 h-3 text-green-500" />
-              ) : (
-                <WifiOff className="w-3 h-3 text-red-500" />
-              )}
-            </div>
+            {/* 连接状态 - 使用新组件 */}
+            <ConnectionStatusIndicator className="flex-shrink-0" />
             {/* 房间名称 */}
             <h2 className="text-sm font-semibold text-cyber-text truncate">{currentRoom.name}</h2>
             {/* 房主标识 */}
@@ -833,14 +818,8 @@ const RoomView: React.FC = () => {
           {/* 房间信息 - 固定在顶部 */}
           <div className="flex-shrink-0 p-3 border-b border-cyber-secondary/20 bg-cyber-bg-darker/50">
             <div className="flex items-center space-x-2 mb-2">
-              {/* 连接状态 */}
-              <div className={`p-1 rounded-full ${isConnected ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-                {isConnected ? (
-                  <Wifi className="w-3 h-3 text-green-500" />
-                ) : (
-                  <WifiOff className="w-3 h-3 text-red-500" />
-                )}
-              </div>
+              {/* 连接状态 - 使用新组件 */}
+              <ConnectionStatusIndicator />
               {/* 房间名称 */}
               <h2 className="text-sm font-semibold text-cyber-text truncate flex-1">{currentRoom.name}</h2>
               {/* 房主标识 */}

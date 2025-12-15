@@ -11,6 +11,9 @@ import {
   RoomWSMessageType,
   MasterSyncData,
   SongChangeData,
+  ConnectionStatus,
+  DisconnectReason,
+  ConnectionStateData,
 } from '../types';
 
 // HTTP 添加歌曲请求参数
@@ -34,8 +37,15 @@ interface RoomContextType {
   isConnected: boolean;
   isLoading: boolean;
   error: string | null;
-  reconnectAttempt: number; // 新增：重连尝试次数
+  reconnectAttempt: number; // 重连尝试次数
   isOwner: boolean; // 是否是房主
+
+  // 新增：详细的连接状态
+  connectionStatus: ConnectionStatus;
+  disconnectReason: DisconnectReason | null;
+  lastHeartbeat: number | null; // 最后心跳时间
+  serverTimeDiff: number; // 服务器时间差（毫秒）
+  reconnectCountdown: number | null; // 重连倒计时（秒）
 
   // 房间操作
   createRoom: (name: string) => Promise<Room | null>;
@@ -90,11 +100,19 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [error, setError] = useState<string | null>(null);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
+  // 新增：详细的连接状态
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
+  const [disconnectReason, setDisconnectReason] = useState<DisconnectReason | null>(null);
+  const [lastHeartbeat, setLastHeartbeat] = useState<number | null>(null);
+  const [serverTimeDiff, setServerTimeDiff] = useState(0);
+  const [reconnectCountdown, setReconnectCountdown] = useState<number | null>(null);
+
   // WebSocket 引用
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pongTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const maxReconnectAttempts = 10;
   const currentRoomIdRef = useRef<string | null>(null);
@@ -115,11 +133,17 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       clearTimeout(pongTimeoutRef.current);
       pongTimeoutRef.current = null;
     }
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
     setIsConnected(false);
+    setConnectionStatus('disconnected');
+    setReconnectCountdown(null);
     reconnectAttemptsRef.current = 0;
     setReconnectAttempt(0);
     currentRoomIdRef.current = null;
@@ -295,10 +319,46 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         case 'pong':
           // 心跳响应 - 记录最后收到 pong 的时间
           lastPongTimeRef.current = Date.now();
+          setLastHeartbeat(Date.now());
           // 清除 pong 超时定时器
           if (pongTimeoutRef.current) {
             clearTimeout(pongTimeoutRef.current);
             pongTimeoutRef.current = null;
+          }
+          // 解析服务器时间差
+          if (message.data) {
+            const pongData = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
+            if (pongData.serverTime) {
+              const diff = Date.now() - pongData.serverTime;
+              setServerTimeDiff(diff);
+            }
+          }
+          break;
+
+        case 'connection_state':
+          // 服务器发送的连接状态通知
+          if (message.data) {
+            const stateData = typeof message.data === 'string'
+              ? JSON.parse(message.data) as ConnectionStateData
+              : message.data as ConnectionStateData;
+
+            if (stateData.state === 'connected') {
+              setConnectionStatus('connected');
+              setDisconnectReason(null);
+              setError(null);
+            } else if (stateData.state === 'disconnected') {
+              // 服务器主动断开连接
+              const reason = stateData.reason as DisconnectReason || 'unknown';
+              setDisconnectReason(reason);
+
+              // 根据断线原因设置错误消息
+              const reasonMessages: Record<string, string> = {
+                'heartbeat_timeout': '心跳超时，连接已断开',
+                'replaced_by_new_connection': '您在其他地方登录，连接已断开',
+                'server_error': '服务器错误',
+              };
+              setError(reasonMessages[reason] || '连接已断开');
+            }
           }
           break;
 
@@ -362,15 +422,24 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   // 尝试重连
-  const attemptReconnect = useCallback((roomId: string) => {
+  const attemptReconnect = useCallback((roomId: string, reason?: DisconnectReason) => {
     // 如果是手动断开，不重连
     if (isManualDisconnectRef.current) {
       console.log('手动断开连接，不进行重连');
       return;
     }
 
+    // 如果是被新连接替换，不重连
+    if (reason === 'replaced_by_new_connection') {
+      console.log('被新连接替换，不进行重连');
+      setConnectionStatus('disconnected');
+      setError('您在其他地方登录，当前连接已断开');
+      return;
+    }
+
     if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
       console.log('已达到最大重连次数，停止重连');
+      setConnectionStatus('failed');
       setError('连接失败，请刷新页面重试');
       return;
     }
@@ -378,16 +447,42 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // 检查网络状态
     if (!navigator.onLine) {
       console.log('网络离线，等待网络恢复...');
+      setConnectionStatus('disconnected');
+      setDisconnectReason('network_error');
       setError('网络已断开，等待恢复...');
       return;
     }
 
     reconnectAttemptsRef.current += 1;
     setReconnectAttempt(reconnectAttemptsRef.current);
+    setConnectionStatus('reconnecting');
 
     const delay = getReconnectDelay(reconnectAttemptsRef.current - 1);
+    const delaySeconds = Math.ceil(delay / 1000);
     console.log(`第 ${reconnectAttemptsRef.current} 次重连，${delay}ms 后尝试...`);
-    setError(`连接断开，${Math.ceil(delay / 1000)}秒后重连 (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
+    setError(`连接断开，${delaySeconds}秒后重连 (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
+
+    // 启动倒计时
+    let countdown = delaySeconds;
+    setReconnectCountdown(countdown);
+
+    // 清理之前的倒计时
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+    }
+
+    countdownIntervalRef.current = setInterval(() => {
+      countdown -= 1;
+      if (countdown > 0) {
+        setReconnectCountdown(countdown);
+      } else {
+        setReconnectCountdown(null);
+        if (countdownIntervalRef.current) {
+          clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
+        }
+      }
+    }, 1000);
 
     reconnectTimeoutRef.current = setTimeout(() => {
       if (currentRoomIdRef.current === roomId && !isManualDisconnectRef.current) {
@@ -413,6 +508,10 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       clearTimeout(pongTimeoutRef.current);
       pongTimeoutRef.current = null;
     }
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
@@ -420,6 +519,8 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     currentRoomIdRef.current = roomId;
     isManualDisconnectRef.current = false;
+    setConnectionStatus('connecting');
+    setReconnectCountdown(null);
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/room/${roomId}?userId=${currentUser.id}&username=${encodeURIComponent(currentUser.username)}&token=${authToken}`;
@@ -432,11 +533,14 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     ws.onopen = () => {
       console.log('WebSocket 连接成功');
       setIsConnected(true);
+      setConnectionStatus('connected');
+      setDisconnectReason(null);
       setError(null);
       // 重连成功后重置计数器
       reconnectAttemptsRef.current = 0;
       setReconnectAttempt(0);
       lastPongTimeRef.current = Date.now();
+      setLastHeartbeat(Date.now());
 
       // 启动智能心跳 - 每 20 秒发送一次 ping
       pingIntervalRef.current = setInterval(() => {
@@ -448,6 +552,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const timeSinceLastPong = Date.now() - lastPongTimeRef.current;
             if (timeSinceLastPong > 30000) { // 30秒没收到 pong
               console.log('心跳超时，连接可能已断开，尝试重连...');
+              setDisconnectReason('heartbeat_timeout');
               if (wsRef.current) {
                 wsRef.current.close();
               }
@@ -473,10 +578,18 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         pongTimeoutRef.current = null;
       }
 
+      // 根据关闭码确定断线原因
+      let closeReason: DisconnectReason = disconnectReason || 'unknown';
+      if (event.code === 1000 || event.code === 1001) {
+        closeReason = 'manual_disconnect';
+      } else if (event.code === 1006) {
+        closeReason = closeReason || 'network_error';
+      }
+
       // 非正常关闭且仍在当前房间时尝试重连
       // 1000 = 正常关闭, 1001 = 页面离开
       if (event.code !== 1000 && event.code !== 1001 && currentRoomIdRef.current === roomId && !isManualDisconnectRef.current) {
-        attemptReconnect(roomId);
+        attemptReconnect(roomId, closeReason);
       }
     };
 
@@ -763,7 +876,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return false;
       }
 
-      const data = await response.json();
+      await response.json();
       return true;
     } catch (err) {
       console.error('[RoomContext] addSongToRoom 异常:', err);
@@ -918,6 +1031,13 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     error,
     reconnectAttempt,
     isOwner,
+    // 新增：详细的连接状态
+    connectionStatus,
+    disconnectReason,
+    lastHeartbeat,
+    serverTimeDiff,
+    reconnectCountdown,
+    // 操作方法
     createRoom,
     joinRoom,
     leaveRoom,
