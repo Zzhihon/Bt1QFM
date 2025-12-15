@@ -630,18 +630,17 @@ const Player: React.FC = () => {
             {/* 背景轨道 */}
             <div className="absolute inset-0 bg-cyber-bg rounded-full"></div>
 
-            {/* 转码中脉冲动画背景 */}
+            {/* 转码缓冲指示器 - 显示已转码部分（浅色） */}
             {playerState.isTranscoding && (
-              <div className="absolute inset-0 bg-cyber-primary/20 rounded-full animate-pulse"></div>
+              <div
+                className="absolute top-0 left-0 h-full bg-cyber-primary/25 rounded-full pointer-events-none transition-all duration-300"
+                style={{ width: `${Math.min(100, getCurrentProgress() + 15)}%` }}
+              ></div>
             )}
 
-            {/* 进度填充 */}
+            {/* 播放进度填充 */}
             <div
-              className={`h-full rounded-full relative transition-all duration-150 ease-out ${
-                playerState.isTranscoding
-                  ? 'bg-cyber-primary/70'
-                  : 'bg-cyber-primary'
-              }`}
+              className="h-full bg-cyber-primary rounded-full relative transition-all duration-150 ease-out"
               style={{ width: `${getCurrentProgress()}%` }}
             >
               {/* 拖拽手柄 */}
@@ -651,19 +650,12 @@ const Player: React.FC = () => {
                 }`}
               ></div>
             </div>
-
-            {/* 缓冲指示器（可选） */}
-            <div className="absolute top-0 left-0 h-full bg-cyber-secondary/30 rounded-full pointer-events-none"
-                 style={{ width: '0%' }}></div>
           </div>
 
           {/* 移动端时间显示 */}
           <div className="flex justify-between text-xs text-cyber-secondary mt-1">
             <span>{formatTime(isDragging ? dragProgress * getEffectiveDuration() : playerState.currentTime)}</span>
-            <span>
-              {playerState.isTranscoding && getEffectiveDuration() > 0 && '~'}
-              {formatTime(getEffectiveDuration())}
-            </span>
+            <span>{formatTime(getEffectiveDuration())}</span>
           </div>
         </div>
 
@@ -680,18 +672,17 @@ const Player: React.FC = () => {
               {/* 背景轨道 */}
               <div className="absolute inset-0 bg-cyber-bg rounded-full"></div>
 
-              {/* 转码中脉冲动画背景 */}
+              {/* 转码缓冲指示器 - 显示已转码部分（浅色） */}
               {playerState.isTranscoding && (
-                <div className="absolute inset-0 bg-cyber-primary/20 rounded-full animate-pulse"></div>
+                <div
+                  className="absolute top-0 left-0 h-full bg-cyber-primary/25 rounded-full pointer-events-none transition-all duration-300"
+                  style={{ width: `${Math.min(100, getCurrentProgress() + 15)}%` }}
+                ></div>
               )}
 
-              {/* 进度填充 */}
+              {/* 播放进度填充 */}
               <div
-                className={`h-full rounded-full relative transition-all duration-150 ease-out ${
-                  playerState.isTranscoding
-                    ? 'bg-cyber-primary/70'
-                    : 'bg-cyber-primary'
-                }`}
+                className="h-full bg-cyber-primary rounded-full relative transition-all duration-150 ease-out"
                 style={{ width: `${getCurrentProgress()}%` }}
               >
                 {/* 拖拽手柄 */}
@@ -701,10 +692,6 @@ const Player: React.FC = () => {
                   }`}
                 ></div>
               </div>
-
-              {/* 缓冲指示器（可选） */}
-              <div className="absolute top-0 left-0 h-full bg-cyber-secondary/30 rounded-full pointer-events-none"
-                   style={{ width: '0%' }}></div>
 
               {/* 时间提示框（拖拽时显示） */}
               {isDragging && (
@@ -787,7 +774,7 @@ const Player: React.FC = () => {
             <div className="flex items-center justify-end space-x-2 md:space-x-3 flex-1 min-w-0">
               {/* 桌面端时间显示 */}
               <div className="text-xs text-cyber-secondary hidden lg:block">
-                {formatTime(isDragging ? dragProgress * getEffectiveDuration() : playerState.currentTime)} / {playerState.isTranscoding && getEffectiveDuration() > 0 && '~'}{formatTime(getEffectiveDuration())}
+                {formatTime(isDragging ? dragProgress * getEffectiveDuration() : playerState.currentTime)} / {formatTime(getEffectiveDuration())}
               </div>
               
               {/* 音量控制 - 移动端隐藏滑块 */}

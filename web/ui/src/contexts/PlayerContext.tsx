@@ -407,28 +407,13 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
           hlsInstanceRef.current = hls;
 
-          // HLS 清单解析事件 - 检测转码状态
-          hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
-            // 检查是否有 EXT-X-ENDLIST（转码完成标志）
-            // HLS.js 中 live 为 true 表示没有 ENDLIST（仍在转码）
-            const levelDetails = data.levels?.[0]?.details;
-            const isLive = levelDetails?.live ?? true;
-            const isTranscoding = isLive;
-
-            console.log('[HLS] 清单解析完成, isLive:', isLive, 'isTranscoding:', isTranscoding);
-
-            setPlayerState(prev => ({
-              ...prev,
-              isTranscoding,
-            }));
-          });
-
-          // HLS 级别更新事件 - 持续监测转码状态
-          hls.on(Hls.Events.LEVEL_UPDATED, (_event, data) => {
+          // HLS 级别加载事件 - 每次加载/刷新播放列表时触发
+          hls.on(Hls.Events.LEVEL_LOADED, (_event, data) => {
+            // data.details.live: true = 没有 EXT-X-ENDLIST（仍在转码）
+            // data.details.live: false = 有 EXT-X-ENDLIST（转码完成）
             const isLive = data.details?.live ?? true;
             const isTranscoding = isLive;
 
-            // 只有状态变化时才更新（从转码中变为完成）
             setPlayerState(prev => {
               if (prev.isTranscoding !== isTranscoding) {
                 console.log('[HLS] 转码状态更新:', isTranscoding ? '转码中' : '转码完成');
@@ -436,6 +421,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               }
               return prev;
             });
+          });
+
+          // HLS 清单解析事件 - 初始检测
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            console.log('[HLS] 清单解析完成');
           });
 
           // HLS 错误监听（仅保留错误处理）
