@@ -45,6 +45,7 @@ const RoomView: React.FC = () => {
   } = useRoom();
 
   const [leftTab, setLeftTab] = useState<'playlist' | 'members'>('playlist');
+  const [mobileTab, setMobileTab] = useState<'chat' | 'playlist' | 'members'>('chat'); // 移动端当前标签
   const [copied, setCopied] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false); // 是否正在同步中
@@ -444,14 +445,17 @@ const RoomView: React.FC = () => {
     }
 
     const syncData = event.detail;
-    setIsSyncing(true);
-
     const audio = audioRef?.current;
+
+    // 标记是否需要执行同步操作
+    let needsSync = false;
 
     // 检查是否需要切换歌曲
     const currentSongId = String(playerState.currentTrack?.id || playerState.currentTrack?.neteaseId || '');
     if (syncData.songId !== currentSongId && syncData.songId) {
-      // 需要切换歌曲
+      // 需要切换歌曲 - 这是重要的同步操作
+      needsSync = true;
+      setIsSyncing(true);
       console.log('[听歌模式] 切换歌曲:', syncData.songName);
       const trackData: Track = {
         id: syncData.songId,
@@ -471,7 +475,8 @@ const RoomView: React.FC = () => {
         if (syncData.isPlaying) {
           resumeTrack();
         }
-      }, 500);
+        setIsSyncing(false);
+      }, 1000);
     } else {
       // 同一首歌 - 同步播放状态
       if (audio) {
@@ -479,16 +484,20 @@ const RoomView: React.FC = () => {
         if (syncData.isPlaying && audio.paused) {
           console.log('[听歌模式] 同步播放');
           resumeTrack();
+          // 播放/暂停状态切换不需要显示同步指示器
         } else if (!syncData.isPlaying && !audio.paused) {
           console.log('[听歌模式] 同步暂停');
           pauseTrack();
         }
 
-        // 同步进度（差异 > 2 秒才同步，避免频繁 seek）
+        // 同步进度（差异 > 3 秒才同步，提高阈值减少频繁 seek）
         const positionDiff = Math.abs(playerState.currentTime - syncData.position);
-        if (positionDiff > 2) {
+        if (positionDiff > 3) {
+          needsSync = true;
+          setIsSyncing(true);
           console.log('[听歌模式] 同步进度:', syncData.position);
           seekTo(syncData.position);
+          setTimeout(() => setIsSyncing(false), 500);
         }
       }
     }
@@ -498,8 +507,6 @@ const RoomView: React.FC = () => {
       songId: syncData.songId,
       position: syncData.position,
     };
-
-    setTimeout(() => setIsSyncing(false), 500);
   }, [isOwner, myMember?.mode, playerState.currentTrack, playerState.currentTime, audioRef, playTrack, seekTo, pauseTrack, resumeTrack]);
 
   // 处理切歌同步消息的回调（来自任何有权限用户的切歌）
@@ -676,11 +683,133 @@ const RoomView: React.FC = () => {
     );
   }
 
-  // 房间视图 - 左右分栏布局
+  // 房间视图 - 响应式布局（移动端标签切换，桌面端左右分栏）
   return (
     <div className="h-[calc(100vh-64px-114px)] md:h-[calc(100vh-64px-84px)] flex flex-col bg-cyber-bg overflow-hidden">
-      {/* 主内容区域 - 左右分栏 */}
-      <div className="flex-1 flex overflow-hidden">
+      {/* 移动端顶部信息栏 */}
+      <div className="md:hidden flex-shrink-0 p-3 border-b border-cyber-secondary/20 bg-cyber-bg-darker/50">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2 flex-1 min-w-0">
+            {/* 连接状态 */}
+            <div className={`p-1 rounded-full flex-shrink-0 ${isConnected ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+              {isConnected ? (
+                <Wifi className="w-3 h-3 text-green-500" />
+              ) : (
+                <WifiOff className="w-3 h-3 text-red-500" />
+              )}
+            </div>
+            {/* 房间名称 */}
+            <h2 className="text-sm font-semibold text-cyber-text truncate">{currentRoom.name}</h2>
+            {/* 房主标识 */}
+            {isOwner && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] bg-cyber-primary/20 text-cyber-primary flex-shrink-0">房主</span>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-2 flex-shrink-0">
+            {/* 同步状态指示 - 只在同步时显示，平时不显示避免闪烁 */}
+            {myMember?.mode === 'listen' && !isOwner && isSyncing && (
+              <div className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs bg-yellow-500/20 text-yellow-400">
+                <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                <span className="hidden sm:inline">同步中</span>
+              </div>
+            )}
+
+            {/* 模式切换 */}
+            <button
+              onClick={handleSwitchMode}
+              className={`flex items-center space-x-1 px-2 py-1 rounded-lg transition-colors ${
+                myMember?.mode === 'listen'
+                  ? 'bg-cyber-primary/20 text-cyber-primary'
+                  : 'bg-cyber-secondary/10 text-cyber-secondary hover:text-cyber-primary'
+              }`}
+              title={myMember?.mode === 'listen' ? '听歌模式' : '聊天模式'}
+            >
+              {myMember?.mode === 'listen' ? (
+                <>
+                  <Headphones className="w-4 h-4" />
+                  <span className="text-xs">一起听</span>
+                </>
+              ) : (
+                <>
+                  <MessageCircle className="w-4 h-4" />
+                  <span className="text-xs">聊天</span>
+                </>
+              )}
+            </button>
+
+            {/* 离开房间 */}
+            <button
+              onClick={() => setShowLeaveConfirm(true)}
+              className="p-1.5 rounded-lg text-cyber-secondary hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              title="离开房间"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* 房间号和在线人数 */}
+        <div className="flex items-center justify-between text-xs text-cyber-secondary/70 mt-2">
+          <button
+            onClick={handleCopyRoomId}
+            className="flex items-center space-x-1 hover:text-cyber-primary transition-colors"
+          >
+            <span>#{currentRoom.id}</span>
+            {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+          </button>
+          <span>{members.length} 人在线</span>
+        </div>
+      </div>
+
+      {/* 移动端标签切换 */}
+      <div className="md:hidden flex-shrink-0 flex border-b border-cyber-secondary/20 bg-cyber-bg-darker/50">
+        <button
+          onClick={() => setMobileTab('chat')}
+          className={`flex-1 py-2.5 flex items-center justify-center space-x-1.5 text-sm font-medium transition-colors ${
+            mobileTab === 'chat'
+              ? 'text-cyber-primary border-b-2 border-cyber-primary bg-cyber-primary/5'
+              : 'text-cyber-secondary/70'
+          }`}
+        >
+          <MessageSquare className="w-4 h-4" />
+          <span>聊天</span>
+        </button>
+        <button
+          onClick={() => setMobileTab('playlist')}
+          className={`flex-1 py-2.5 flex items-center justify-center space-x-1.5 text-sm font-medium transition-colors ${
+            mobileTab === 'playlist'
+              ? 'text-cyber-primary border-b-2 border-cyber-primary bg-cyber-primary/5'
+              : 'text-cyber-secondary/70'
+          }`}
+        >
+          <Music2 className="w-4 h-4" />
+          <span>歌单</span>
+          <span className="text-xs opacity-60">({playlist.length})</span>
+        </button>
+        <button
+          onClick={() => setMobileTab('members')}
+          className={`flex-1 py-2.5 flex items-center justify-center space-x-1.5 text-sm font-medium transition-colors ${
+            mobileTab === 'members'
+              ? 'text-cyber-primary border-b-2 border-cyber-primary bg-cyber-primary/5'
+              : 'text-cyber-secondary/70'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>成员</span>
+          <span className="text-xs opacity-60">({members.length})</span>
+        </button>
+      </div>
+
+      {/* 移动端内容区域 */}
+      <div className="md:hidden flex-1 overflow-hidden">
+        {mobileTab === 'chat' && <RoomChat />}
+        {mobileTab === 'playlist' && <RoomPlaylist />}
+        {mobileTab === 'members' && <RoomMembers />}
+      </div>
+
+      {/* 桌面端：主内容区域 - 左右分栏 */}
+      <div className="hidden md:flex flex-1 overflow-hidden">
         {/* 左侧面板 - 房间信息 + 歌单/成员 */}
         <div className="w-72 flex-shrink-0 border-r border-cyber-secondary/20 flex flex-col bg-cyber-bg-darker/30">
           {/* 房间信息 - 固定在顶部 */}
@@ -759,34 +888,34 @@ const RoomView: React.FC = () => {
               </div>
 
               <div className="flex items-center space-x-2">
-                {/* 同步状态指示 */}
-                {myMember?.mode === 'listen' && !isOwner && (
-                  <div className={`flex items-center space-x-1 px-2 py-1 rounded-lg text-xs ${
-                    isSyncing
-                      ? 'bg-yellow-500/20 text-yellow-400'
-                      : 'bg-green-500/20 text-green-400'
-                  }`}>
-                    <div className={`w-2 h-2 rounded-full ${
-                      isSyncing ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'
-                    }`} />
-                    <span>{isSyncing ? '同步中' : '已同步'}</span>
+                {/* 同步状态指示 - 只在同步时显示，平时不显示避免闪烁 */}
+                {myMember?.mode === 'listen' && !isOwner && isSyncing && (
+                  <div className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs bg-yellow-500/20 text-yellow-400">
+                    <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                    <span>同步中</span>
                   </div>
                 )}
 
                 {/* 模式切换 */}
                 <button
                   onClick={handleSwitchMode}
-                  className={`p-1.5 rounded-lg transition-colors ${
+                  className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg transition-colors ${
                     myMember?.mode === 'listen'
                       ? 'bg-cyber-primary/20 text-cyber-primary'
                       : 'bg-cyber-secondary/10 text-cyber-secondary hover:text-cyber-primary'
                   }`}
-                  title={myMember?.mode === 'listen' ? '听歌模式' : '聊天模式'}
+                  title={myMember?.mode === 'listen' ? '切换到聊天模式' : '切换到一起听模式'}
                 >
                   {myMember?.mode === 'listen' ? (
-                    <Headphones className="w-4 h-4" />
+                    <>
+                      <Headphones className="w-4 h-4" />
+                      <span className="text-xs font-medium">一起听</span>
+                    </>
                   ) : (
-                    <MessageCircle className="w-4 h-4" />
+                    <>
+                      <MessageCircle className="w-4 h-4" />
+                      <span className="text-xs font-medium">聊天模式</span>
+                    </>
                   )}
                 </button>
 

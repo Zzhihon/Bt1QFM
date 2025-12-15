@@ -652,39 +652,35 @@ const LyricView: React.FC = () => {
     <div className="min-h-screen bg-cyber-bg">
       {/* 顶部导航栏 */}
       <div className="sticky top-0 z-10 bg-cyber-bg-darker/90 backdrop-blur-sm border-b border-cyber-secondary/30">
-        <div className="max-w-4xl mx-auto px-4 py-3">
+        <div className="max-w-4xl mx-auto px-3 sm:px-4 py-2 sm:py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2 sm:space-x-4 flex-1 min-w-0">
               <button
                 onClick={() => navigate(-1)}
-                className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors rounded-lg hover:bg-cyber-bg/50"
+                className="p-1.5 sm:p-2 text-cyber-secondary hover:text-cyber-primary transition-colors rounded-lg hover:bg-cyber-bg/50 flex-shrink-0"
               >
-                <ArrowLeft className="h-5 w-5" />
+                <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
               </button>
-              
-              <div className="flex items-center space-x-3">
-                {/* 恢复原有的封面显示 */}
-                {(isCurrentSong && localPlayerState?.currentTrack?.coverArtPath) || playerState.currentTrack?.coverArtPath ? (
+
+              <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
+                {/* 恢复原有的封面显示 - 移动端隐藏 */}
+                {((isCurrentSong && localPlayerState?.currentTrack?.coverArtPath) || playerState.currentTrack?.coverArtPath) && (
                   <img
                     src={(isCurrentSong && localPlayerState?.currentTrack?.coverArtPath) || playerState.currentTrack?.coverArtPath}
                     alt="封面"
-                    className="w-10 h-10 rounded-lg object-cover"
+                    className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg object-cover hidden sm:block flex-shrink-0"
                   />
-                ) : (
-                  <div className="w-10 h-10 bg-cyber-bg rounded-lg flex items-center justify-center">
-                    <Music2 className="h-5 w-5 text-cyber-primary" />
-                  </div>
                 )}
-                
-                <div>
-                  <h1 className="text-lg font-semibold text-cyber-primary truncate">
+
+                <div className="min-w-0 flex-1">
+                  <h1 className="text-sm sm:text-lg font-semibold text-cyber-primary truncate">
                     {metadata.title || '未知歌曲'}
                   </h1>
-                  <p className="text-sm text-cyber-secondary truncate">
+                  <p className="text-xs sm:text-sm text-cyber-secondary truncate">
                     {metadata.artist || '未知艺术家'}
                   </p>
-                  {/* 同步状态指示器 */}
-                  <div className="flex items-center space-x-2 mt-1">
+                  {/* 同步状态指示器 - 移动端简化 */}
+                  <div className="items-center space-x-2 mt-1 hidden sm:flex">
                     {isCurrentSong ? (
                       <>
                         <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
@@ -711,8 +707,8 @@ const LyricView: React.FC = () => {
                 </div>
               </div>
             </div>
-            
-            <div className="flex items-center space-x-2">
+
+            <div className="flex items-center space-x-1 sm:space-x-2 flex-shrink-0">
               {/* 自动跟随开关 */}
               {isCurrentSong && (
                 <button
@@ -733,7 +729,7 @@ const LyricView: React.FC = () => {
                       });
                     }
                   }}
-                  className={`p-2 rounded-lg transition-colors ${
+                  className={`p-1.5 sm:p-2 rounded-lg transition-colors ${
                     autoScroll
                       ? 'text-cyber-primary bg-cyber-primary/10 hover:bg-cyber-primary/20'
                       : 'text-cyber-secondary hover:text-cyber-primary hover:bg-cyber-bg/50'
@@ -743,26 +739,14 @@ const LyricView: React.FC = () => {
                   {autoScroll ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                 </button>
               )}
-              
+
               {/* 歌词模式切换 */}
-              <div className="flex bg-cyber-bg rounded-lg p-1">
-                {/* 暂时隐藏逐字歌词按钮
-                <button
-                  onClick={() => setLyricMode('yrc')}
-                  className={`px-3 py-1 text-xs rounded transition-colors ${
-                    lyricMode === 'yrc' 
-                      ? 'bg-cyber-primary text-cyber-bg-darker' 
-                      : 'text-cyber-secondary hover:text-cyber-primary'
-                  }`
-                >
-                  逐字
-                </button>
-                */}
+              <div className="flex bg-cyber-bg rounded-lg p-0.5 sm:p-1">
                 <button
                   onClick={() => setLyricMode('lrc')}
-                  className={`px-3 py-1 text-xs rounded transition-colors ${
-                    lyricMode === 'lrc' 
-                      ? 'bg-cyber-primary text-cyber-bg-darker' 
+                  className={`px-2 sm:px-3 py-1 text-xs rounded transition-colors ${
+                    lyricMode === 'lrc'
+                      ? 'bg-cyber-primary text-cyber-bg-darker'
                       : 'text-cyber-secondary hover:text-cyber-primary'
                   }`}
                 >
@@ -770,19 +754,19 @@ const LyricView: React.FC = () => {
                 </button>
                 <button
                   onClick={() => setLyricMode('translation')}
-                  className={`px-3 py-1 text-xs rounded transition-colors ${
-                    lyricMode === 'translation' 
-                      ? 'bg-cyber-primary text-cyber-bg-darker' 
+                  className={`px-2 sm:px-3 py-1 text-xs rounded transition-colors ${
+                    lyricMode === 'translation'
+                      ? 'bg-cyber-primary text-cyber-bg-darker'
                       : 'text-cyber-secondary hover:text-cyber-primary'
                   }`}
                 >
                   译文
                 </button>
               </div>
-              
+
               <button
                 onClick={() => setShowSettings(!showSettings)}
-                className="p-2 text-cyber-secondary hover:text-cyber-primary transition-colors rounded-lg hover:bg-cyber-bg/50"
+                className="p-1.5 sm:p-2 text-cyber-secondary hover:text-cyber-primary transition-colors rounded-lg hover:bg-cyber-bg/50"
               >
                 <Settings className="h-4 w-4" />
               </button>
@@ -793,8 +777,8 @@ const LyricView: React.FC = () => {
 
       {/* 设置面板 */}
       {showSettings && (
-        <div className="sticky top-16 z-10 bg-cyber-bg-darker/95 backdrop-blur-sm border-b border-cyber-secondary/30">
-          <div className="max-w-4xl mx-auto px-4 py-3 space-y-4">
+        <div className="sticky top-12 sm:top-16 z-10 bg-cyber-bg-darker/95 backdrop-blur-sm border-b border-cyber-secondary/30">
+          <div className="max-w-4xl mx-auto px-3 sm:px-4 py-3 space-y-4">
             {/* 字体大小设置 */}
             <div className="flex items-center justify-between">
               <span className="text-sm text-cyber-secondary">字体大小</span>
@@ -881,11 +865,70 @@ const LyricView: React.FC = () => {
         </div>
       )}
 
-      {/* 歌词内容区域 - 侧面布局 */}
-      <div className="max-w-6xl mx-auto px-4 py-8 pb-32">
-        <div className="flex gap-8">
-          {/* 左侧：黑胶唱片 */}
-          <div className="flex-shrink-0 w-80">
+      {/* 歌词内容区域 - 响应式布局 */}
+      <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-8 pb-32">
+        {/* 移动端：唱片在上方 */}
+        <div className="lg:hidden mb-6">
+          <div className="flex flex-col items-center">
+            <VinylRecord
+              coverUrl={(isCurrentSong && localPlayerState?.currentTrack?.coverArtPath) || playerState.currentTrack?.coverArtPath}
+              title={metadata.title || '未知歌曲'}
+              artist={metadata.artist || '未知艺术家'}
+              isPlaying={isCurrentSong && (localPlayerState?.isPlaying || playerState.isPlaying)}
+              size="md"
+              className="shadow-xl"
+              onClick={() => {
+                if (isCurrentSong) {
+                  addToast({
+                    type: 'info',
+                    message: '♪ 享受音乐与歌词的完美结合',
+                    duration: 2000,
+                  });
+                } else {
+                  addToast({
+                    type: 'info',
+                    message: '请先播放此歌曲以启用歌词同步',
+                    duration: 3000,
+                  });
+                }
+              }}
+            />
+
+            {/* 移动端歌曲信息和同步状态 */}
+            <div className="mt-4 text-center">
+              <h2 className="text-lg font-bold text-cyber-primary truncate max-w-[80vw]">
+                {metadata.title || '未知歌曲'}
+              </h2>
+              <p className="text-sm text-cyber-secondary truncate max-w-[80vw]">
+                {metadata.artist || '未知艺术家'}
+              </p>
+
+              {/* 播放状态 */}
+              <div className="flex items-center justify-center mt-2 space-x-2">
+                {isCurrentSong ? (
+                  <>
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <span className="text-xs text-green-500">
+                      {(localPlayerState?.isPlaying || playerState.isPlaying) ? '正在播放' : '已暂停'}
+                    </span>
+                    {autoScroll && (
+                      <span className="text-xs text-blue-500">• 自动跟随</span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="w-2 h-2 bg-gray-500 rounded-full"></div>
+                    <span className="text-xs text-gray-500">静态歌词</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col lg:flex-row gap-4 lg:gap-8">
+          {/* 桌面端左侧：黑胶唱片 */}
+          <div className="hidden lg:block flex-shrink-0 w-80">
             <div className="sticky top-32">
               <VinylRecord
                 coverUrl={(isCurrentSong && localPlayerState?.currentTrack?.coverArtPath) || playerState.currentTrack?.coverArtPath}
@@ -970,34 +1013,34 @@ const LyricView: React.FC = () => {
             </div>
           </div>
 
-          {/* 右侧：歌词内容 */}
+          {/* 右侧（桌面端）/ 全宽（移动端）：歌词内容 */}
           <div className="flex-1 min-w-0">
             {parsedLyrics.length === 0 ? (
-              <div className="text-center py-16">
-                <Music2 className="h-16 w-16 text-cyber-secondary mx-auto mb-4" />
+              <div className="text-center py-8 sm:py-16">
+                <Music2 className="h-12 w-12 sm:h-16 sm:w-16 text-cyber-secondary mx-auto mb-4" />
                 <p className="text-cyber-secondary">暂无歌词</p>
               </div>
             ) : (
               <div className="relative">
                 <div
                   ref={lyricContainerRef}
-                  className="h-[80vh] overflow-y-auto scrollbar-thin scrollbar-track-cyber-bg scrollbar-thumb-cyber-secondary/50"
+                  className="h-[50vh] lg:h-[80vh] overflow-y-auto scrollbar-thin scrollbar-track-cyber-bg scrollbar-thumb-cyber-secondary/50"
                   style={{ fontSize: `${fontSize}px` }}
                 >
                   {/* 顶部间距，确保第一行歌词可以滚动到中心 */}
-                  
-                  <div className="space-y-6">
+
+                  <div className="space-y-4 sm:space-y-6">
                     {parsedLyrics.map((line, index) => {
                       const isActive = index === currentLineIndex && isCurrentSong;
-                      
+
                       return (
                         <div
                           key={index}
                           ref={isActive ? currentLineRef : undefined}
-                          className={`transition-all duration-500 cursor-pointer px-6 py-4 rounded-xl text-center ${
+                          className={`transition-all duration-500 cursor-pointer px-3 sm:px-6 py-2 sm:py-4 rounded-xl text-center ${
                             isActive
-                              ? 'bg-gradient-to-r from-cyber-primary/5 via-cyber-primary/10 to-cyber-primary/5 border-2 border-cyber-primary/30 transform scale-110 shadow-2xl shadow-cyber-primary/20'
-                              : 'hover:bg-cyber-bg-darker/30 hover:scale-105'
+                              ? 'bg-gradient-to-r from-cyber-primary/5 via-cyber-primary/10 to-cyber-primary/5 border-2 border-cyber-primary/30 transform scale-105 sm:scale-110 shadow-2xl shadow-cyber-primary/20'
+                              : 'hover:bg-cyber-bg-darker/30 hover:scale-102 sm:hover:scale-105'
                           }`}
                           onClick={() => handleLineClick(line)}
                         >
@@ -1014,12 +1057,12 @@ const LyricView: React.FC = () => {
                               renderWordByWord(line, isActive)
                             )}
                           </div>
-                          
+
                           {/* 显示翻译（非翻译模式下） */}
                           {lyricMode !== 'translation' && line.translation && (
-                            <div className={`text-sm mt-2 italic transition-all duration-300 ${
-                              isActive 
-                                ? 'text-cyber-primary/70 font-medium' 
+                            <div className={`text-xs sm:text-sm mt-1 sm:mt-2 italic transition-all duration-300 ${
+                              isActive
+                                ? 'text-cyber-primary/70 font-medium'
                                 : 'text-cyber-secondary/60'
                             }`}>
                               {line.translation}
@@ -1029,35 +1072,35 @@ const LyricView: React.FC = () => {
                       );
                     })}
                   </div>
-                  
+
                   {/* 底部间距，确保最后一行歌词可以滚动到中心 */}
-                  <div className="h-[40vh]"></div>
+                  <div className="h-[25vh] lg:h-[40vh]"></div>
                 </div>
               </div>
             )}
-            
-            {/* 贡献者信息 */}
+
+            {/* 贡献者信息 - 移动端简化 */}
             {metadata.contributors && (
-              <div className="mt-12 pt-8 border-t border-cyber-secondary/30">
-                <h3 className="text-lg font-semibold text-cyber-primary mb-4">贡献者</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-cyber-secondary/30">
+                <h3 className="text-base sm:text-lg font-semibold text-cyber-primary mb-3 sm:mb-4">贡献者</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   {metadata.contributors.lyricUser && (
-                    <div className="flex items-center space-x-3 p-3 bg-cyber-bg-darker rounded-lg">
-                      <User className="h-5 w-5 text-cyber-secondary" />
-                      <div>
-                        <p className="text-cyber-primary font-medium">
+                    <div className="flex items-center space-x-3 p-2 sm:p-3 bg-cyber-bg-darker rounded-lg">
+                      <User className="h-4 w-4 sm:h-5 sm:w-5 text-cyber-secondary flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-cyber-primary font-medium text-sm truncate">
                           {metadata.contributors.lyricUser.nickname}
                         </p>
                         <p className="text-xs text-cyber-secondary">歌词贡献者</p>
                       </div>
                     </div>
                   )}
-                  
+
                   {metadata.contributors.transUser && (
-                    <div className="flex items-center space-x-3 p-3 bg-cyber-bg-darker rounded-lg">
-                      <Globe className="h-5 w-5 text-cyber-secondary" />
-                      <div>
-                        <p className="text-cyber-primary font-medium">
+                    <div className="flex items-center space-x-3 p-2 sm:p-3 bg-cyber-bg-darker rounded-lg">
+                      <Globe className="h-4 w-4 sm:h-5 sm:w-5 text-cyber-secondary flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-cyber-primary font-medium text-sm truncate">
                           {metadata.contributors.transUser.nickname}
                         </p>
                         <p className="text-xs text-cyber-secondary">翻译贡献者</p>

@@ -250,7 +250,7 @@ const RoomChat: React.FC = () => {
     <div key={song.id} className="mt-2 p-2 bg-cyber-bg/50 rounded-lg border border-cyber-secondary/30">
       <div className="flex items-center gap-2">
         {/* 封面 */}
-        <div className="w-12 h-12 flex-shrink-0 rounded-lg overflow-hidden bg-cyber-bg">
+        <div className="w-10 h-10 sm:w-12 sm:h-12 flex-shrink-0 rounded-lg overflow-hidden bg-cyber-bg">
           {song.coverUrl || song.picUrl ? (
             <img
               src={song.coverUrl || song.picUrl}
@@ -259,7 +259,7 @@ const RoomChat: React.FC = () => {
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
-              <Music2 className="h-6 w-6 text-cyber-primary" />
+              <Music2 className="h-5 w-5 sm:h-6 sm:w-6 text-cyber-primary" />
             </div>
           )}
         </div>
@@ -270,14 +270,16 @@ const RoomChat: React.FC = () => {
           <p className="text-xs text-cyber-primary truncate">
             {Array.isArray(song.artists) ? song.artists.join(', ') : song.artists}
           </p>
-          <p className="text-xs text-cyber-secondary/70 truncate">{song.album}</p>
-          {song.duration > 0 && (
-            <span className="text-xs text-cyber-secondary/70">{formatDuration(song.duration)}</span>
-          )}
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-cyber-secondary/70 truncate hidden sm:block">{song.album}</p>
+            {song.duration > 0 && (
+              <span className="text-xs text-cyber-secondary/70">{formatDuration(song.duration)}</span>
+            )}
+          </div>
         </div>
 
         {/* 操作按钮 */}
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-row sm:flex-col gap-1 flex-shrink-0">
           <button
             onClick={() => handlePlay(song)}
             className="p-1.5 rounded-full bg-cyber-primary hover:bg-cyber-hover-primary transition-all"
@@ -300,7 +302,7 @@ const RoomChat: React.FC = () => {
   return (
     <div className="flex flex-col h-full">
       {/* 消息列表 */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-cyber-secondary/50">
             <User className="w-12 h-12 mb-2" />
@@ -346,7 +348,7 @@ const RoomChat: React.FC = () => {
               </div>
 
               {/* 消息气泡 */}
-              <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[85%]`}>
+              <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[90%] sm:max-w-[85%]`}>
                 {/* 用户名 */}
                 {!isMe && msg.username && (
                   <span className="text-xs text-cyber-secondary/60 mb-1 ml-1">{msg.username}</span>
@@ -383,15 +385,15 @@ const RoomChat: React.FC = () => {
       </div>
 
       {/* 输入区域 - 更紧凑的设计 */}
-      <div className="px-3 py-2 bg-cyber-bg-darker/80 backdrop-blur-md border-t border-cyber-secondary/10">
+      <div className="px-2 sm:px-3 py-2 bg-cyber-bg-darker/80 backdrop-blur-md border-t border-cyber-secondary/10">
         <div className="flex items-center gap-2">
           <div className="flex-1 flex items-center bg-cyber-bg/60 rounded-full border border-cyber-secondary/15 focus-within:border-cyber-primary/50 transition-colors">
             <textarea
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="发送消息或 /netease 歌曲名..."
-              className="flex-1 px-4 py-1.5 text-sm bg-transparent text-cyber-text placeholder:text-cyber-secondary/40 focus:outline-none resize-none"
+              placeholder="发送消息..."
+              className="flex-1 px-3 sm:px-4 py-1.5 text-sm bg-transparent text-cyber-text placeholder:text-cyber-secondary/40 focus:outline-none resize-none"
               rows={1}
               disabled={!isConnected}
             />
