@@ -43,6 +43,11 @@ const getWebSocketUrl = () => {
   return `${wsProtocol}://${wsHost}`;
 };
 
+// 清理 <search_music> 标签
+const removeSearchMusicTags = (text: string): string => {
+  return text.replace(/<search_music>.*?<\/search_music>/gs, '').trim();
+};
+
 interface ChatChannelProps {
   className?: string;
 }
@@ -90,7 +95,12 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
       if (response.ok) {
         const data = await response.json();
         if (data.messages) {
-          setMessages(data.messages);
+          // 清理历史消息中的标签
+          const cleanedMessages = data.messages.map((msg: ChatMessage) => ({
+            ...msg,
+            content: msg.role === 'assistant' ? removeSearchMusicTags(msg.content) : msg.content,
+          }));
+          setMessages(cleanedMessages);
         }
       }
     } catch (error) {
@@ -153,8 +163,8 @@ const ChatChannel: React.FC<ChatChannelProps> = ({ className = '' }) => {
             }
             break;
           case 'end':
-            // 将流式内容添加到消息列表（包含歌曲）
-            const finalContent = streamingContentRef.current + (msg.content || '');
+            // 将流式内容添加到消息列表（包含歌曲），并清理标签
+            const finalContent = removeSearchMusicTags(streamingContentRef.current + (msg.content || ''));
             setPendingSongs(currentSongs => {
               setMessages(prev => [...prev, {
                 id: Date.now(),
