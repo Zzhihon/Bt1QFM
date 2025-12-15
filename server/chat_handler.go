@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -323,6 +324,9 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 	cleanContent, searchQuery := h.musicAgent.ParseSearchMusic(fullResponse)
 	var songCards []model.SongCard
 
+	// 额外清理：移除可能残留的 /netease 命令提示（简单字符串操作，高效）
+	cleanContent = h.removeCommandHints(cleanContent)
+
 	if searchQuery != "" {
 		logger.Info("[ChatHandler] 检测到音乐搜索标签，立即触发搜索",
 			logger.Int64("userID", userID),
@@ -523,6 +527,25 @@ func (h *ChatHandler) convertToSongCards(songs []plugin.PluginSong) []model.Song
 		}
 	}
 	return cards
+}
+
+// removeCommandHints 移除 AI 回复中可能残留的命令提示（高效字符串操作）
+func (h *ChatHandler) removeCommandHints(content string) string {
+	// 查找并移除包含 "/netease" 的行
+	lines := strings.Split(content, "\n")
+	cleanLines := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		// 跳过包含 /netease 命令提示的行
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, "/netease") ||
+		   strings.Contains(trimmed, "搜索关键词") {
+			continue
+		}
+		cleanLines = append(cleanLines, line)
+	}
+
+	return strings.TrimSpace(strings.Join(cleanLines, "\n"))
 }
 
 // handleDirectMusicSearch 处理 /netease 直接搜索命令
