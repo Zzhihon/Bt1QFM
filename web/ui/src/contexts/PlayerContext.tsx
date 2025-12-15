@@ -359,11 +359,14 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
 
-      // 更新当前歌曲
+      // 更新当前歌曲，初始化转码状态
+      // 使用 track.duration 作为预估时长（如果有的话）
       setPlayerState(prevState => ({
         ...prevState,
         currentTrack: track,
-        isPlaying: false
+        isPlaying: false,
+        isTranscoding: true, // 默认认为正在转码，等 HLS 解析后更新
+        estimatedDuration: track.duration || 0,
       }));
 
       // 确定播放URL
@@ -404,8 +407,39 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
           hlsInstanceRef.current = hls;
 
+          // HLS 清单解析事件 - 检测转码状态
+          hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
+            // 检查是否有 EXT-X-ENDLIST（转码完成标志）
+            // HLS.js 中 live 为 true 表示没有 ENDLIST（仍在转码）
+            const levelDetails = data.levels?.[0]?.details;
+            const isLive = levelDetails?.live ?? true;
+            const isTranscoding = isLive;
+
+            console.log('[HLS] 清单解析完成, isLive:', isLive, 'isTranscoding:', isTranscoding);
+
+            setPlayerState(prev => ({
+              ...prev,
+              isTranscoding,
+            }));
+          });
+
+          // HLS 级别更新事件 - 持续监测转码状态
+          hls.on(Hls.Events.LEVEL_UPDATED, (_event, data) => {
+            const isLive = data.details?.live ?? true;
+            const isTranscoding = isLive;
+
+            // 只有状态变化时才更新（从转码中变为完成）
+            setPlayerState(prev => {
+              if (prev.isTranscoding !== isTranscoding) {
+                console.log('[HLS] 转码状态更新:', isTranscoding ? '转码中' : '转码完成');
+                return { ...prev, isTranscoding };
+              }
+              return prev;
+            });
+          });
+
           // HLS 错误监听（仅保留错误处理）
-          hls.on(Hls.Events.ERROR, (event, data) => {
+          hls.on(Hls.Events.ERROR, (_event, data) => {
             if (data.fatal) {
               console.error('❌ HLS致命错误:', data.type, data.details);
               switch (data.type) {
@@ -433,17 +467,21 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             } else {
               throw new Error(`HLS URL不可访问: ${testResponse.status} ${testResponse.statusText}`);
             }
-          } catch (fetchError) {
+          } catch (fetchError: any) {
             throw new Error(`无法访问音频流: ${fetchError.message}`);
           }
 
         } else if (audioRef.current.canPlayType('application/vnd.apple.mpegurl')) {
           audioRef.current.src = playUrl;
+          // Safari 原生 HLS 不支持转码状态检测，默认为完成
+          setPlayerState(prev => ({ ...prev, isTranscoding: false }));
         } else {
           throw new Error('浏览器不支持HLS播放');
         }
       } else {
         audioRef.current.src = playUrl;
+        // 非 HLS 流，不存在转码状态
+        setPlayerState(prev => ({ ...prev, isTranscoding: false }));
       }
 
       // 等待音频可以播放
@@ -468,7 +506,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
       // 开始播放
       await audioRef.current.play();
-      
+
       setPlayerState(prevState => ({
         ...prevState,
         isPlaying: true
@@ -477,7 +515,8 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     } catch (error: any) {
       setPlayerState(prevState => ({
         ...prevState,
-        isPlaying: false
+        isPlaying: false,
+        isTranscoding: false,
       }));
 
       throw new Error(`播放失败: ${error.message}`);
