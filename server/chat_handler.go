@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -289,6 +290,13 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 	// 启动超时检测 goroutine
 	go h.timeoutWatcher(conn, firstChunkReceived, ctx)
 
+	// 流式解析状态：实时检测 <search_music> 标签
+	var streamBuffer strings.Builder      // 累积的完整响应
+	var searchMusicTriggered bool         // 标记是否已触发搜索
+	var searchQuery string                // 提取的搜索关键词
+	var songCards []model.SongCard        // 搜索结果
+	var searchMu sync.Mutex               // 保护并发访问
+
 	// Stream response from AI
 	var fullResponse string
 	fullResponse, err = h.musicAgent.ChatStream(ctx, history, content, func(chunk string) error {
@@ -297,6 +305,42 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 			close(firstChunkReceived)
 		})
 
+		// 累积响应文本
+		searchMu.Lock()
+		streamBuffer.WriteString(chunk)
+		currentText := streamBuffer.String()
+
+		// 实时检测完整的 <search_music>...</search_music> 标签
+		if !searchMusicTriggered {
+			cleanText, query := h.musicAgent.ParseSearchMusic(currentText)
+			if query != "" {
+				// 检测到完整标签，立即触发搜索
+				searchMusicTriggered = true
+				searchQuery = query
+				searchMu.Unlock()
+
+				logger.Info("[ChatHandler] 实时检测到音乐搜索标签，立即触发搜索",
+					logger.Int64("userID", userID),
+					logger.String("query", query))
+
+				// 并行执行搜索，不阻塞流式响应
+				go func() {
+					cards := h.handleMusicSearchAndGetCards(conn, userID, query)
+					searchMu.Lock()
+					songCards = cards
+					searchMu.Unlock()
+				}()
+
+				// 发送清理后的文本（移除标签）
+				return h.sendWebSocketMessage(conn, model.WebSocketMessage{
+					Type:    "content",
+					Content: cleanText,
+				})
+			}
+		}
+		searchMu.Unlock()
+
+		// 正常发送原始文本块
 		return h.sendWebSocketMessage(conn, model.WebSocketMessage{
 			Type:    "content",
 			Content: chunk,
@@ -311,28 +355,39 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 		return
 	}
 
-	// 解析 AI 响应中的音乐搜索标签
-	cleanContent, searchQuery := h.musicAgent.ParseSearchMusic(fullResponse)
-
-	// 如果有音乐搜索请求，先执行搜索获取歌曲数据（只展示一首）
-	var songCards []model.SongCard
-	if searchQuery != "" {
-		songCards = h.handleMusicSearchAndGetCards(conn, userID, searchQuery)
-		// 确保只保留第一首歌曲
-		if len(songCards) > 1 {
-			songCards = songCards[:1]
-			logger.Info("[ChatHandler] 限制为单首歌曲展示",
+	// 如果流式过程中未触发搜索，在结束后再解析一次（兜底）
+	searchMu.Lock()
+	if !searchMusicTriggered {
+		cleanContent, query := h.musicAgent.ParseSearchMusic(fullResponse)
+		if query != "" {
+			logger.Info("[ChatHandler] 兜底解析到音乐搜索标签",
 				logger.Int64("userID", userID),
-				logger.String("query", searchQuery))
+				logger.String("query", query))
+			searchQuery = query
+			songCards = h.handleMusicSearchAndGetCards(conn, userID, query)
 		}
+		fullResponse = cleanContent
 	}
+	finalSongCards := songCards
+	searchMu.Unlock()
+
+	// 确保只保留第一首歌曲
+	if len(finalSongCards) > 1 {
+		finalSongCards = finalSongCards[:1]
+		logger.Info("[ChatHandler] 限制为单首歌曲展示",
+			logger.Int64("userID", userID),
+			logger.String("query", searchQuery))
+	}
+
+	// 解析清理后的内容（移除标签）
+	cleanContent, _ := h.musicAgent.ParseSearchMusic(fullResponse)
 
 	// Save assistant message (保存清理后的内容和歌曲数据)
 	assistantMsg := &model.ChatMessage{
 		SessionID: session.ID,
 		Role:      "assistant",
-		Content:   cleanContent, // 保存不含标签的内容
-		Songs:     songCards,    // 保存歌曲卡片数据
+		Content:   cleanContent,      // 保存不含标签的内容
+		Songs:     finalSongCards,    // 保存歌曲卡片数据
 	}
 	assistantMsgID, err := h.chatRepo.CreateMessage(assistantMsg)
 	if err != nil {
@@ -354,7 +409,7 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 		logger.Int64("userID", userID),
 		logger.Int("responseLength", len(fullResponse)),
 		logger.String("musicQuery", searchQuery),
-		logger.Int("songsCount", len(songCards)))
+		logger.Int("songsCount", len(finalSongCards)))
 }
 
 // timeoutWatcher 监控首响应超时，发送分层超时提示
