@@ -175,6 +175,7 @@ func Start() {
 
 	// API Endpoints
 	router.HandleFunc("/api/tracks", apiHandler.AuthMiddleware(apiHandler.GetTracksHandler)).Methods(http.MethodGet)
+	router.HandleFunc("/api/tracks/{id}", apiHandler.AuthMiddleware(apiHandler.DeleteTrackHandler)).Methods(http.MethodDelete)
 	router.HandleFunc("/api/upload", apiHandler.AuthMiddleware(apiHandler.UploadTrackHandler)).Methods(http.MethodPost)
 	router.HandleFunc("/api/upload/cover", apiHandler.AuthMiddleware(apiHandler.UploadCoverHandler)).Methods(http.MethodPost)
 	// router.HandleFunc("/streams/{track_id}/playlist.m3u8", apiHandler.StreamHandler).Methods(http.MethodGet)
