@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"Bt1QFM/core/auth"
 	"Bt1QFM/logger"
 	"Bt1QFM/model"
+	"Bt1QFM/repository"
 )
 
 // LoginRequest represents the login request body
@@ -162,11 +164,16 @@ func (h *APIHandler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, err := h.userRepo.CreateUser(user)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "duplicate entry") {
+		// 使用 errors.Is 检查是否是重复用户错误
+		if errors.Is(err, repository.ErrDuplicateUser) {
+			logger.Warn("[Register] 用户名或邮箱已存在",
+				logger.String("username", req.Username),
+				logger.String("email", req.Email))
 			http.Error(w, "Username or email already exists", http.StatusConflict)
-		} else {
-			http.Error(w, "Failed to create user", http.StatusInternalServerError)
+			return
 		}
+		logger.Error("[Register] 创建用户失败", logger.ErrorField(err))
+		http.Error(w, "Failed to create user", http.StatusInternalServerError)
 		return
 	}
 

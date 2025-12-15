@@ -2,9 +2,11 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"Bt1QFM/model"
+	"github.com/go-sql-driver/mysql"
 )
 
 // UserRepository defines the interface for user data operations.
@@ -27,6 +29,9 @@ func NewMySQLUserRepository(db *sql.DB) UserRepository {
 	return &mysqlUserRepository{db: db}
 }
 
+// ErrDuplicateUser 表示用户名或邮箱已存在
+var ErrDuplicateUser = errors.New("username or email already exists")
+
 // CreateUser adds a new user to the database.
 func (r *mysqlUserRepository) CreateUser(user *model.User) (int64, error) {
 	query := "INSERT INTO users (username, email, password_hash, phone, preferences, netease_username, netease_uid) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -38,6 +43,11 @@ func (r *mysqlUserRepository) CreateUser(user *model.User) (int64, error) {
 
 	res, err := stmt.Exec(user.Username, user.Email, user.PasswordHash, user.Phone, user.Preferences, user.NeteaseUsername, user.NeteaseUID)
 	if err != nil {
+		// 检查是否是 MySQL 唯一约束冲突错误（错误码 1062）
+		var mysqlErr *mysql.MySQLError
+		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+			return 0, ErrDuplicateUser
+		}
 		return 0, fmt.Errorf("failed to execute create user statement: %w", err)
 	}
 

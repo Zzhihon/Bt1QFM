@@ -11,6 +11,7 @@
   --cyber-secondary: #64748B;
   --cyber-hover-primary: #1D4ED8;
   --cyber-hover-secondary: #475569;
+  --cyber-red: #EF4444;
 }
 
 /* 赛博朋克主题 */
@@ -22,6 +23,7 @@
   --cyber-secondary: #372963;
   --cyber-hover-primary: #E000E0;
   --cyber-hover-secondary: #00E0E0;
+  --cyber-red: #FF0066;
 }
 
 /* 暗夜模式主题 */
@@ -33,6 +35,7 @@
   --cyber-secondary: #238636;
   --cyber-hover-primary: #3FB950;
   --cyber-hover-secondary: #2EA043;
+  --cyber-red: #F85149;
 }
 
 /* 复古风格主题 */
@@ -44,6 +47,7 @@
   --cyber-secondary: #8B4513;
   --cyber-hover-primary: #B8860B;
   --cyber-hover-secondary: #654321;
+  --cyber-red: #DC143C;
 }
 
 @layer base {

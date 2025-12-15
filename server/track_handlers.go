@@ -123,8 +123,14 @@ type UploadConfig struct {
 // DefaultUploadConfig 返回默认的上传配置
 func DefaultUploadConfig() *UploadConfig {
 	return &UploadConfig{
-		MaxFileSize:   100 << 20, // 100MB
-		AllowedTypes:  []string{"audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp3"},
+		MaxFileSize: 100 << 20, // 100MB
+		AllowedTypes: []string{
+			"audio/mpeg", "audio/mp3",    // MP3
+			"audio/wav", "audio/x-wav",   // WAV
+			"audio/flac", "audio/x-flac", // FLAC
+			"audio/aac",                  // AAC
+			"audio/mp4",                  // M4A
+		},
 		MaxConcurrent: 5,
 		UploadTimeout: 5 * time.Minute,
 		RetryAttempts: 3,
@@ -288,7 +294,7 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		logger.Warn("不支持的文件类型",
 			logger.String("contentType", contentType),
 			logger.String("filename", trackHeader.Filename))
-		http.Error(w, "Invalid file type. Please upload MP3 or WAV files only.", http.StatusBadRequest)
+		http.Error(w, "Invalid file type. Supported formats: MP3, WAV, FLAC, AAC, M4A.", http.StatusBadRequest)
 		return
 	}
 	logger.Info("文件验证完成",
@@ -815,6 +821,7 @@ func (h *APIHandler) RegisterRoutes(router *mux.Router) {
 	// 音轨相关路由
 	router.HandleFunc("/tracks", h.UploadTrackHandler).Methods(http.MethodPost)
 	router.HandleFunc("/tracks", h.GetTracksHandler).Methods(http.MethodGet)
+	router.HandleFunc("/tracks/{id}", h.DeleteTrackHandler).Methods(http.MethodDelete)
 
 	// 封面上传路由
 	router.HandleFunc("/upload/cover", h.UploadCoverHandler).Methods(http.MethodPost)
@@ -858,5 +865,74 @@ func (h *APIHandler) RegisterRoutes(router *mux.Router) {
 		if err != nil {
 			logger.Error("Error serving file from MinIO", logger.ErrorField(err))
 		}
+	})
+}
+
+// DeleteTrackHandler 软删除track（设置state=0）
+func (h *APIHandler) DeleteTrackHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 获取用户ID
+	userID, err := GetUserIDFromContext(r.Context())
+	if err != nil {
+		logger.Error("获取用户ID失败", logger.ErrorField(err))
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// 获取track ID
+	vars := mux.Vars(r)
+	trackID, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		logger.Error("Invalid track ID",
+			logger.String("id", vars["id"]),
+			logger.ErrorField(err))
+		http.Error(w, "Invalid track ID", http.StatusBadRequest)
+		return
+	}
+
+	// 验证track是否属于当前用户
+	track, err := h.trackRepo.GetTrackByID(trackID)
+	if err != nil {
+		logger.Error("获取track失败",
+			logger.Int64("trackId", trackID),
+			logger.ErrorField(err))
+		http.Error(w, "Failed to get track", http.StatusInternalServerError)
+		return
+	}
+
+	if track == nil {
+		http.Error(w, "Track not found", http.StatusNotFound)
+		return
+	}
+
+	if track.UserID != userID {
+		logger.Warn("用户尝试删除不属于自己的track",
+			logger.Int64("userId", userID),
+			logger.Int64("trackId", trackID),
+			logger.Int64("trackUserId", track.UserID))
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// 软删除track（设置state=0）
+	if err := h.trackRepo.UpdateTrackState(trackID, 0); err != nil {
+		logger.Error("软删除track失败",
+			logger.Int64("trackId", trackID),
+			logger.ErrorField(err))
+		http.Error(w, "Failed to delete track", http.StatusInternalServerError)
+		return
+	}
+
+	logger.Info("Track软删除成功",
+		logger.Int64("trackId", trackID),
+		logger.Int64("userId", userID))
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Track deleted successfully",
 	})
 }

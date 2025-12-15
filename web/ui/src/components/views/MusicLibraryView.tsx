@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePlayer } from '../../contexts/PlayerContext';
 import { useRoom } from '../../contexts/RoomContext';
 import { Track } from '../../types';
-import { AlertTriangle, UploadCloud, Music2, PlayCircle, PauseCircle, ListMusic, Plus, Check, CheckSquare, Square } from 'lucide-react';
+import { AlertTriangle, UploadCloud, Music2, PlayCircle, PauseCircle, ListMusic, Plus, Check, CheckSquare, Square, Trash2 } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import UploadForm from '../upload/UploadForm';
 import { authInterceptor } from '../../utils/authInterceptor';
@@ -275,6 +275,98 @@ const MusicLibraryView: React.FC = () => {
     }
   }, [trackToAdd, selectedTracks, tracks, addSongToRoom, addToast]);
 
+  // 删除单个歌曲
+  const handleDeleteTrack = useCallback(async (trackId: number | string) => {
+    if (!window.confirm('确定要删除这首歌曲吗？')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/tracks/${trackId}`, {
+        method: 'DELETE',
+        headers: {
+          ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.status === 401) {
+        authInterceptor.triggerUnauthorized();
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error('删除失败');
+      }
+
+      addToast({
+        message: '歌曲已删除',
+        type: 'success',
+        duration: 3000,
+      });
+
+      // 刷新列表
+      fetchTracks();
+    } catch (err: any) {
+      console.error('删除歌曲失败:', err);
+      addToast({
+        message: err.message || '删除失败',
+        type: 'error',
+        duration: 3000,
+      });
+    }
+  }, [authToken, addToast, fetchTracks]);
+
+  // 批量删除歌曲
+  const handleBatchDelete = useCallback(async () => {
+    if (selectedTracks.size === 0) return;
+
+    if (!window.confirm(`确定要删除选中的 ${selectedTracks.size} 首歌曲吗？`)) {
+      return;
+    }
+
+    const trackIds = Array.from(selectedTracks);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const trackId of trackIds) {
+      try {
+        const response = await fetch(`/api/tracks/${trackId}`, {
+          method: 'DELETE',
+          headers: {
+            ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch (err) {
+        failCount++;
+      }
+    }
+
+    if (successCount > 0) {
+      addToast({
+        message: `成功删除 ${successCount} 首歌曲${failCount > 0 ? `，失败 ${failCount} 首` : ''}`,
+        type: successCount > failCount ? 'success' : 'warning',
+        duration: 3000,
+      });
+      setSelectedTracks(new Set());
+      setIsSelectMode(false);
+      fetchTracks();
+    } else {
+      addToast({
+        message: '删除失败',
+        type: 'error',
+        duration: 3000,
+      });
+    }
+  }, [selectedTracks, authToken, addToast, fetchTracks]);
+
   if (isLoading) {
     return <div className="min-h-[calc(100vh-150px)] flex items-center justify-center p-4 text-cyber-primary text-xl">Loading music library...</div>;
   }
@@ -315,13 +407,22 @@ const MusicLibraryView: React.FC = () => {
                     {selectedTracks.size === tracks.length ? '取消全选' : '全选'}
                   </button>
                   {selectedTracks.size > 0 && (
-                    <button
-                      onClick={handleOpenBatchAddMenu}
-                      className="flex items-center bg-cyber-secondary text-cyber-bg-darker hover:bg-cyber-hover-secondary font-semibold py-2 px-4 rounded-lg shadow-md transition-all duration-300"
-                    >
-                      <Plus className="mr-2 h-5 w-5" />
-                      添加 {selectedTracks.size} 首
-                    </button>
+                    <>
+                      <button
+                        onClick={handleOpenBatchAddMenu}
+                        className="flex items-center bg-cyber-secondary text-cyber-bg-darker hover:bg-cyber-hover-secondary font-semibold py-2 px-4 rounded-lg shadow-md transition-all duration-300"
+                      >
+                        <Plus className="mr-2 h-5 w-5" />
+                        添加 {selectedTracks.size} 首
+                      </button>
+                      <button
+                        onClick={handleBatchDelete}
+                        className="flex items-center bg-cyber-red text-white hover:bg-red-700 font-semibold py-2 px-4 rounded-lg shadow-md transition-all duration-300"
+                      >
+                        <Trash2 className="mr-2 h-5 w-5" />
+                        删除 {selectedTracks.size} 首
+                      </button>
+                    </>
                   )}
                 </>
               )}
@@ -439,14 +540,27 @@ const MusicLibraryView: React.FC = () => {
                       {isCurrentlyPlaying ? 'Now Playing' : 'Play'}
                     </button>
 
-                    <button
-                      onClick={(e) => handleOpenAddMenu(e, track)}
-                      disabled={!isPlayable}
-                      className={`flex items-center p-1 rounded-full transition-colors ${isPlayable ? 'text-cyber-secondary hover:text-cyber-primary' : 'text-cyber-muted cursor-not-allowed'}`}
-                      title="添加到..."
-                    >
-                      <Plus className="h-5 w-5" />
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={(e) => handleOpenAddMenu(e, track)}
+                        disabled={!isPlayable}
+                        className={`flex items-center p-1 rounded-full transition-colors ${isPlayable ? 'text-cyber-secondary hover:text-cyber-primary' : 'text-cyber-muted cursor-not-allowed'}`}
+                        title="添加到..."
+                      >
+                        <Plus className="h-5 w-5" />
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteTrack(track.id);
+                        }}
+                        className="flex items-center p-1 rounded-full transition-colors text-cyber-red hover:text-red-500"
+                        title="删除"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

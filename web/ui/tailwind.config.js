@@ -15,6 +15,7 @@ export default {
         'cyber-hover-primary': 'var(--cyber-hover-primary)',
         'cyber-hover-secondary': 'var(--cyber-hover-secondary)',
         'cyber-accent': 'var(--cyber-primary)',
+        'cyber-red': 'var(--cyber-red)',
       }
     },
   },
