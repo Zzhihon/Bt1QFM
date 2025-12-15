@@ -57,6 +57,7 @@ interface RoomContextType {
   addSong: (song: Omit<RoomPlaylistItem, 'position' | 'addedBy' | 'addedAt'>) => void;
   addSongToRoom: (roomId: string, song: AddSongToRoomParams) => Promise<boolean>; // HTTP API 添加歌曲到指定房间
   removeSong: (position: number) => void;
+  reorderPlaylist: (fromIndex: number, toIndex: number) => void; // 拖拽排序歌单
 
   // 聊天
   sendMessage: (content: string) => void;
@@ -226,6 +227,20 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const data = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
             const position = (data as { position: number }).position;
             setPlaylist(prev => prev.filter(item => item.position !== position));
+          }
+          break;
+
+        case 'playlist_reorder':
+          // 歌单重排序（来自其他用户）
+          if (message.data && message.userId !== currentUser?.id) {
+            const data = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
+            const { fromIndex, toIndex } = data as { fromIndex: number; toIndex: number };
+            setPlaylist(prev => {
+              const newList = [...prev];
+              const [removed] = newList.splice(fromIndex, 1);
+              newList.splice(toIndex, 0, removed);
+              return newList.map((item, index) => ({ ...item, position: index }));
+            });
           }
           break;
 
@@ -708,6 +723,23 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     sendWSMessage('song_del', { position });
   }, [sendWSMessage]);
 
+  // 歌单拖拽排序
+  const reorderPlaylist = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+
+    // 先在本地更新 UI
+    setPlaylist(prev => {
+      const newList = [...prev];
+      const [removed] = newList.splice(fromIndex, 1);
+      newList.splice(toIndex, 0, removed);
+      // 更新 position 字段
+      return newList.map((item, index) => ({ ...item, position: index }));
+    });
+
+    // 发送 WebSocket 消息同步给其他用户
+    sendWSMessage('playlist_reorder', { fromIndex, toIndex });
+  }, [sendWSMessage]);
+
   // HTTP API 添加歌曲到指定房间（不需要 WebSocket 连接）
   const addSongToRoom = useCallback(async (roomId: string, song: AddSongToRoomParams): Promise<boolean> => {
     if (!authToken) {
@@ -899,6 +931,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     addSong,
     addSongToRoom,
     removeSong,
+    reorderPlaylist,
     sendMessage,
     transferOwner,
     grantControl,

@@ -11,12 +11,13 @@ import {
   Disc3,
   Clock,
   PlayCircle,
+  GripVertical,
 } from 'lucide-react';
 import type { RoomPlaylistItem, Track } from '../../types/index';
 
 const RoomPlaylist: React.FC = () => {
   const { addToast } = useToast();
-  const { playlist, myMember, addSong, removeSong, isOwner } = useRoom();
+  const { playlist, myMember, addSong, removeSong, reorderPlaylist } = useRoom();
   const { playTrack, playerState } = usePlayer();
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -25,6 +26,10 @@ const RoomPlaylist: React.FC = () => {
   // 本地封面缓存，用于补充服务端缺失的封面
   const [coverCache, setCoverCache] = useState<Record<string, string>>({});
   const fetchedIdsRef = useRef<Set<string>>(new Set());
+
+  // 拖拽状态
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   // 当 playlist 变化时，获取缺失的封面
   useEffect(() => {
@@ -214,7 +219,7 @@ const RoomPlaylist: React.FC = () => {
       coverArtPath: getCover(item) || '',
       hlsPlaylistUrl: hlsUrl,
       position: 0,
-      source: source,
+      source: source as 'netease' | 'local',
     };
 
     playTrack(track);
@@ -234,6 +239,54 @@ const RoomPlaylist: React.FC = () => {
     }));
 
     addToast({ type: 'success', message: `正在播放: ${item.name}`, duration: 2000 });
+  };
+
+  // 拖拽开始
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    if (!canControl) {
+      e.preventDefault();
+      return;
+    }
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index));
+    // 设置拖拽时的样式
+    const target = e.currentTarget as HTMLElement;
+    target.style.opacity = '0.5';
+  };
+
+  // 拖拽结束
+  const handleDragEnd = (e: React.DragEvent) => {
+    const target = e.currentTarget as HTMLElement;
+    target.style.opacity = '1';
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  // 拖拽悬停
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedIndex !== null && index !== draggedIndex) {
+      setDragOverIndex(index);
+    }
+  };
+
+  // 拖拽离开
+  const handleDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  // 放置
+  const handleDrop = (e: React.DragEvent, toIndex: number) => {
+    e.preventDefault();
+    const fromIndex = draggedIndex;
+    if (fromIndex !== null && fromIndex !== toIndex) {
+      reorderPlaylist(fromIndex, toIndex);
+      addToast({ type: 'info', message: '已调整歌曲顺序', duration: 1500 });
+    }
+    setDraggedIndex(null);
+    setDragOverIndex(null);
   };
 
   return (
@@ -259,17 +312,36 @@ const RoomPlaylist: React.FC = () => {
               const songId = item.songId.replace('netease_', '');
               const isCurrentPlaying = String(playerState.currentTrack?.id) === songId ||
                 String(playerState.currentTrack?.neteaseId) === songId;
+              const isDragOver = dragOverIndex === index;
 
               return (
                 <div
                   key={`${item.songId}-${index}`}
+                  draggable={canControl}
+                  onDragStart={(e) => handleDragStart(e, index)}
+                  onDragEnd={handleDragEnd}
+                  onDragOver={(e) => handleDragOver(e, index)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, index)}
                   onClick={() => handlePlaySong(item)}
-                  className={`flex items-center p-3 hover:bg-cyber-bg-darker/30 transition-colors cursor-pointer group ${
-                    isCurrentPlaying ? 'bg-cyber-primary/10' : ''
+                  className={`flex items-center p-3 transition-all cursor-pointer group ${
+                    isCurrentPlaying ? 'bg-cyber-primary/10' : 'hover:bg-cyber-bg-darker/30'
+                  } ${isDragOver ? 'border-t-2 border-cyber-primary bg-cyber-primary/5' : ''} ${
+                    draggedIndex === index ? 'opacity-50' : ''
                   }`}
                 >
+                  {/* 拖拽手柄 */}
+                  {canControl && (
+                    <div
+                      className="w-6 flex-shrink-0 cursor-grab active:cursor-grabbing mr-1 text-cyber-secondary/30 hover:text-cyber-secondary/60 transition-colors"
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <GripVertical className="w-4 h-4" />
+                    </div>
+                  )}
+
                   {/* 序号/播放指示 */}
-                  <div className="w-8 flex-shrink-0 text-center">
+                  <div className="w-6 flex-shrink-0 text-center">
                     {isCurrentPlaying ? (
                       <div className="flex items-center justify-center">
                         <div className="w-2 h-2 bg-cyber-primary rounded-full animate-pulse" />
@@ -277,7 +349,7 @@ const RoomPlaylist: React.FC = () => {
                     ) : (
                       <div className="relative">
                         <span className="text-xs text-cyber-secondary/50 group-hover:opacity-0">{index + 1}</span>
-                        {isOwner && (
+                        {canControl && (
                           <PlayCircle className="w-4 h-4 text-cyber-primary absolute inset-0 m-auto opacity-0 group-hover:opacity-100 transition-opacity" />
                         )}
                       </div>

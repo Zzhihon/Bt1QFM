@@ -289,7 +289,8 @@ export type RoomWSMessageType =
   | 'master_request'  // 请求房主播放状态（用户 -> 服务端 -> 房主）
   | 'master_mode'     // 房主模式变更通知
   | 'room_disband'    // 房间解散通知
-  | 'song_change';    // 切歌同步（有权限用户切歌后广播给所有 listen 用户）
+  | 'song_change'     // 切歌同步（有权限用户切歌后广播给所有 listen 用户）
+  | 'playlist_reorder'; // 歌单重排序
 
 // 房主播放同步数据
 export interface MasterSyncData {

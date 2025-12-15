@@ -36,6 +36,7 @@ const RoomView: React.FC = () => {
     isConnected,
     isLoading,
     error,
+    reconnectAttempt,
     leaveRoom,
     disbandRoom,
     switchMode,
@@ -688,6 +689,21 @@ const RoomView: React.FC = () => {
   // 房间视图 - 响应式布局（移动端标签切换，桌面端左右分栏）
   return (
     <div className="h-[calc(100vh-64px-114px)] md:h-[calc(100vh-64px-84px)] flex flex-col bg-cyber-bg overflow-hidden">
+      {/* 断线提示横幅 */}
+      {!isConnected && (
+        <div className="flex-shrink-0 px-4 py-2 bg-red-500/20 border-b border-red-500/30 flex items-center justify-center gap-2">
+          <WifiOff className="w-4 h-4 text-red-400" />
+          <span className="text-sm text-red-400">
+            {reconnectAttempt > 0
+              ? `连接已断开，正在重连 (${reconnectAttempt}/10)...`
+              : '连接已断开，正在尝试重连...'}
+          </span>
+          {error && (
+            <span className="text-xs text-red-400/70">({error})</span>
+          )}
+        </div>
+      )}
+
       {/* 移动端顶部信息栏 */}
       <div className="md:hidden flex-shrink-0 p-3 border-b border-cyber-secondary/20 bg-cyber-bg-darker/50">
         <div className="flex items-center justify-between">

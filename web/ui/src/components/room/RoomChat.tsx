@@ -333,10 +333,10 @@ const RoomChat: React.FC = () => {
             >
               {/* 头像 */}
               <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm ${
+                className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
                   isMe
-                    ? 'bg-gradient-to-br from-cyber-primary to-cyber-primary/70'
-                    : 'bg-gradient-to-br from-cyber-secondary/30 to-cyber-secondary/10'
+                    ? 'bg-cyber-primary'
+                    : 'bg-cyber-secondary/20'
                 }`}
               >
                 <span className={`text-xs font-semibold ${isMe ? 'text-white' : 'text-cyber-secondary'}`}>
@@ -354,12 +354,12 @@ const RoomChat: React.FC = () => {
                   <span className="text-xs text-cyber-secondary/60 mb-1 ml-1">{msg.username}</span>
                 )}
 
-                {/* 气泡主体 */}
+                {/* 气泡主体 - Telegram 风格纯色 */}
                 <div
-                  className={`relative px-3 py-2 shadow-sm ${
+                  className={`relative px-3 py-2 ${
                     isMe
-                      ? 'bg-gradient-to-br from-cyber-primary to-cyber-primary/90 text-white rounded-2xl rounded-tr-md'
-                      : 'bg-cyber-bg-darker/70 text-cyber-text border border-cyber-secondary/10 rounded-2xl rounded-tl-md backdrop-blur-sm'
+                      ? 'bg-cyber-primary text-white rounded-2xl rounded-tr-sm'
+                      : 'bg-cyber-bg-darker/80 text-cyber-text rounded-2xl rounded-tl-sm'
                   }`}
                 >
                   <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>

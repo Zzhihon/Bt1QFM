@@ -40,6 +40,7 @@ const (
 	MsgTypeSongAdd       MessageType = "song_add"       // 添加歌曲
 	MsgTypeSongDel       MessageType = "song_del"       // 删除歌曲
 	MsgTypePlaylist      MessageType = "playlist"       // 歌单更新
+	MsgTypePlaylistReorder MessageType = "playlist_reorder" // 歌单重排序
 	MsgTypeModeSync      MessageType = "mode_sync"      // 模式同步
 	MsgTypeMasterSync    MessageType = "master_sync"    // 房主播放状态同步（房主 -> 其他用户）
 	MsgTypeMasterReport  MessageType = "master_report"  // 房主上报播放状态（房主 -> 服务端）

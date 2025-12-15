@@ -543,6 +543,49 @@ func (c *RoomCache) RemoveFromRoomPlaylist(ctx context.Context, roomID string, p
 	return c.client.ZRem(ctx, key, result[0]).Err()
 }
 
+// ReorderRoomPlaylist 重新排序房间歌单
+func (c *RoomCache) ReorderRoomPlaylist(ctx context.Context, roomID string, fromIndex, toIndex int) error {
+	if c.client == nil {
+		return fmt.Errorf("Redis client not initialized")
+	}
+
+	// 获取当前歌单
+	items, err := c.GetRoomPlaylist(ctx, roomID)
+	if err != nil {
+		return err
+	}
+
+	if fromIndex < 0 || fromIndex >= len(items) || toIndex < 0 || toIndex >= len(items) {
+		return fmt.Errorf("invalid index: fromIndex=%d, toIndex=%d, len=%d", fromIndex, toIndex, len(items))
+	}
+
+	// 执行重排序
+	item := items[fromIndex]
+	items = append(items[:fromIndex], items[fromIndex+1:]...)
+	items = append(items[:toIndex], append([]PlaylistItem{item}, items[toIndex:]...)...)
+
+	// 更新 position 并重新存储
+	key := GetRoomPlaylistKey(roomID)
+	pipe := c.client.Pipeline()
+	pipe.Del(ctx, key)
+
+	for i, item := range items {
+		item.Position = i
+		data, err := json.Marshal(item)
+		if err != nil {
+			continue
+		}
+		pipe.ZAdd(ctx, key, &redis.Z{
+			Score:  float64(i),
+			Member: data,
+		})
+	}
+	pipe.Expire(ctx, key, roomTTL)
+
+	_, err = pipe.Exec(ctx)
+	return err
+}
+
 // ClearRoomPlaylist 清空房间歌单
 func (c *RoomCache) ClearRoomPlaylist(ctx context.Context, roomID string) error {
 	if c.client == nil {

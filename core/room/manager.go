@@ -581,6 +581,27 @@ func (m *RoomManager) RemoveSong(ctx context.Context, roomID string, userID int6
 	return nil
 }
 
+// ReorderPlaylist 重排序歌单
+func (m *RoomManager) ReorderPlaylist(ctx context.Context, roomID string, userID int64, fromIndex, toIndex int) error {
+	// 验证权限
+	member, err := m.cache.GetMemberOnline(ctx, roomID, userID)
+	if err != nil || member == nil {
+		return fmt.Errorf("用户不在房间中")
+	}
+	if !member.CanControl && member.Role != model.RoomRoleOwner {
+		return fmt.Errorf("没有排序权限")
+	}
+
+	if err := m.cache.ReorderRoomPlaylist(ctx, roomID, fromIndex, toIndex); err != nil {
+		return fmt.Errorf("重排序歌单失败: %w", err)
+	}
+
+	// 广播歌单重排序
+	m.broadcastPlaylistReorder(roomID, userID, fromIndex, toIndex)
+
+	return nil
+}
+
 // GetPlaylist 获取歌单
 func (m *RoomManager) GetPlaylist(ctx context.Context, roomID string) ([]cache.PlaylistItem, error) {
 	return m.cache.GetRoomPlaylist(ctx, roomID)
@@ -833,6 +854,17 @@ func (m *RoomManager) broadcastSongRemove(roomID string, position int) {
 	m.hub.BroadcastWSMessage(roomID, msg, 0, "")
 }
 
+func (m *RoomManager) broadcastPlaylistReorder(roomID string, userID int64, fromIndex, toIndex int) {
+	data, _ := json.Marshal(map[string]int{"fromIndex": fromIndex, "toIndex": toIndex})
+	msg := &WSMessage{
+		Type:   MsgTypePlaylistReorder,
+		RoomID: roomID,
+		UserID: userID,
+		Data:   data,
+	}
+	m.hub.BroadcastWSMessage(roomID, msg, 0, "")
+}
+
 func (m *RoomManager) broadcastRoomDisband(roomID string) {
 	msg := &WSMessage{
 		Type:   MsgTypeRoomDisband,
@@ -956,6 +988,16 @@ func (m *RoomManager) HandleMessage(ctx context.Context, client *Client, msg *WS
 		}
 		if err := json.Unmarshal(data, &delData); err == nil {
 			m.RemoveSong(ctx, client.RoomID, client.UserID, delData.Position)
+		}
+
+	case MsgTypePlaylistReorder:
+		// 歌单重排序
+		var reorderData struct {
+			FromIndex int `json:"fromIndex"`
+			ToIndex   int `json:"toIndex"`
+		}
+		if err := json.Unmarshal(data, &reorderData); err == nil {
+			m.ReorderPlaylist(ctx, client.RoomID, client.UserID, reorderData.FromIndex, reorderData.ToIndex)
 		}
 
 	case MsgTypeModeSync:
