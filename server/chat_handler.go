@@ -314,10 +314,17 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 	// 解析 AI 响应中的音乐搜索标签
 	cleanContent, searchQuery := h.musicAgent.ParseSearchMusic(fullResponse)
 
-	// 如果有音乐搜索请求，先执行搜索获取歌曲数据
+	// 如果有音乐搜索请求，先执行搜索获取歌曲数据（只展示一首）
 	var songCards []model.SongCard
 	if searchQuery != "" {
 		songCards = h.handleMusicSearchAndGetCards(conn, userID, searchQuery)
+		// 确保只保留第一首歌曲
+		if len(songCards) > 1 {
+			songCards = songCards[:1]
+			logger.Info("[ChatHandler] 限制为单首歌曲展示",
+				logger.Int64("userID", userID),
+				logger.String("query", searchQuery))
+		}
 	}
 
 	// Save assistant message (保存清理后的内容和歌曲数据)
@@ -413,8 +420,8 @@ func (h *ChatHandler) handleMusicSearchAndGetCards(conn *websocket.Conn, userID 
 		logger.Int64("userID", userID),
 		logger.String("query", query))
 
-	// 执行搜索
-	songs, err := h.musicAgent.SearchMusic(query, 3)
+	// 执行搜索（只搜索1首，避免浪费）
+	songs, err := h.musicAgent.SearchMusic(query, 1)
 	if err != nil {
 		logger.Error("[ChatHandler] 音乐搜索失败",
 			logger.Int64("userID", userID),
