@@ -655,8 +655,8 @@ const RoomView: React.FC = () => {
   // 如果不在房间中，显示创建/加入界面
   if (!currentRoom) {
     return (
-      <div className="flex flex-col h-full bg-cyber-bg">
-        <div className="flex-1 flex items-center justify-center p-4">
+      <div className="flex flex-col h-full bg-cyber-bg overflow-y-auto">
+        <div className="flex-1 flex flex-col items-center justify-start md:justify-center p-4 py-6">
           <div className="w-full max-w-md space-y-6">
             <div className="text-center mb-8">
               <Users className="w-16 h-16 text-cyber-primary mx-auto mb-4" />
@@ -679,6 +679,8 @@ const RoomView: React.FC = () => {
             </div>
           </div>
         </div>
+        {/* 底部安全区域，确保内容不被播放器遮挡 */}
+        <div className="flex-shrink-0 h-4 md:h-0"></div>
       </div>
     );
   }

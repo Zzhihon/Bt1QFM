@@ -118,6 +118,8 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           // 页面刷新后重置播放状态，但保持播放进度
           isPlaying: false,
           // 保持currentTime，不要重置为0
+          isTranscoding: false, // 重置转码状态
+          estimatedDuration: undefined,
         };
       } catch (error) {
         console.error('Error parsing saved player state:', error);
@@ -131,7 +133,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       currentTime: 0,
       duration: 0,
       playMode: PlayMode.SEQUENTIAL,
-      playlist: []
+      playlist: [],
+      isTranscoding: false,
+      estimatedDuration: undefined,
     };
   });
   
@@ -403,6 +407,65 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           });
 
           hlsInstanceRef.current = hls;
+
+          // 🎯 HLS 智能检测：MANIFEST_PARSED 事件
+          hls.on(Hls.Events.MANIFEST_PARSED, async (event, data) => {
+            console.log('📊 HLS Manifest 解析完成:', data);
+
+            // 检测是否还在转码中（没有 EXT-X-ENDLIST 标签）
+            const level = data.levels[0];
+            const isTranscoding = level?.details?.live !== false;
+
+            console.log('🔍 HLS 状态检测:', {
+              isLive: level?.details?.live,
+              isTranscoding,
+              fragments: level?.details?.fragments?.length,
+            });
+
+            if (isTranscoding) {
+              // 转码中：获取预估时长
+              let estimatedDuration = 0;
+
+              // 优先从网易云 API 获取原始时长
+              if (track.neteaseId || (track.source === 'netease' && trackId)) {
+                try {
+                  const songId = track.neteaseId || trackId;
+                  const response = await fetch(`${backendUrl}/api/netease/song/detail?ids=${songId}`);
+                  const detailData = await response.json();
+
+                  if (detailData.success && detailData.data) {
+                    // 网易云返回的时长单位是毫秒
+                    estimatedDuration = (detailData.data.dt || 0) / 1000;
+                    console.log('✅ 从网易云获取预估时长:', estimatedDuration, '秒');
+                  }
+                } catch (error) {
+                  console.warn('⚠️ 获取网易云歌曲时长失败:', error);
+                }
+              }
+
+              // 更新状态：标记为转码中
+              setPlayerState(prev => ({
+                ...prev,
+                isTranscoding: true,
+                estimatedDuration: estimatedDuration || 180, // 默认 3 分钟
+                duration: estimatedDuration || 180,
+              }));
+
+              console.log('🔄 转码中，使用预估时长:', estimatedDuration || 180, '秒');
+            } else {
+              // 转码完成：使用真实时长
+              const realDuration = level?.details?.totalduration || audioRef.current?.duration || 0;
+
+              setPlayerState(prev => ({
+                ...prev,
+                isTranscoding: false,
+                estimatedDuration: undefined,
+                duration: realDuration,
+              }));
+
+              console.log('✅ 转码完成，真实时长:', realDuration, '秒');
+            }
+          });
 
           // HLS 错误监听（仅保留错误处理）
           hls.on(Hls.Events.ERROR, (event, data) => {

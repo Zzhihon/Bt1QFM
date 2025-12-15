@@ -407,7 +407,14 @@ const Player: React.FC = () => {
     if (isDragging) {
       return dragProgress * 100;
     }
-    return playerState.duration ? (playerState.currentTime / playerState.duration) * 100 : 0;
+    // 使用实际时长或预估时长
+    const totalDuration = playerState.duration || 0;
+    return totalDuration ? (playerState.currentTime / totalDuration) * 100 : 0;
+  };
+
+  // 获取显示的时长（优先使用预估时长）
+  const getDisplayDuration = () => {
+    return playerState.estimatedDuration || playerState.duration || 0;
   };
 
   // ============ 拖拽排序处理函数 ============
@@ -590,7 +597,7 @@ const Player: React.FC = () => {
       <div className="fixed bottom-0 left-0 right-0 bg-cyber-bg-darker border-t-2 border-cyber-primary z-50">
         {/* 移动端进度条 - 独立行 */}
         <div className="block md:hidden px-4 pt-3">
-          <div 
+          <div
             ref={progressBarRef}
             className="w-full h-3 bg-cyber-bg rounded-full cursor-pointer relative overflow-hidden group"
             onMouseDown={handleProgressMouseDown}
@@ -599,36 +606,48 @@ const Player: React.FC = () => {
           >
             {/* 背景轨道 */}
             <div className="absolute inset-0 bg-cyber-bg rounded-full"></div>
-            
+
             {/* 进度填充 */}
-            <div 
-              className="h-full bg-gradient-to-r from-cyber-primary to-cyber-secondary rounded-full relative transition-all duration-150 ease-out"
+            <div
+              className={`h-full rounded-full relative transition-all duration-150 ease-out ${
+                playerState.isTranscoding
+                  ? 'bg-cyber-primary/60 animate-pulse' // 转码中：半透明 + 脉冲动画
+                  : 'bg-cyber-primary' // 转码完成：实心
+              }`}
               style={{ width: `${getCurrentProgress()}%` }}
             >
               {/* 拖拽手柄 */}
-              <div 
-                className={`absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-cyber-primary rounded-full shadow-lg shadow-cyber-primary/50 transition-all duration-200 ${
-                  isDragging ? 'scale-125' : 'scale-100 group-hover:scale-110'
-                }`}
+              <div
+                className={`absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full shadow-lg shadow-cyber-primary/50 transition-all duration-200 ${
+                  playerState.isTranscoding
+                    ? 'bg-cyber-primary/80' // 转码中：半透明手柄
+                    : 'bg-cyber-primary' // 转码完成：实心手柄
+                } ${isDragging ? 'scale-125' : 'scale-100 group-hover:scale-110'}`}
               ></div>
             </div>
-            
-            {/* 缓冲指示器（可选） */}
-            <div className="absolute top-0 left-0 h-full bg-cyber-secondary/30 rounded-full pointer-events-none"
-                 style={{ width: '0%' }}></div>
+
+            {/* 转码加载指示器 */}
+            {playerState.isTranscoding && (
+              <div className="absolute top-0 left-0 h-full w-full flex items-center justify-center pointer-events-none">
+                <span className="text-[10px] text-cyber-primary/80 font-medium">加载中...</span>
+              </div>
+            )}
           </div>
-          
+
           {/* 移动端时间显示 */}
           <div className="flex justify-between text-xs text-cyber-secondary mt-1">
-            <span>{formatTime(isDragging ? dragProgress * playerState.duration : playerState.currentTime)}</span>
-            <span>{formatTime(playerState.duration)}</span>
+            <span>{formatTime(isDragging ? dragProgress * getDisplayDuration() : playerState.currentTime)}</span>
+            <span className={playerState.isTranscoding ? 'opacity-60' : ''}>
+              {playerState.isTranscoding && '~'}
+              {formatTime(getDisplayDuration())}
+            </span>
           </div>
         </div>
 
         <div className="max-w-7xl mx-auto px-3 md:px-4">
           {/* 桌面端进度条 */}
           <div className="hidden md:block">
-            <div 
+            <div
               ref={progressBarRef}
               className="w-full h-2 bg-cyber-bg rounded-full mb-2.5 cursor-pointer relative overflow-hidden group"
               onMouseDown={handleProgressMouseDown}
@@ -637,31 +656,40 @@ const Player: React.FC = () => {
             >
               {/* 背景轨道 */}
               <div className="absolute inset-0 bg-cyber-bg rounded-full"></div>
-              
+
               {/* 进度填充 */}
-              <div 
-                className="h-full bg-gradient-to-r from-cyber-primary to-cyber-secondary rounded-full relative transition-all duration-150 ease-out"
+              <div
+                className={`h-full rounded-full relative transition-all duration-150 ease-out ${
+                  playerState.isTranscoding
+                    ? 'bg-cyber-primary/60 animate-pulse' // 转码中：半透明 + 脉冲动画
+                    : 'bg-cyber-primary' // 转码完成：实心
+                }`}
                 style={{ width: `${getCurrentProgress()}%` }}
               >
                 {/* 拖拽手柄 */}
-                <div 
-                  className={`absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-cyber-primary rounded-full shadow-lg shadow-cyber-primary/50 transition-all duration-200 ${
-                    isDragging ? 'scale-125' : 'scale-100 group-hover:scale-110'
-                  }`}
+                <div
+                  className={`absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-lg shadow-cyber-primary/50 transition-all duration-200 ${
+                    playerState.isTranscoding
+                      ? 'bg-cyber-primary/80' // 转码中：半透明手柄
+                      : 'bg-cyber-primary' // 转码完成：实心手柄
+                  } ${isDragging ? 'scale-125' : 'scale-100 group-hover:scale-110'}`}
                 ></div>
               </div>
-              
-              {/* 缓冲指示器（可选） */}
-              <div className="absolute top-0 left-0 h-full bg-cyber-secondary/30 rounded-full pointer-events-none"
-                   style={{ width: '0%' }}></div>
-              
+
+              {/* 转码加载指示器 */}
+              {playerState.isTranscoding && (
+                <div className="absolute top-0 left-0 h-full w-full flex items-center justify-center pointer-events-none">
+                  <span className="text-[9px] text-cyber-primary/70 font-medium">转码中...</span>
+                </div>
+              )}
+
               {/* 时间提示框（拖拽时显示） */}
               {isDragging && (
-                <div 
+                <div
                   className="absolute -top-10 bg-cyber-bg-darker border border-cyber-primary rounded px-2 py-1 text-xs text-cyber-text pointer-events-none transform -translate-x-1/2 z-10"
                   style={{ left: `${getCurrentProgress()}%` }}
                 >
-                  {formatTime(dragProgress * playerState.duration)}
+                  {formatTime(dragProgress * getDisplayDuration())}
                 </div>
               )}
             </div>
@@ -736,7 +764,11 @@ const Player: React.FC = () => {
             <div className="flex items-center justify-end space-x-2 md:space-x-3 flex-1 min-w-0">
               {/* 桌面端时间显示 */}
               <div className="text-xs text-cyber-secondary hidden lg:block">
-                {formatTime(isDragging ? dragProgress * playerState.duration : playerState.currentTime)} / {formatTime(playerState.duration)}
+                {formatTime(isDragging ? dragProgress * getDisplayDuration() : playerState.currentTime)} /{' '}
+                <span className={playerState.isTranscoding ? 'opacity-60' : ''}>
+                  {playerState.isTranscoding && '~'}
+                  {formatTime(getDisplayDuration())}
+                </span>
               </div>
               
               {/* 音量控制 - 移动端隐藏滑块 */}

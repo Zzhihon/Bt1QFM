@@ -75,6 +75,9 @@ export interface PlayerState {
   duration: number;
   playMode: PlayMode;
   playlist: PlaylistItem[];
+  // HLS 转码状态
+  isTranscoding?: boolean; // 是否正在转码
+  estimatedDuration?: number; // 预估总时长（转码中使用）
 }
 
 // 专辑类型
