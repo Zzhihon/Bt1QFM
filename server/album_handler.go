@@ -82,6 +82,7 @@ func (h *APIHandler) UploadTracksToAlbumHandler(w http.ResponseWriter, r *http.R
 			Artist: album.Artist,
 			Album:  album.Name,
 			Status: "processing", // 添加状态字段
+			Source: "album",      // 标记来源为专辑
 		}
 
 		// 生成安全的文件名（与UploadTrackHandler保持完全一致）

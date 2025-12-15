@@ -39,8 +39,8 @@ func NewMySQLTrackRepository() TrackRepository {
 
 // CreateTrack adds a new track to the database.
 func (r *mysqlTrackRepository) CreateTrack(track *model.Track) (int64, error) {
-	query := `INSERT INTO tracks (title, artist, album, cover_art_path, hls_playlist_path, duration, user_id, created_at, updated_at)
-	           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO tracks (title, artist, album, cover_art_path, hls_playlist_path, duration, user_id, source, created_at, updated_at)
+	           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	stmt, err := r.DB.Prepare(query)
 	if err != nil {
 		return 0, fmt.Errorf("failed to prepare statement for CreateTrack: %w", err)
@@ -48,7 +48,11 @@ func (r *mysqlTrackRepository) CreateTrack(track *model.Track) (int64, error) {
 	defer stmt.Close()
 
 	now := time.Now()
-	res, err := stmt.Exec(track.Title, track.Artist, track.Album, track.CoverArtPath, track.HLSPlaylistPath, track.Duration, track.UserID, now, now)
+	// 如果没有设置source，默认为library
+	if track.Source == "" {
+		track.Source = "library"
+	}
+	res, err := stmt.Exec(track.Title, track.Artist, track.Album, track.CoverArtPath, track.HLSPlaylistPath, track.Duration, track.UserID, track.Source, now, now)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute CreateTrack: %w", err)
 	}
@@ -57,18 +61,18 @@ func (r *mysqlTrackRepository) CreateTrack(track *model.Track) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to get last insert ID for CreateTrack: %w", err)
 	}
-	logger.Info("Track created", logger.Int64("trackId", id), logger.String("title", track.Title))
+	logger.Info("Track created", logger.Int64("trackId", id), logger.String("title", track.Title), logger.String("source", track.Source))
 	return id, nil
 }
 
 // GetTrackByID retrieves a track by its ID.
 func (r *mysqlTrackRepository) GetTrackByID(id int64) (*model.Track, error) {
-	query := `SELECT id, user_id, title, artist, album, cover_art_path, hls_playlist_path, duration, state, created_at, updated_at
+	query := `SELECT id, user_id, title, artist, album, cover_art_path, hls_playlist_path, duration, state, source, created_at, updated_at
 	           FROM tracks WHERE id = ?`
 	row := r.DB.QueryRow(query, id)
 
 	track := &model.Track{}
-	err := row.Scan(&track.ID, &track.UserID, &track.Title, &track.Artist, &track.Album, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.State, &track.CreatedAt, &track.UpdatedAt)
+	err := row.Scan(&track.ID, &track.UserID, &track.Title, &track.Artist, &track.Album, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.State, &track.Source, &track.CreatedAt, &track.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // Track not found
@@ -80,7 +84,7 @@ func (r *mysqlTrackRepository) GetTrackByID(id int64) (*model.Track, error) {
 
 // GetAllTracks retrieves all active tracks from the database (state=1).
 func (r *mysqlTrackRepository) GetAllTracksByUserID(userID int64) ([]*model.Track, error) {
-	query := `SELECT id, user_id, title, artist, album, cover_art_path, hls_playlist_path, duration, state, created_at, updated_at
+	query := `SELECT id, user_id, title, artist, album, cover_art_path, hls_playlist_path, duration, state, source, created_at, updated_at
 	           FROM tracks WHERE user_id = ? AND state = 1 ORDER BY created_at DESC`
 	rows, err := r.DB.Query(query, userID)
 	if err != nil {
@@ -91,7 +95,7 @@ func (r *mysqlTrackRepository) GetAllTracksByUserID(userID int64) ([]*model.Trac
 	tracks := make([]*model.Track, 0)
 	for rows.Next() {
 		track := &model.Track{}
-		err := rows.Scan(&track.ID, &track.UserID, &track.Title, &track.Artist, &track.Album, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.State, &track.CreatedAt, &track.UpdatedAt)
+		err := rows.Scan(&track.ID, &track.UserID, &track.Title, &track.Artist, &track.Album, &track.CoverArtPath, &track.HLSPlaylistPath, &track.Duration, &track.State, &track.Source, &track.CreatedAt, &track.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan track in GetAllTracksByUserID: %w", err)
 		}
@@ -165,8 +169,8 @@ func (r *mysqlTrackRepository) CommitTx(tx *sql.Tx) error {
 
 // CreateTrackWithTx 在事务中创建新曲目
 func (r *mysqlTrackRepository) CreateTrackWithTx(tx *sql.Tx, track *model.Track) (int64, error) {
-	query := `INSERT INTO tracks (title, artist, album, cover_art_path, hls_playlist_path, duration, user_id, created_at, updated_at)
-	           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO tracks (title, artist, album, cover_art_path, hls_playlist_path, duration, user_id, source, created_at, updated_at)
+	           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	stmt, err := tx.Prepare(query)
 	if err != nil {
 		return 0, fmt.Errorf("failed to prepare statement for CreateTrackWithTx: %w", err)
@@ -174,7 +178,11 @@ func (r *mysqlTrackRepository) CreateTrackWithTx(tx *sql.Tx, track *model.Track)
 	defer stmt.Close()
 
 	now := time.Now()
-	res, err := stmt.Exec(track.Title, track.Artist, track.Album, track.CoverArtPath, track.HLSPlaylistPath, track.Duration, track.UserID, now, now)
+	// 如果没有设置source，默认为library
+	if track.Source == "" {
+		track.Source = "library"
+	}
+	res, err := stmt.Exec(track.Title, track.Artist, track.Album, track.CoverArtPath, track.HLSPlaylistPath, track.Duration, track.UserID, track.Source, now, now)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute CreateTrackWithTx: %w", err)
 	}
@@ -183,7 +191,7 @@ func (r *mysqlTrackRepository) CreateTrackWithTx(tx *sql.Tx, track *model.Track)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get last insert ID for CreateTrackWithTx: %w", err)
 	}
-	logger.Info("Track created with transaction", logger.Int64("trackId", id), logger.String("title", track.Title))
+	logger.Info("Track created with transaction", logger.Int64("trackId", id), logger.String("title", track.Title), logger.String("source", track.Source))
 	return id, nil
 }
 

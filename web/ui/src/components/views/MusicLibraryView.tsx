@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePlayer } from '../../contexts/PlayerContext';
 import { useRoom } from '../../contexts/RoomContext';
 import { Track } from '../../types';
-import { AlertTriangle, UploadCloud, Music2, PlayCircle, PauseCircle, ListMusic, Plus, Check, CheckSquare, Square, Trash2 } from 'lucide-react';
+import { AlertTriangle, UploadCloud, Music2, PlayCircle, PauseCircle, ListMusic, Plus, Check, CheckSquare, Square, Trash2, Filter } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import UploadForm from '../upload/UploadForm';
 import { authInterceptor } from '../../utils/authInterceptor';
@@ -49,6 +49,9 @@ const MusicLibraryView: React.FC = () => {
   const [addMenuAnchor, setAddMenuAnchor] = useState<HTMLElement | null>(null);
   const [trackToAdd, setTrackToAdd] = useState<Track | null>(null);
 
+  // 显示专辑来源歌曲的开关状态（默认不显示）
+  const [includeAlbumTracks, setIncludeAlbumTracks] = useState(false);
+
   // 添加 Toast 容器样式
   useEffect(() => {
     const style = document.createElement('style');
@@ -79,7 +82,7 @@ const MusicLibraryView: React.FC = () => {
       return;
     }
     fetchTracks();
-  }, [currentUser]);
+  }, [currentUser, includeAlbumTracks]);
 
   const fetchTracks = async () => {
     if (!currentUser) {
@@ -91,8 +94,10 @@ const MusicLibraryView: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      console.log('Fetching tracks from /api/tracks with token:', authToken?.substring(0, 20) + "...");
-      const response = await fetch('/api/tracks', {
+      // 添加includeAlbum参数
+      const url = `/api/tracks?includeAlbum=${includeAlbumTracks}`;
+      console.log('Fetching tracks from', url, 'with token:', authToken?.substring(0, 20) + "...");
+      const response = await fetch(url, {
         headers: {
           ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
           'Content-Type': 'application/json'
@@ -389,6 +394,18 @@ const MusicLibraryView: React.FC = () => {
 
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center space-x-4">
+          {currentUser && (
+            <>
+              <button
+                onClick={() => setIncludeAlbumTracks(!includeAlbumTracks)}
+                className={`flex items-center ${includeAlbumTracks ? 'bg-cyber-primary text-cyber-bg-darker' : 'bg-cyber-bg-darker text-cyber-secondary'} hover:bg-cyber-hover-secondary font-semibold py-2 px-4 rounded-lg shadow-md transition-all duration-300 hover:scale-105 focus:outline-none focus:ring-2 ring-offset-2 ring-offset-cyber-bg ring-cyber-primary`}
+                title={includeAlbumTracks ? '隐藏专辑歌曲' : '显示专辑歌曲'}
+              >
+                <Filter className="mr-2 h-5 w-5" />
+                {includeAlbumTracks ? '包含专辑' : '仅Library'}
+              </button>
+            </>
+          )}
           {currentUser && tracks.length > 0 && (
             <>
               <button

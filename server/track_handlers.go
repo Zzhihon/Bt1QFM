@@ -394,6 +394,7 @@ func (h *APIHandler) UploadTrackHandler(w http.ResponseWriter, r *http.Request) 
 		FilePath:     trackFilePath,
 		CoverArtPath: coverArtServePath,
 		Status:       "processing", // 添加状态字段
+		Source:       "library",    // 标记来源为library
 	}
 
 	// 在事务中创建曲目
@@ -573,10 +574,24 @@ func (h *APIHandler) GetTracksHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 获取includeAlbum参数（是否包含专辑来源的tracks）
+	includeAlbum := r.URL.Query().Get("includeAlbum") == "true"
+
 	tracks, err := h.trackRepo.GetAllTracksByUserID(userID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to retrieve tracks for user %d: %v", userID, err), http.StatusInternalServerError)
 		return
+	}
+
+	// 根据includeAlbum参数过滤
+	if !includeAlbum {
+		filteredTracks := make([]*model.Track, 0)
+		for _, track := range tracks {
+			if track.Source == "library" || track.Source == "" {
+				filteredTracks = append(filteredTracks, track)
+			}
+		}
+		tracks = filteredTracks
 	}
 
 	w.Header().Set("Content-Type", "application/json")

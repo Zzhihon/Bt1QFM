@@ -15,6 +15,7 @@ type Track struct {
 	Duration        float32   `json:"duration"`        // Duration in seconds
 	Status          string    `json:"status"`          // Track processing status: processing, completed, failed
 	State           int8      `json:"state"`           // 0=soft deleted, 1=normal
+	Source          string    `json:"source"`          // library=直接上传, album=通过专辑上传
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
 }
