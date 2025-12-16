@@ -531,15 +531,16 @@ func (h *ChatHandler) convertToSongCards(songs []plugin.PluginSong) []model.Song
 
 // removeCommandHints 移除 AI 回复中可能残留的命令提示（高效字符串操作）
 func (h *ChatHandler) removeCommandHints(content string) string {
-	// 查找并移除包含 "/netease" 的行
+	// 查找并移除包含 "/netease" 命令格式的行（但保留正常提到命令的句子）
 	lines := strings.Split(content, "\n")
 	cleanLines := make([]string, 0, len(lines))
 
 	for _, line := range lines {
-		// 跳过包含 /netease 命令提示的行
 		trimmed := strings.TrimSpace(line)
-		if strings.Contains(trimmed, "/netease") ||
-		   strings.Contains(trimmed, "搜索关键词") {
+
+		// 只移除明确的命令格式：以 /netease 开头的行，或者包含"使用 /netease"这种指令性表述
+		if strings.HasPrefix(trimmed, "/netease") ||
+		   (strings.Contains(trimmed, "/netease") && strings.Contains(trimmed, "搜索关键词")) {
 			continue
 		}
 		cleanLines = append(cleanLines, line)
