@@ -40,16 +40,37 @@ const RoomChat: React.FC = () => {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [offset, setOffset] = useState(0);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true); // 是否自动滚动到底部
   const MESSAGES_PER_PAGE = 20;
+  const prevMessageCountRef = useRef(0);
 
-  // 滚动到底部
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // 检查用户是否在底部附近
+  const isNearBottom = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return true;
+    const threshold = 150; // 距离底部 150px 以内认为是在底部
+    return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
   }, []);
 
+  // 滚动到底部
+  const scrollToBottom = useCallback((behavior: 'smooth' | 'auto' = 'smooth') => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
+  }, []);
+
+  // 只在特定条件下自动滚动到底部
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
+    const messageCountIncreased = messages.length > prevMessageCountRef.current;
+    prevMessageCountRef.current = messages.length;
+
+    // 只有以下情况才自动滚动：
+    // 1. 新消息到来（不是加载历史消息）
+    // 2. 用户在底部附近
+    // 3. shouldAutoScroll 为 true
+    if (messageCountIncreased && shouldAutoScroll && isNearBottom()) {
+      // 短暂延迟确保 DOM 已更新
+      setTimeout(() => scrollToBottom(), 50);
+    }
+  }, [messages.length, shouldAutoScroll, isNearBottom, scrollToBottom]);
 
   // 加载历史消息
   useEffect(() => {
@@ -99,6 +120,9 @@ const RoomChat: React.FC = () => {
             setOffset(MESSAGES_PER_PAGE);
             setHasMore(historyMessages.length === MESSAGES_PER_PAGE);
             hasLoadedHistory.current = true;
+
+            // 初始加载后滚动到底部
+            setTimeout(() => scrollToBottom('auto'), 100);
           }
         }
       } catch (err) {
@@ -107,13 +131,16 @@ const RoomChat: React.FC = () => {
     };
 
     loadHistoryMessages();
-  }, [currentRoom?.id, authToken, MESSAGES_PER_PAGE]);
+  }, [currentRoom?.id, authToken, MESSAGES_PER_PAGE, scrollToBottom]);
 
   // 加载更多历史消息
   const loadMoreMessages = useCallback(async () => {
     if (!currentRoom?.id || !authToken || isLoadingMore || !hasMore) return;
 
+    // 禁止自动滚动
+    setShouldAutoScroll(false);
     setIsLoadingMore(true);
+
     try {
       const response = await fetch(`/api/rooms/${currentRoom.id}/messages?limit=${MESSAGES_PER_PAGE}&offset=${offset}`, {
         headers: {
@@ -156,6 +183,7 @@ const RoomChat: React.FC = () => {
           // 保存当前滚动位置
           const container = messagesContainerRef.current;
           const oldScrollHeight = container?.scrollHeight || 0;
+          const oldScrollTop = container?.scrollTop || 0;
 
           // 将新消息添加到前面
           setMessages((prev) => [...formattedMessages, ...prev]);
@@ -163,12 +191,13 @@ const RoomChat: React.FC = () => {
           setHasMore(historyMessages.length === MESSAGES_PER_PAGE);
 
           // 恢复滚动位置（保持用户的视图不跳动）
-          setTimeout(() => {
+          requestAnimationFrame(() => {
             if (container) {
               const newScrollHeight = container.scrollHeight;
-              container.scrollTop = newScrollHeight - oldScrollHeight;
+              const scrollDiff = newScrollHeight - oldScrollHeight;
+              container.scrollTop = oldScrollTop + scrollDiff;
             }
-          }, 0);
+          });
         } else {
           setHasMore(false);
         }
@@ -178,6 +207,8 @@ const RoomChat: React.FC = () => {
       addToast({ type: 'error', message: '加载更多消息失败', duration: 2000 });
     } finally {
       setIsLoadingMore(false);
+      // 延迟恢复自动滚动，避免立即触发
+      setTimeout(() => setShouldAutoScroll(true), 1000);
     }
   }, [currentRoom?.id, authToken, isLoadingMore, hasMore, offset, MESSAGES_PER_PAGE, addToast]);
 
@@ -212,16 +243,29 @@ const RoomChat: React.FC = () => {
     const container = messagesContainerRef.current;
     if (!container) return;
 
+    let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
+
     const handleScroll = () => {
-      // 当滚动到顶部 50px 以内时，触发加载更多
-      if (container.scrollTop < 50 && !isLoadingMore && hasMore) {
-        loadMoreMessages();
+      // 清除之前的定时器
+      if (scrollTimeout) {
+        clearTimeout(scrollTimeout);
       }
+
+      // 防抖：100ms 后才检查是否需要加载
+      scrollTimeout = setTimeout(() => {
+        // 当滚动到顶部 100px 以内时，触发加载更多
+        if (container.scrollTop < 100 && !isLoadingMore && hasMore) {
+          loadMoreMessages();
+        }
+      }, 100);
     };
 
-    container.addEventListener('scroll', handleScroll);
+    container.addEventListener('scroll', handleScroll, { passive: true });
     return () => {
       container.removeEventListener('scroll', handleScroll);
+      if (scrollTimeout) {
+        clearTimeout(scrollTimeout);
+      }
     };
   }, [isLoadingMore, hasMore, loadMoreMessages]);
 
