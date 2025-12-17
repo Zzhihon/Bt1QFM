@@ -35,42 +35,16 @@ const RoomChat: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const hasLoadedHistory = useRef(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [offset, setOffset] = useState(0);
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true); // 是否自动滚动到底部
-  const MESSAGES_PER_PAGE = 20;
-  const prevMessageCountRef = useRef(0);
-
-  // 检查用户是否在底部附近
-  const isNearBottom = useCallback(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return true;
-    const threshold = 150; // 距离底部 150px 以内认为是在底部
-    return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
-  }, []);
 
   // 滚动到底部
-  const scrollToBottom = useCallback((behavior: 'smooth' | 'auto' = 'smooth') => {
-    messagesEndRef.current?.scrollIntoView({ behavior });
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
-  // 只在特定条件下自动滚动到底部
   useEffect(() => {
-    const messageCountIncreased = messages.length > prevMessageCountRef.current;
-    prevMessageCountRef.current = messages.length;
-
-    // 只有以下情况才自动滚动：
-    // 1. 新消息到来（不是加载历史消息）
-    // 2. 用户在底部附近
-    // 3. shouldAutoScroll 为 true
-    if (messageCountIncreased && shouldAutoScroll && isNearBottom()) {
-      // 短暂延迟确保 DOM 已更新
-      setTimeout(() => scrollToBottom(), 50);
-    }
-  }, [messages.length, shouldAutoScroll, isNearBottom, scrollToBottom]);
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
 
   // 加载历史消息
   useEffect(() => {
@@ -78,7 +52,7 @@ const RoomChat: React.FC = () => {
       if (!currentRoom?.id || !authToken || hasLoadedHistory.current) return;
 
       try {
-        const response = await fetch(`/api/rooms/${currentRoom.id}/messages?limit=${MESSAGES_PER_PAGE}&offset=0`, {
+        const response = await fetch(`/api/rooms/${currentRoom.id}/messages?limit=50`, {
           headers: {
             'Authorization': `Bearer ${authToken}`,
           },
@@ -86,7 +60,7 @@ const RoomChat: React.FC = () => {
 
         if (response.ok) {
           const historyMessages = await response.json();
-          if (Array.isArray(historyMessages)) {
+          if (Array.isArray(historyMessages) && historyMessages.length > 0) {
             const formattedMessages: ChatMessage[] = historyMessages.map((msg: {
               id: number;
               userId: number;
@@ -117,12 +91,7 @@ const RoomChat: React.FC = () => {
               };
             });
             setMessages(formattedMessages);
-            setOffset(MESSAGES_PER_PAGE);
-            setHasMore(historyMessages.length === MESSAGES_PER_PAGE);
             hasLoadedHistory.current = true;
-
-            // 初始加载后滚动到底部
-            setTimeout(() => scrollToBottom('auto'), 100);
           }
         }
       } catch (err) {
@@ -131,93 +100,12 @@ const RoomChat: React.FC = () => {
     };
 
     loadHistoryMessages();
-  }, [currentRoom?.id, authToken, MESSAGES_PER_PAGE, scrollToBottom]);
-
-  // 加载更多历史消息
-  const loadMoreMessages = useCallback(async () => {
-    if (!currentRoom?.id || !authToken || isLoadingMore || !hasMore) return;
-
-    // 禁止自动滚动
-    setShouldAutoScroll(false);
-    setIsLoadingMore(true);
-
-    try {
-      const response = await fetch(`/api/rooms/${currentRoom.id}/messages?limit=${MESSAGES_PER_PAGE}&offset=${offset}`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-        },
-      });
-
-      if (response.ok) {
-        const historyMessages = await response.json();
-        if (Array.isArray(historyMessages) && historyMessages.length > 0) {
-          const formattedMessages: ChatMessage[] = historyMessages.map((msg: {
-            id: number;
-            userId: number;
-            username: string;
-            content: string;
-            createdAt: string;
-            messageType: string;
-            songs?: SongCard[];
-          }) => {
-            let msgType: 'chat' | 'system' | 'song' | 'song_search' = 'chat';
-            if (msg.messageType === 'system') {
-              msgType = 'system';
-            } else if (msg.messageType === 'song_search') {
-              msgType = 'song_search';
-            } else if (msg.messageType === 'song_add') {
-              msgType = 'song';
-            }
-
-            return {
-              id: msg.id,
-              userId: msg.userId,
-              username: msg.username || '未知用户',
-              content: msg.content,
-              timestamp: new Date(msg.createdAt).getTime(),
-              type: msgType,
-              songs: msg.songs,
-            };
-          });
-
-          // 保存当前滚动位置
-          const container = messagesContainerRef.current;
-          const oldScrollHeight = container?.scrollHeight || 0;
-          const oldScrollTop = container?.scrollTop || 0;
-
-          // 将新消息添加到前面
-          setMessages((prev) => [...formattedMessages, ...prev]);
-          setOffset((prev) => prev + MESSAGES_PER_PAGE);
-          setHasMore(historyMessages.length === MESSAGES_PER_PAGE);
-
-          // 恢复滚动位置（保持用户的视图不跳动）
-          requestAnimationFrame(() => {
-            if (container) {
-              const newScrollHeight = container.scrollHeight;
-              const scrollDiff = newScrollHeight - oldScrollHeight;
-              container.scrollTop = oldScrollTop + scrollDiff;
-            }
-          });
-        } else {
-          setHasMore(false);
-        }
-      }
-    } catch (err) {
-      console.error('加载更多消息失败:', err);
-      addToast({ type: 'error', message: '加载更多消息失败', duration: 2000 });
-    } finally {
-      setIsLoadingMore(false);
-      // 延迟恢复自动滚动，避免立即触发
-      setTimeout(() => setShouldAutoScroll(true), 1000);
-    }
-  }, [currentRoom?.id, authToken, isLoadingMore, hasMore, offset, MESSAGES_PER_PAGE, addToast]);
+  }, [currentRoom?.id, authToken]);
 
   // 房间切换时重置
   useEffect(() => {
     hasLoadedHistory.current = false;
     setMessages([]);
-    setOffset(0);
-    setHasMore(true);
   }, [currentRoom?.id]);
 
   // 监听 WebSocket 消息（通过全局事件）
@@ -237,37 +125,6 @@ const RoomChat: React.FC = () => {
       window.removeEventListener('room-chat-message', handleRoomMessage as EventListener);
     };
   }, [currentUser?.id]);
-
-  // 监听滚动，滚动到顶部时加载更多
-  useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-
-    let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
-
-    const handleScroll = () => {
-      // 清除之前的定时器
-      if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-      }
-
-      // 防抖：100ms 后才检查是否需要加载
-      scrollTimeout = setTimeout(() => {
-        // 当滚动到顶部 100px 以内时，触发加载更多
-        if (container.scrollTop < 100 && !isLoadingMore && hasMore) {
-          loadMoreMessages();
-        }
-      }, 100);
-    };
-
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-      if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-      }
-    };
-  }, [isLoadingMore, hasMore, loadMoreMessages]);
 
   // 发送消息
   const handleSend = async () => {
@@ -445,24 +302,7 @@ const RoomChat: React.FC = () => {
   return (
     <div className="flex flex-col h-full">
       {/* 消息列表 */}
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
-        {/* 加载更多指示器 */}
-        {isLoadingMore && (
-          <div className="flex justify-center py-2">
-            <div className="flex items-center space-x-2 text-cyber-secondary/60 text-xs">
-              <div className="w-4 h-4 border-2 border-cyber-primary/30 border-t-cyber-primary rounded-full animate-spin"></div>
-              <span>加载中...</span>
-            </div>
-          </div>
-        )}
-
-        {/* 没有更多消息提示 */}
-        {!hasMore && messages.length > 0 && (
-          <div className="flex justify-center py-2">
-            <span className="text-xs text-cyber-secondary/50">没有更多消息了</span>
-          </div>
-        )}
-
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-cyber-secondary/50">
             <User className="w-12 h-12 mb-2" />

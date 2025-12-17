@@ -245,13 +245,6 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	// 检测是否是 /netease 命令
-	if len(content) > 9 && content[:9] == "/netease " {
-		query := content[9:] // 提取搜索关键词
-		h.handleDirectMusicSearch(conn, session, userID, query)
-		return
-	}
-
 	// Save user message
 	userMsg := &model.ChatMessage{
 		SessionID: session.ID,
@@ -297,6 +290,13 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 	// 启动超时检测 goroutine
 	go h.timeoutWatcher(conn, firstChunkReceived, ctx)
 
+	// 流式解析状态：实时检测 <search_music> 标签
+	var streamBuffer strings.Builder      // 累积的完整响应
+	var searchMusicTriggered bool         // 标记是否已触发搜索
+	var searchQuery string                // 提取的搜索关键词
+	var songCards []model.SongCard        // 搜索结果
+	var searchMu sync.Mutex               // 保护并发访问
+
 	// Stream response from AI
 	var fullResponse string
 	fullResponse, err = h.musicAgent.ChatStream(ctx, history, content, func(chunk string) error {
@@ -305,7 +305,42 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 			close(firstChunkReceived)
 		})
 
-		// 直接发送原始文本块（不做标签检测，避免流式混乱）
+		// 累积响应文本
+		searchMu.Lock()
+		streamBuffer.WriteString(chunk)
+		currentText := streamBuffer.String()
+
+		// 实时检测完整的 <search_music>...</search_music> 标签
+		if !searchMusicTriggered {
+			cleanText, query := h.musicAgent.ParseSearchMusic(currentText)
+			if query != "" {
+				// 检测到完整标签，立即触发搜索
+				searchMusicTriggered = true
+				searchQuery = query
+				searchMu.Unlock()
+
+				logger.Info("[ChatHandler] 实时检测到音乐搜索标签，立即触发搜索",
+					logger.Int64("userID", userID),
+					logger.String("query", query))
+
+				// 并行执行搜索，不阻塞流式响应
+				go func() {
+					cards := h.handleMusicSearchAndGetCards(conn, userID, query)
+					searchMu.Lock()
+					songCards = cards
+					searchMu.Unlock()
+				}()
+
+				// 发送清理后的文本（移除标签）
+				return h.sendWebSocketMessage(conn, model.WebSocketMessage{
+					Type:    "content",
+					Content: cleanText,
+				})
+			}
+		}
+		searchMu.Unlock()
+
+		// 正常发送原始文本块
 		return h.sendWebSocketMessage(conn, model.WebSocketMessage{
 			Type:    "content",
 			Content: chunk,
@@ -320,36 +355,39 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 		return
 	}
 
-	// 流式完成后，立即解析标签并触发搜索（关键优化点）
-	cleanContent, searchQuery := h.musicAgent.ParseSearchMusic(fullResponse)
-	var songCards []model.SongCard
+	// 如果流式过程中未触发搜索，在结束后再解析一次（兜底）
+	searchMu.Lock()
+	if !searchMusicTriggered {
+		cleanContent, query := h.musicAgent.ParseSearchMusic(fullResponse)
+		if query != "" {
+			logger.Info("[ChatHandler] 兜底解析到音乐搜索标签",
+				logger.Int64("userID", userID),
+				logger.String("query", query))
+			searchQuery = query
+			songCards = h.handleMusicSearchAndGetCards(conn, userID, query)
+		}
+		fullResponse = cleanContent
+	}
+	finalSongCards := songCards
+	searchMu.Unlock()
 
-	// 额外清理：移除可能残留的 /netease 命令提示（简单字符串操作，高效）
-	cleanContent = h.removeCommandHints(cleanContent)
-
-	if searchQuery != "" {
-		logger.Info("[ChatHandler] 检测到音乐搜索标签，立即触发搜索",
+	// 确保只保留第一首歌曲
+	if len(finalSongCards) > 1 {
+		finalSongCards = finalSongCards[:1]
+		logger.Info("[ChatHandler] 限制为单首歌曲展示",
 			logger.Int64("userID", userID),
 			logger.String("query", searchQuery))
-
-		// 立即执行搜索（不等待，快速响应）
-		songCards = h.handleMusicSearchAndGetCards(conn, userID, searchQuery)
-
-		// 确保只保留第一首歌曲
-		if len(songCards) > 1 {
-			songCards = songCards[:1]
-			logger.Info("[ChatHandler] 限制为单首歌曲展示",
-				logger.Int64("userID", userID),
-				logger.String("query", searchQuery))
-		}
 	}
+
+	// 解析清理后的内容（移除标签）
+	cleanContent, _ := h.musicAgent.ParseSearchMusic(fullResponse)
 
 	// Save assistant message (保存清理后的内容和歌曲数据)
 	assistantMsg := &model.ChatMessage{
 		SessionID: session.ID,
 		Role:      "assistant",
-		Content:   cleanContent, // 保存不含标签的内容
-		Songs:     songCards,    // 保存歌曲卡片数据
+		Content:   cleanContent,      // 保存不含标签的内容
+		Songs:     finalSongCards,    // 保存歌曲卡片数据
 	}
 	assistantMsgID, err := h.chatRepo.CreateMessage(assistantMsg)
 	if err != nil {
@@ -371,7 +409,7 @@ func (h *ChatHandler) handleChatMessage(conn *websocket.Conn, session *model.Cha
 		logger.Int64("userID", userID),
 		logger.Int("responseLength", len(fullResponse)),
 		logger.String("musicQuery", searchQuery),
-		logger.Int("songsCount", len(songCards)))
+		logger.Int("songsCount", len(finalSongCards)))
 }
 
 // timeoutWatcher 监控首响应超时，发送分层超时提示
@@ -527,146 +565,4 @@ func (h *ChatHandler) convertToSongCards(songs []plugin.PluginSong) []model.Song
 		}
 	}
 	return cards
-}
-
-// removeCommandHints 移除 AI 回复中可能残留的命令提示（高效字符串操作）
-func (h *ChatHandler) removeCommandHints(content string) string {
-	// 查找并移除包含 "/netease" 命令格式的行（但保留正常提到命令的句子）
-	lines := strings.Split(content, "\n")
-	cleanLines := make([]string, 0, len(lines))
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// 只移除明确的命令格式：以 /netease 开头的行，或者包含"使用 /netease"这种指令性表述
-		if strings.HasPrefix(trimmed, "/netease") ||
-		   (strings.Contains(trimmed, "/netease") && strings.Contains(trimmed, "搜索关键词")) {
-			continue
-		}
-		cleanLines = append(cleanLines, line)
-	}
-
-	return strings.TrimSpace(strings.Join(cleanLines, "\n"))
-}
-
-// handleDirectMusicSearch 处理 /netease 直接搜索命令
-func (h *ChatHandler) handleDirectMusicSearch(conn *websocket.Conn, session *model.ChatSession, userID int64, query string) {
-	logger.Info("[ChatHandler] 处理直接搜索命令",
-		logger.Int64("userID", userID),
-		logger.String("query", query))
-
-	// 保存用户命令消息
-	userMsg := &model.ChatMessage{
-		SessionID: session.ID,
-		Role:      "user",
-		Content:   "/netease " + query,
-	}
-	userMsgID, err := h.chatRepo.CreateMessage(userMsg)
-	if err != nil {
-		logger.Error("Failed to save user message",
-			logger.Int64("userID", userID),
-			logger.ErrorField(err))
-		h.sendWebSocketError(conn, "Failed to save message")
-		return
-	}
-	userMsg.ID = userMsgID
-	userMsg.CreatedAt = time.Now()
-
-	// 发送开始信号
-	h.sendWebSocketMessage(conn, model.WebSocketMessage{
-		Type:    "start",
-		Content: "",
-	})
-
-	// 执行搜索
-	songs, err := h.musicAgent.SearchMusic(query, 1)
-	if err != nil {
-		logger.Error("[ChatHandler] 直接搜索失败",
-			logger.Int64("userID", userID),
-			logger.String("query", query),
-			logger.ErrorField(err))
-		h.sendWebSocketError(conn, "搜索失败: "+err.Error())
-		return
-	}
-
-	if len(songs) == 0 {
-		// 没有找到歌曲，返回提示消息
-		responseText := "抱歉，没有找到「" + query + "」相关的歌曲。"
-
-		// 发送内容
-		h.sendWebSocketMessage(conn, model.WebSocketMessage{
-			Type:    "content",
-			Content: responseText,
-		})
-
-		// 保存 AI 响应
-		assistantMsg := &model.ChatMessage{
-			SessionID: session.ID,
-			Role:      "assistant",
-			Content:   responseText,
-		}
-		h.chatRepo.CreateMessage(assistantMsg)
-
-		// 发送结束信号
-		h.sendWebSocketMessage(conn, model.WebSocketMessage{
-			Type:    "end",
-			Content: "",
-		})
-		return
-	}
-
-	// 转换为 SongCard 并获取详细封面
-	songCards := h.convertToSongCardsWithDetail(songs)
-
-	// 生成回复文本
-	responseText := "好的！马上为你播放「" + songs[0].Name + "」"
-	if len(songs[0].Artists) > 0 {
-		responseText += " - " + songs[0].Artists[0]
-	}
-
-	// 发送内容
-	h.sendWebSocketMessage(conn, model.WebSocketMessage{
-		Type:    "content",
-		Content: responseText,
-	})
-
-	// 发送歌曲卡片
-	songsMsg := model.ChatMessageWithSongs{
-		Type:    "songs",
-		Content: "",
-		Songs:   songCards,
-	}
-	conn.SetWriteDeadline(time.Now().Add(writeWait))
-	if err := conn.WriteJSON(songsMsg); err != nil {
-		logger.Error("[ChatHandler] 发送歌曲卡片失败",
-			logger.Int64("userID", userID),
-			logger.ErrorField(err))
-	}
-
-	// 保存 AI 响应（包含歌曲卡片）
-	assistantMsg := &model.ChatMessage{
-		SessionID: session.ID,
-		Role:      "assistant",
-		Content:   responseText,
-		Songs:     songCards,
-		CreatedAt: time.Now(),
-	}
-	assistantMsgID, err := h.chatRepo.CreateMessage(assistantMsg)
-	if err != nil {
-		logger.Error("Failed to save assistant message",
-			logger.Int64("userID", userID),
-			logger.ErrorField(err))
-	}
-	assistantMsg.ID = assistantMsgID
-
-	// 发送结束信号
-	h.sendWebSocketMessage(conn, model.WebSocketMessage{
-		Type:    "end",
-		Content: "",
-	})
-
-	logger.Info("[ChatHandler] 直接搜索完成",
-		logger.Int64("userID", userID),
-		logger.String("query", query),
-		logger.Int("songsCount", len(songCards)))
 }

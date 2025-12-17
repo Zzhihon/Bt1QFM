@@ -718,11 +718,6 @@ const RoomView: React.FC = () => {
               </div>
             )}
 
-            {/* 模式提示文字 */}
-            <span className="text-xs text-cyber-secondary/60 hidden sm:inline">
-              切换为
-            </span>
-
             {/* 模式切换 */}
             <button
               onClick={handleSwitchMode}
@@ -731,7 +726,7 @@ const RoomView: React.FC = () => {
                   ? 'bg-cyber-primary/20 text-cyber-primary'
                   : 'bg-cyber-secondary/10 text-cyber-secondary hover:text-cyber-primary'
               }`}
-              title={myMember?.mode === 'listen' ? '切换到聊天模式' : '切换到一起听模式'}
+              title={myMember?.mode === 'listen' ? '听歌模式' : '聊天模式'}
             >
               {myMember?.mode === 'listen' ? (
                 <>
@@ -897,11 +892,6 @@ const RoomView: React.FC = () => {
                     <span>同步中</span>
                   </div>
                 )}
-
-                {/* 模式提示文字 */}
-                <span className="text-xs text-cyber-secondary/60">
-                  切换为
-                </span>
 
                 {/* 模式切换 */}
                 <button
